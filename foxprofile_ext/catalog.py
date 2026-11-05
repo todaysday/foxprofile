@@ -81,7 +81,7 @@ class ProfileCatalog:
             self.manager.reload_profiles()
             return self._by_id(profile_id)
 
-    def create(self, actor_user_id: str, **fields: object) -> Profile:
+    def create(self, actor_user_id: str | None, **fields: object) -> Profile:
         with catalog_lock(self.lock_path):
             self.manager.reload_profiles()
             profile_id = str(uuid.uuid4())
@@ -100,12 +100,13 @@ class ProfileCatalog:
                 self.operations.finish(record.operation_id, "failed", time.time())
                 raise CatalogOperationError("profile could not be created")
             profile = self.manager.profiles[name]
-            self.assignments.grant(actor_user_id, profile_id)
+            if actor_user_id is not None:
+                self.assignments.grant(actor_user_id, profile_id)
             self.operations.finish(record.operation_id, "complete", time.time())
             return profile
 
     def rename(
-        self, actor_user_id: str, profile_id: str, new_name: str, **fields: object
+        self, actor_user_id: str | None, profile_id: str, new_name: str, **fields: object
     ) -> Profile:
         with catalog_lock(self.lock_path):
             self.manager.reload_profiles()
@@ -130,7 +131,7 @@ class ProfileCatalog:
 
     def import_archive(
         self,
-        actor_user_id: str,
+        actor_user_id: str | None,
         archive_path: str,
         *,
         target_profile_id: str | None = None,
@@ -157,12 +158,12 @@ class ProfileCatalog:
                 self.operations.finish(record.operation_id, "failed", time.time())
                 raise CatalogOperationError(str(result))
             profile = self.manager.profiles[str(result)]
-            if target is None:
+            if target is None and actor_user_id is not None:
                 self.assignments.grant(actor_user_id, profile.profile_id)
             self.operations.finish(record.operation_id, "complete", time.time())
             return profile
 
-    def delete(self, actor_user_id: str, profile_id: str) -> None:
+    def delete(self, actor_user_id: str | None, profile_id: str) -> None:
         with catalog_lock(self.lock_path):
             self.manager.reload_profiles()
             profile = self._by_id(profile_id)
@@ -199,9 +200,10 @@ class ProfileCatalog:
         )
         if record.kind in {"create", "import"}:
             if profile is not None:
-                if record.actor_user_id and not (
-                    record.kind == "import" and record.target_profile_id is not None
-                ):
+                needs_creator_grant = record.kind == "create" or (
+                    record.kind == "import" and record.target_profile_id is None
+                )
+                if record.actor_user_id is not None and needs_creator_grant:
                     self.assignments.grant(record.actor_user_id, record.profile_id)
                 self.operations.finish(record.operation_id, "complete", time.time())
             else:
@@ -256,7 +258,7 @@ class ProfileCatalog:
         self,
         kind: str,
         profile_id: str,
-        actor_user_id: str,
+        actor_user_id: str | None,
         *,
         source: str | None = None,
         destination: str | None = None,

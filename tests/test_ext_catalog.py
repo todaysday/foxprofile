@@ -1,5 +1,6 @@
 import json
 import multiprocessing
+import sqlite3
 import zipfile
 
 import pytest
@@ -243,3 +244,54 @@ def test_two_processes_reload_before_mutating_shared_catalog(tmp_path):
     assert all(process.exitcode == 0 for process in processes)
     persisted = json.loads(profiles_file.read_text(encoding="utf-8"))
     assert set(persisted) == {"first", "second"}
+
+
+def test_trusted_service_catalog_crud_uses_null_actor_without_human_grants(tmp_path, monkeypatch):
+    catalog, _, assignments, operations = _catalog(tmp_path, monkeypatch)
+    created = catalog.create(None, name="service-created", os_type="windows")
+    assert not assignments.profiles_for_user("alice")
+
+    archive = tmp_path / "service-import.zip"
+    with zipfile.ZipFile(archive, "w") as zipped:
+        zipped.writestr("profile.json", json.dumps({"name": "service-import"}))
+    finish = operations.finish
+    operations.finish = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        OSError("simulated finalization failure")
+    )
+    with pytest.raises(OSError):
+        catalog.import_archive(None, str(archive))
+    import_op = operations.pending()[0]
+    assert import_op.actor_user_id is None
+    operations.finish = finish
+    catalog.recover()
+    imported = catalog.get_profile(import_op.profile_id)
+    assert imported.name == "service-import"
+    assert not assignments.is_assigned("alice", imported.profile_id)
+
+    operations.finish = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        OSError("simulated finalization failure")
+    )
+    with pytest.raises(OSError):
+        catalog.rename(None, imported.profile_id, "service-renamed")
+    operations.finish = finish
+    catalog.recover()
+    assert catalog.get_profile(imported.profile_id).name == "service-renamed"
+
+    operations.finish = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        OSError("simulated finalization failure")
+    )
+    with pytest.raises(OSError):
+        catalog.delete(None, created.profile_id)
+    operations.finish = finish
+    catalog.recover()
+    with pytest.raises(CatalogOperationError):
+        catalog.get_profile(created.profile_id)
+    assert not assignments.profiles_for_user("alice")
+
+
+def test_unknown_human_actor_fails_before_catalog_mutation(tmp_path, monkeypatch):
+    catalog, manager, _, operations = _catalog(tmp_path, monkeypatch)
+    with pytest.raises(sqlite3.IntegrityError):
+        catalog.create("missing-user", name="unowned", os_type="windows")
+    assert not (manager.data_dir / "unowned").exists()
+    assert operations.pending() == ()

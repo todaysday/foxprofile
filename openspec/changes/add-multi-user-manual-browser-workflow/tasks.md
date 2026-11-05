@@ -4,6 +4,8 @@
 **Architecture priority:** Pragmatic DDD (DAO/DTO) → SRP → KISS/YAGNI → DRY.  
 **State:** specification package only; all implementation and live-acceptance tasks remain unchecked.
 
+Code-level reuse provenance, exact source revisions/symbols, licenses, inspected test evidence, adaptations, and custom-work gaps are documented in [reuse.md](reuse.md).
+
 ## Responsibility boundary
 
 `IMPLEMENTATION_AGENT` owns slices **1–8**. It may author deployment assets, migrations and test harnesses, and run offline/CI checks against disposable fixtures. It SHALL NOT deploy to, migrate, operate or accept the live servers. `DEPLOYMENT_AGENT` is a separate agent and owns **final slice 9**. Its runbook is [slices/09-live-deployment-and-acceptance.md](slices/09-live-deployment-and-acceptance.md).
@@ -54,8 +56,8 @@ Dependencies: 1 → 2 → 3; 2 → 4; 2 → 5; (3,4,5) → 6; (3,4,6) → 7; (1�
 ## 6. Add temporary manual sessions and WebSocket gateway — IMPLEMENTATION_AGENT
 
 - [ ] 6.1 Implement one installation-wide manual lease, scoped to personal session/profile/host/run and held during provisioning/closing. Verify double-click and concurrent open behavior creates at most one adapter.
-- [ ] 6.2 Implement replaceable x11vnc adapter plus authenticated same-origin WebSocket bridge and private backend credentials/socket access. Verify no public/raw arbitrary target, global X11 relaxation, shell injection or credential leakage.
-- [ ] 6.3 Implement status, reconnect and idempotent close with authorization/run checks and bounded disconnect cleanup. Verify stale display reuse, repeated close, child failure and logout/revocation never affect a replacement or neighboring run.
+- [ ] 6.2 Implement replaceable x11vnc adapter plus authenticated same-origin WebSocket bridge and a gateway-only private connected backend channel. Verify untrusted local processes cannot connect directly, no backend credential reaches the client, and no public/arbitrary target, global X11 relaxation, or shell injection is possible.
+- [ ] 6.3 Implement status, reconnect and idempotent close with authorization/run checks and a maximum 60-second end-to-end cleanup deadline for tab closure, network loss, session expiry/timeout, and gateway failure, including detection and any reconnect grace. Verify stale display reuse, repeated close, child failure and logout/revocation never affect a replacement or neighboring run; an unconfirmed live helper keeps the lease occupied and reports blocked recovery.
 - [ ] 6.4 Release held keys/buttons during graceful/forced cleanup and preserve browser/display lifetime and capacity. Verify next ordinary control action in a disposable integration harness is clean.
 - [ ] 6.5 Verify by code and integration tests that no create/close/error path sends an agent message, checks CAPTCHA outcome, controls an agent task or adds a Pause/Resume service.
 

@@ -44,6 +44,8 @@ Do not export users, sessions, assignments, local runtime IDs, service keys, `.e
 | `DELETE /api/v1/ext/manual-sessions/{session_id}` | Close the exact authorized session idempotently; revoke input/stream, clean only its adapter, preserve browser/display. |
 | `WSS /api/v1/ext/manual-sessions/{session_id}/ws` | Authenticate cookie/session and Origin, verify owner and profile authorization, verify active run, then bridge. Session ID alone never grants access. |
 
+Tab closure, network loss, session expiry/timeout, and gateway failure each start one maximum 60-second cleanup deadline. Detection, any reconnect grace, input release, VNC-helper termination, and confirmed helper exit all fit within that end-to-end budget. Reconnect grace is included and does not reset the deadline. A still-live or unverified helper keeps the lease occupied; if cleanup is not confirmed by the deadline, return/report `RUNTIME_RECOVERING`, deny a conflicting manual session, and do not claim cleanup succeeded.
+
 Suggested public manual DTO: `session_id`, `profile_id`, `browser_run_id`, `state`, `websocket_path`, and relevant expiry. Keep `DISPLAY`, Xauthority paths, backend host/ports, process IDs and backend tokens private. A second request cannot retrieve another user's connection authorization just because both users can operate the profile.
 
 Use same-origin cookies by default; a short-lived single-use ticket is an alternative only when the verified transport requires it. Close and revoke on disable/revoke/logout/run end. A new WS connection rechecks authority and run identity. Error text names a busy profile only if the requester already has access to it.

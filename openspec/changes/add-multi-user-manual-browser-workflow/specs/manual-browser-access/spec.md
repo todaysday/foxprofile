@@ -109,7 +109,7 @@ Manual-session creation, state retrieval, closure, and WebSocket use SHALL requi
 
 ### Requirement: MB-06 Protect HTTP and VNC transport
 
-Public manual access SHALL use the application's authenticated HTTPS/WSS gateway. The VNC listener SHALL remain on a local-only transport, with no public direct VNC port. Cookie-authenticated operations SHALL enforce Origin and state-changing-request protections. Ordinary URLs and logs SHALL NOT contain persistent credentials, cookies, or VNC secrets.
+Public manual access SHALL use the authenticated HTTPS/WSS gateway. The gateway SHALL connect to the VNC adapter only through a private connected channel inaccessible to untrusted local processes; no backend listener is permitted. Any backend authentication SHALL terminate server-side, and backend credentials SHALL never reach the browser/noVNC client. Cookie-authenticated operations SHALL enforce Origin and state-change protections.
 
 #### Scenario: Browser crosses an untrusted origin
 - **GIVEN** a user has a valid panel session
@@ -121,16 +121,19 @@ Public manual access SHALL use the application's authenticated HTTPS/WSS gateway
 - **GIVEN** manual access is active in the deployed environment
 - **WHEN** its exposed listeners, client URLs, and application or proxy logs are inspected
 - **THEN** only the authorized HTTPS/WSS path is publicly reachable
-- **AND** direct VNC ports and persistent access secrets are absent from that public surface and ordinary logs.
+- **AND** direct VNC ports, untrusted-local access to the backend channel, and backend credentials in the client configuration or traffic are absent.
+- **AND** persistent access secrets are absent from ordinary logs.
 
 ### Requirement: MB-07 Constrain the VNC adapter
 
-The manual-session manager SHALL launch its replaceable VNC adapter with structured process arguments, least required display access, and readiness checks. It SHALL NOT concatenate user input into a shell command, disable X11 authorization globally, expose neighboring displays, enable unnecessary file transfer, or install a full desktop environment solely for this feature.
+The manager SHALL launch the replaceable adapter with structured arguments, readiness checks, and access limited to the recorded display and gateway-owned private connected channel. It SHALL not expose a backend listener to untrusted local processes, pass backend credentials to the client, concatenate user data into shell commands, disable X11 authorization globally, expose neighboring displays, enable unnecessary file transfer, or install a full desktop environment solely for this feature.
 
 #### Scenario: Attach with the recorded X11 authorization
 - **GIVEN** the current browser run uses an isolated display and Xauthority context
 - **WHEN** the temporary VNC adapter starts
 - **THEN** it receives access only to that display through the recorded context
+- **AND** it communicates only through the gateway-owned private connected channel, which an untrusted local process cannot use
+- **AND** no backend credential is sent to the browser or noVNC client
 - **AND** global X11 access control and neighboring displays remain unchanged.
 
 #### Scenario: Adapter startup fails
@@ -196,14 +199,28 @@ The "Back" action SHALL revoke manual input, close the connection, release tempo
 
 ### Requirement: MB-11 Recover from connection loss safely
 
-Connection loss, tab closure, timeout, and gateway failure SHALL revoke or bound manual access and clean up temporary resources within a documented finite cleanup deadline. Reconnection SHALL reauthorize access to the same current run; a completed session SHALL require a new session. Cleanup SHALL release held input where reachable and SHALL NOT control the agent's task.
+Tab closure, network loss, session expiry/timeout, and gateway failure SHALL revoke access and verify cleanup within 60 seconds of the trigger. Detection, reconnect grace, input release, helper termination, and helper exit count toward that limit. Reconnect SHALL reauthorize the same run; ended sessions require new authorization. Release held input where reachable; do not control the agent. If exit is unverified, keep the lease occupied, block conflicts, and report blocked recovery.
 
 #### Scenario: Network loss during a held gesture
 - **GIVEN** the user loses the connection while holding a mouse button or key
-- **WHEN** the server detects disconnection or the configured liveness deadline expires
+- **WHEN** the injected network loss starts the end-to-end deadline
 - **THEN** the session stops accepting input and its temporary resources are cleaned up
+- **AND** dead-peer detection, any supported reconnect grace, and confirmed helper cleanup all finish within 60 seconds total
 - **AND** held input is released on the surviving browser so the next ordinary click behaves normally
 - **AND** no agent message, success event, or resume command is generated.
+
+#### Scenario: Tab closure, session expiry, or timeout
+- **GIVEN** a manual session is active
+- **WHEN** its client tab closes or its session expires/times out
+- **THEN** the same 60-second deadline starts at that trigger and access is revoked
+- **AND** cleanup, including any supported reconnect grace, completes within the deadline or remains blocked until helper exit is confirmed.
+
+#### Scenario: Cleanup cannot be confirmed by the deadline
+- **GIVEN** the VNC helper ignores termination or its exit cannot be verified after any cleanup trigger
+- **WHEN** 60 seconds elapse from that trigger
+- **THEN** the server reports cleanup as blocked and keeps the manual lease occupied
+- **AND** a conflicting manual session remains denied until helper termination is confirmed
+- **AND** the server does not claim that cleanup succeeded.
 
 #### Scenario: Reconnect after temporary loss
 - **GIVEN** the user reconnects after a network interruption
@@ -213,8 +230,9 @@ Connection loss, tab closure, timeout, and gateway failure SHALL revoke or bound
 
 #### Scenario: Gateway restart leaves stale manual resources
 - **GIVEN** the gateway or manual-session manager restarts during a session
-- **WHEN** it recovers its runtime state
+- **WHEN** it recovers its runtime state after an injected gateway failure
 - **THEN** it revokes stale access and reconciles or removes owned temporary VNC resources before accepting a conflicting session
+- **AND** this cleanup is confirmed within 60 seconds from the failure or the lease stays blocked with a recovery error
 - **AND** it does not kill browser/display resources or an unrelated process whose numeric PID was reused.
 
 ### Requirement: MB-12 Keep the agent outside noVNC integration

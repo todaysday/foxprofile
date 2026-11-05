@@ -1,0 +1,6 @@
+interface:
+  display_name: "Source-Grounded OpenSpec"
+  short_description: "Inspect and reuse code or algorithms in OpenSpec proposals"
+  default_prompt: "Use $source-grounded-openspec to research and reuse existing implementations in an OpenSpec proposal."
+policy:
+  allow_implicit_invocation: true

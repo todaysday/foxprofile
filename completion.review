@@ -1,0 +1,15 @@
+# Completion review
+
+## Stage 5 — source-fidelity re-review
+
+- Finding: MB-11/N06 did not explicitly cover cleanup after tab closure or connection expiry; gateway failure cleanup was also untested. Source: `openspec/changes/add-multi-user-manual-browser-workflow/references/inputs/FoxProfile_noVNC_Manual_Handoff.md`, §8 and §12/#6.
+- Correction: MB-11 now names tab closure, network loss, session expiry/timeout, and gateway failure with a single 60-second bound; design, API contract, and task 6.3 match. N06 tests each trigger separately and checks blocked recovery with the lease retained when helper exit is unconfirmed.
+- Verification: targeted `rg -n` over the spec, design, API contract, tasks, and acceptance plan confirmed all four triggers and N06 assertions; `git diff --check` passed. Parent reports official OpenSpec CLI 1.16.0 strict validation and `sha256sum -c MANIFEST.sha256` passed.
+- Residual limits: N06 and live helper/gateway failure behavior remain `NOT RUN`; implementation and live acceptance are pending.
+
+## Stage 6 — simplicity and reuse review
+
+- Finding: The changed MB-06/MB-07, MB-11, N06/N10/S03, and X05 criteria add the selected private VNC channel, bounded cleanup, and geometry evidence without adding a competing runtime or broadening the feature beyond the accepted fixes. `reuse.md` ties existing lifecycle/API/UI behavior to exact FoxProfile seams and records the limits of process-local locks, inherited environment, and the loopback page-control server. The adapter/gateway, authorization, persistent identity, and isolation gaps are stated as custom work; no existing candidate is claimed to supply the absent VNC bridge.
+- Evidence: Inspected FoxProfile MIT source at `530b993ff3a7d211aaa0904fba0817b77c75d4c9`, including `BrowserLauncher.start_thread`, `exclusive`, `control`, `stop_profile`, `_monitor_process`, `process.spawn_browser`/`terminate`/`wait_for_exit`, `runner.run_browser`, `control.serve`, profile serialization/manager, API auth/dependencies/page route, and web viewer functions. Inspected the cited tests in `reuse.md` and the exact modified requirements/tasks/acceptance rows. The API contract and MB-11 use one 60-second end-to-end deadline; N06 separately injects all four triggers and an unconfirmed helper exit. N10/S03 compare remote geometry across noVNC and require window fit. The OpenSpec artifacts contain no executable implementation or copied upstream code.
+- Verification: The pinned OpenSpec CLI 1.16.0 strict validation, status, and apply-instructions commands passed with `OPENSPEC_TELEMETRY=0`; `sha256sum -c MANIFEST.sha256` and `git diff --check` passed after metadata updates.
+- Residual limits: Existing source tests were inspected but not run. VNC backend-channel isolation, cleanup timing, geometry behavior, implementation, and live acceptance remain `NOT RUN`.

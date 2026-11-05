@@ -9,6 +9,7 @@
 Validated with the official `@fission-ai/openspec` CLI **1.16.0**, installed locally for this authoring task.
 
 ```bash
+export OPENSPEC_TELEMETRY=0
 openspec validate add-multi-user-manual-browser-workflow --type change --strict --no-interactive --json
 openspec status --change add-multi-user-manual-browser-workflow --json
 openspec instructions apply --change add-multi-user-manual-browser-workflow --json
@@ -17,9 +18,11 @@ openspec instructions apply --change add-multi-user-manual-browser-workflow --js
 Observed results:
 
 - Strict validation exit code: **0**.
+- CLI version: **1.16.0**; telemetry was disabled with `OPENSPEC_TELEMETRY=0` for validation.
 - Change `valid`: **true**.
 - Validation issues: **0**; stderr empty.
 - All four planning artifacts present: proposal, design, specs, tasks.
+- Code-level provenance and adaptation review is recorded separately in `reuse.md`; CLI validation does not verify that evidence.
 - Implementation state: **ready**, **0 of 45 tasks completed**, **45 remaining**.
 - Planning completion means the specification artifacts exist; it does not mean the feature was implemented or accepted.
 
@@ -28,13 +31,13 @@ Observed results:
 | Capability | Requirements | Scenarios |
 | --- | ---: | ---: |
 | `global-profile-capacity` | 12 | 24 |
-| `manual-browser-access` | 14 | 34 |
+| `manual-browser-access` | 14 | 36 |
 | `persistent-stealth` | 7 | 14 |
 | `profile-authorization` | 14 | 38 |
 | `upstream-compatibility` | 9 | 14 |
 | `user-authentication` | 9 | 22 |
 | `virtual-browser-runtime` | 8 | 14 |
-| **Total** | **73** | **160** |
+| **Total** | **73** | **162** |
 
 Additional checks passed:
 
@@ -59,7 +62,9 @@ SHA-256 of the included original inputs:
 
 ## Source audit scope
 
-The actual repository was checked out and inspected at commit `530b993ff3a7d211aaa0904fba0817b77c75d4c9` (declared FoxProfile version 2.4.0). Pinned source links and observed integration details are in [upstream-audit.md](openspec/changes/add-multi-user-manual-browser-workflow/references/upstream-audit.md).
+The actual repository was checked out and inspected at commit `530b993ff3a7d211aaa0904fba0817b77c75d4c9` (declared FoxProfile version 2.4.0); review checkout `64b3cabfe741bf2d2955849aba4b03a50d94a6f7` adds documentation only. Pinned source links and observed integration details are in [upstream-audit.md](openspec/changes/add-multi-user-manual-browser-workflow/references/upstream-audit.md) and [reuse.md](openspec/changes/add-multi-user-manual-browser-workflow/reuse.md).
+
+The full supplied source-grounded OpenSpec skill archive was installed; its `SKILL.md` matches the earlier supplied document byte-for-byte. The post-fix independent Stage 5 source-fidelity review and Stage 6 simplicity/reuse review are recorded in `completion.review`. CLI validation does not establish reuse provenance or replace those reviews. Stage 6 inspected existing FoxProfile source and cited tests; those tests were not run. Product implementation and live acceptance remain `NOT RUN`.
 
 This was a source audit, not a running-browser audit. The production revision and host configuration have not been asserted or inspected. No fork feature was implemented, no real server was deployed or migrated, and no real browser/stealth/performance/acceptance result is claimed.
 

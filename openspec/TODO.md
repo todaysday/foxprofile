@@ -17,4 +17,5 @@
 - [x] Close independent post-fix Stage 5 source-fidelity review: MB-11/N06 now cover tab closure, network loss, session expiry/timeout, and gateway failure under the 60-second bound, with fail-closed handling for an unconfirmed helper exit; see `completion.review`.
 - [x] Close independent Stage 6 simplicity/reuse review by a reviewer who did not perform Stage 5, covering `reuse.md` and the changed MB-06/MB-07, MB-11, N06/N10/S03, and X05 criteria; see `completion.review`. Source tests were inspected but not run, and runtime/live acceptance remains NOT RUN.
 
-- [ ] Resolve the concurrent profile-transfer regression in `tests/test_transfer.py::test_import_extracts_normal_archive` before catalog-package acceptance.
+- [x] Resolve the concurrent profile-transfer regression in `tests/test_transfer.py::test_import_extracts_normal_archive` before catalog-package acceptance.
+- [x] Close catalog review follow-ups for overwrite recovery grants, pending profile-ID resolution, locked export/download authorization, and reentrant cross-process catalog locking; see `completion.review`.

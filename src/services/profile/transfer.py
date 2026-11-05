@@ -1,6 +1,7 @@
 import json
 import os
 import pathlib
+import stat
 import zipfile
 from datetime import datetime
 
@@ -30,12 +31,18 @@ def export_to_zip(
         zip_path = os.path.join(export_path, zip_filename)
 
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-            zipf.writestr("profile.json", json.dumps(profile.to_dict(), indent=2))
+            zipf.writestr("profile.json", json.dumps(profile.to_portable_dict(), indent=2))
 
             if include_data and pathlib.Path(profile_data_dir).exists():
-                for root, _dirs, files in os.walk(profile_data_dir):
+                base = pathlib.Path(profile_data_dir).resolve()
+                for root, dirs, files in os.walk(profile_data_dir, followlinks=False):
+                    dirs[:] = [
+                        entry for entry in dirs if not (pathlib.Path(root) / entry).is_symlink()
+                    ]
                     for file in files:
-                        file_path = os.path.join(root, file)
+                        file_path = pathlib.Path(root) / file
+                        if file_path.is_symlink() or not file_path.resolve().is_relative_to(base):
+                            continue
                         arcname = os.path.join(
                             "data",
                             os.path.relpath(file_path, profile_data_dir),
@@ -100,6 +107,24 @@ def import_from_zip(
             )
 
             data_files = [f for f in zipf.namelist() if f.startswith("data/")]
+            seen: set[str] = set()
+            for member in zipf.infolist():
+                member_name = member.filename
+                if member_name in {"profile.json", ""}:
+                    continue
+                if "\\" in member_name or member_name.startswith("/"):
+                    return False, f"Unsafe path in archive: {member_name}"
+                parts = pathlib.PurePosixPath(member_name).parts
+                if any(part in {"", ".", ".."} for part in parts):
+                    return False, f"Unsafe path in archive: {member_name}"
+                normalized = "/".join(parts).casefold()
+                if normalized in seen:
+                    return False, f"Duplicate path in archive: {member_name}"
+                seen.add(normalized)
+                if stat.S_ISLNK(member.external_attr >> 16):
+                    return False, f"Symbolic links are not allowed in archives: {member_name}"
+                if member_name != "profile.json" and not member_name.startswith("data/"):
+                    return False, f"Unsupported archive entry: {member_name}"
             if data_files:
                 profile_data_dir = os.path.join(data_dir, name)
                 root = pathlib.Path(profile_data_dir).resolve()
@@ -108,19 +133,17 @@ def import_from_zip(
                 for file in data_files:
                     if file.endswith("/"):
                         continue
-                    target_path = os.path.join(
-                        profile_data_dir,
-                        os.path.relpath(file, "data"),
-                    )
+                    relative = pathlib.PurePosixPath(file).relative_to("data")
+                    target_path = pathlib.Path(profile_data_dir) / pathlib.Path(*relative.parts)
                     # Reject entries such as data/../../evil that would be
                     # written outside the profile's own directory.
-                    if not pathlib.Path(target_path).resolve().is_relative_to(root):
+                    if not target_path.resolve().is_relative_to(root):
                         return False, f"Unsafe path in archive: {file}"
-                    pathlib.Path(target_path).parent.mkdir(
+                    target_path.parent.mkdir(
                         exist_ok=True,
                         parents=True,
                     )
-                    with zipf.open(file) as src, open(target_path, "wb") as dst:
+                    with zipf.open(file) as src, target_path.open("xb") as dst:
                         dst.write(src.read())
 
             logger.info("Imported profile from zip: %s", name)

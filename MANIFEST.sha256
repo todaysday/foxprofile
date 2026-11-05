@@ -22,6 +22,6 @@ ba2a215da79bbc291068c8bcda9928b1c5fc4e07c26bdb2daeee82b2905c863e  openspec/chang
 555769c83268b2a768d303cf536dea8f38e3c288f5fdadc606a84ab43b16cfe9  openspec/changes/add-multi-user-manual-browser-workflow/specs/upstream-compatibility/spec.md
 d11951f55f1e78dbe6948975c603d60e14d68a9e7325d7a224eec58981f5ffe2  openspec/changes/add-multi-user-manual-browser-workflow/specs/user-authentication/spec.md
 6a94af59edd490f247fcb6bc15c47a5dbd6d5d6dbaa43163fc6756fa444537f8  openspec/changes/add-multi-user-manual-browser-workflow/specs/virtual-browser-runtime/spec.md
-6c75d81bf1c71724074f5944223ff7c259a7c59183949d0101aa87c86fa8d52f  openspec/changes/add-multi-user-manual-browser-workflow/tasks.md
+aeeba9c30840051415f818490f7c0b029a5261923d5b2dc6f878ebf9c55138a9  openspec/changes/add-multi-user-manual-browser-workflow/tasks.md
 a748e9e0529f8a605bc4efb1008db1a699d538c2f65ff2a710c9892f155752a2  openspec/config.yaml
 5d9b61493fc021102a8ca63804d96dbec982eeddac5347ba9f3195c1975db01a  openspec/changes/add-multi-user-manual-browser-workflow/references/implementation-baseline.md

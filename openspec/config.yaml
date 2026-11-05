@@ -1,0 +1,40 @@
+schema: spec-driven
+
+context: |
+  Brownfield fork of chienbm98/foxprofile; source-audited baseline:
+  530b993ff3a7d211aaa0904fba0817b77c75d4c9 (FoxProfile 2.4.0).
+  Target: existing Linux Camoufox installations, ARM64 and x86-64 without GPU.
+  Preserve the existing panel, API/MCP workflow, profile JSON catalog, browser
+  data directories, saved fingerprint/cookies/proxy and current engine behavior.
+  Add admin/user access, a shared durable capacity limit (default 10), and one
+  temporary noVNC session per installation in the existing control screen.
+  noVNC Back only closes manual access; no agent messaging, pause/resume, or
+  automatic continuation. New noVNC support is Camoufox-only in this change.
+  User priorities: maximum practical resilience to upstream updates;
+  Pragmatic DDD (DAO/DTO) -> SRP -> KISS/YAGNI -> DRY, in that order.
+  Prefer isolated foxprofile_ext modules and small explicit upstream hooks;
+  no whole-module copies, monkey patches, new control broker, or storage rewrite.
+  User explicitly assigns all deployment and real-server acceptance to a
+  separate agent in final slice 9. Implementation agent executes slices 1-8
+  and offline/CI verification, prepares the handoff, and does not deploy.
+
+rules:
+  proposal:
+    - Distinguish requested behavior from source-confirmed upstream behavior.
+    - Keep the scope consistent with the three bundled source documents and later user directions.
+  specs:
+    - Use SHALL requirements with concrete success and failure scenarios.
+    - Put a Purpose section before ADDED Requirements for each new capability.
+    - Cover direct API, service, bulk, helper-browser and long-lived connection paths.
+    - Preserve no agent integration and no runtime interlock beyond existing locks.
+  design:
+    - Follow Pragmatic DDD (DAO/DTO) -> SRP -> KISS/YAGNI -> DRY.
+    - Keep upstream edits narrow, list the integration seams, and test their contracts.
+    - Isolate extension persistence through DAOs and reject missing caller authority.
+    - Do not replace the upstream profile catalog; add immutable local IDs through a small serializer seam.
+  tasks:
+    - Use numbered checkbox tasks with verifiable outcomes and dependency-ordered slices.
+    - Slices 1-8 belong to IMPLEMENTATION_AGENT; slice 9 is DEPLOYMENT_AGENT only.
+    - Building deployment tooling is implementation work; running it on live hosts is final-slice work.
+    - Leave live acceptance tasks unchecked until the separate agent records actual results.
+

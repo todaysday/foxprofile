@@ -2,9 +2,9 @@
 
 **Change:** `add-multi-user-manual-browser-workflow`  
 **Architecture priority:** Pragmatic DDD (DAO/DTO) → SRP → KISS/YAGNI → DRY.  
-**State:** foundation, catalog identity/recovery, managed transfer and bootstrap are verified. Remaining persistence, application/runtime integration and live acceptance stay open.
+**State:** foundation, catalog identity/recovery, managed transfer and bootstrap are verified. Application/runtime integration and live acceptance stay open.
 
-Durable-state checkpoint: account/session/grant/settings, catalog intents, scoped transfer handles and run reservations are implemented and tested. Manual-session persistence and application/runtime adapters remain pending.
+Durable-state checkpoint: account/session/grant/settings, catalog intents, scoped transfer handles and run reservations are implemented and tested. Manual-session persistence is also verified; application/runtime adapters remain pending.
 
 Code-level reuse provenance, exact source revisions/symbols, licenses, inspected test evidence, adaptations, and custom-work gaps are documented in [reuse.md](reuse.md).
 
@@ -26,7 +26,7 @@ Dependencies: 1 → 2 → 3; 2 → 4; 2 → 5; (3,4,5) → 6; (3,4,6) → 7; (1�
 ## 2. Add stable identity and durable extension state — IMPLEMENTATION_AGENT
 
 - [x] 2.1 Add immutable local profile IDs through minimal model/load/save hooks; preserve on rename/authorized overwrite and omit from portable ZIPs. Verify round-trip, repeated migration, fresh-import and forged-ID cases with fixtures.
-- [ ] 2.2 Implement local SQLite DAOs/migrations for users, sessions, grants, settings, reservations/manual leases and necessary catalog-operation recovery. Verify atomic writes, constraints, permissions and idempotent schema upgrades on disposable databases.
+- [x] 2.2 Implement local SQLite DAOs/migrations for users, sessions, grants, settings, reservations/manual leases and necessary catalog-operation recovery. Verify atomic writes, constraints, permissions and idempotent schema upgrades on disposable databases.
 - [x] 2.3 Wrap catalog create/import/rename/delete with shared mutation locking, cache reload, finite operation intent and recovery. Surface save failures and quarantine residual deleted data. Verify failure injection at filesystem/catalog/ACL boundaries cannot expose another profile's cookies or lose grants.
 - [x] 2.4 Implement bootstrap and last-active-admin protection; preserve legacy browser data and default capacity to 10 only when absent. Verify repeated bootstrap/migration, concurrent admin changes and preserved valid settings on copied fixtures.
 - [x] 2.5 Provide scoped upload/download staging and safe portable export/import adapters without arbitrary ordinary-user server paths. Verify archive path/authority injection, overwrite authorization and export contents.

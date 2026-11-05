@@ -33,7 +33,7 @@ def test_migration_is_restart_safe_and_database_file_is_private(tmp_path):
     with database.read() as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         setting_count = connection.execute("SELECT COUNT(*) FROM settings").fetchone()[0]
-    assert version == 3
+    assert version == 4
     assert setting_count == 1
 
     reopened = ExtensionDatabase(database_path)
@@ -62,7 +62,7 @@ def test_v1_database_upgrades_catalog_metadata_and_transfer_handles_atomically(t
         version = connection.execute("PRAGMA user_version").fetchone()[0]
     assert {"actor_user_id", "target_profile_id"} <= columns
     assert transfer_table is not None
-    assert version == 3
+    assert version == 4
     ExtensionDatabase(path)
 
 

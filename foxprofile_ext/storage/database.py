@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 
 
 class ExtensionDatabase:
@@ -81,6 +81,16 @@ class ExtensionDatabase:
                     "INSERT INTO capacity_recovery (singleton, blocked) VALUES (1, 0)"
                 )
                 connection.execute("PRAGMA user_version = 3")
+                version = 3
+            if version < 4:
+                connection.execute(
+                    "CREATE TABLE manual_leases (session_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, personal_session_id TEXT NOT NULL, profile_id TEXT NOT NULL, browser_run_id TEXT NOT NULL, host_id TEXT NOT NULL, state TEXT NOT NULL CHECK (state IN ('provisioning', 'active', 'closing', 'recovering', 'closed')), created_at REAL NOT NULL, updated_at REAL NOT NULL, expires_at REAL NOT NULL, cleanup_deadline REAL NOT NULL, helper_pid INTEGER, helper_start_ticks INTEGER, CHECK (expires_at > created_at), CHECK (cleanup_deadline > created_at), CHECK ((helper_pid IS NULL AND helper_start_ticks IS NULL) OR (helper_pid > 0 AND helper_start_ticks >= 0)))"
+                )
+                connection.execute(
+                    "CREATE UNIQUE INDEX manual_leases_one_open ON manual_leases((1)) WHERE state IN ('provisioning', 'active', 'closing', 'recovering')"
+                )
+                connection.execute("CREATE INDEX manual_leases_expiry ON manual_leases(expires_at)")
+                connection.execute("PRAGMA user_version = 4")
             connection.commit()
         except BaseException:
             if connection.in_transaction:

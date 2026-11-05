@@ -1,0 +1,6 @@
+interface:
+  display_name: "Luna Orchestrator"
+  short_description: "Active orchestration with small, bounded teams"
+  default_prompt: "Use $luna-orchestrator for this task: keep overall decisions in the parent and delegate small, bounded work."
+policy:
+  allow_implicit_invocation: false

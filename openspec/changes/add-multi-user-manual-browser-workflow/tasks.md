@@ -4,6 +4,8 @@
 **Architecture priority:** Pragmatic DDD (DAO/DTO) → SRP → KISS/YAGNI → DRY.  
 **State:** implementation slice 1 is verified. Later implementation and live-acceptance tasks remain unchecked.
 
+Durable-state checkpoint: account/session/grant/settings, catalog intents, scoped transfer handles and run reservations are implemented and tested. Manual-session persistence and application/runtime adapters remain pending.
+
 Code-level reuse provenance, exact source revisions/symbols, licenses, inspected test evidence, adaptations, and custom-work gaps are documented in [reuse.md](reuse.md).
 
 ## Responsibility boundary

@@ -2,7 +2,7 @@
 
 ## `add-multi-user-manual-browser-workflow`
 
-- [ ] Complete the 40 implementation and offline verification tasks in slices 1–8 of `openspec/changes/add-multi-user-manual-browser-workflow/tasks.md`.
+- [ ] Complete the remaining implementation and offline verification tasks in slices 1–8 of `openspec/changes/add-multi-user-manual-browser-workflow/tasks.md`.
 - [ ] Hand off slice 9 to a separate deployment agent; complete its five live deployment and acceptance tasks with recorded evidence.
 - [ ] Keep live acceptance open and do not archive this change until required acceptance is complete.
 
@@ -16,3 +16,5 @@
 - [x] Install the complete supplied source-grounded skill archive, including its `agents/openai.yaml` metadata and `references/research-workflow.md`; confirm its `SKILL.md` is byte-identical to the earlier supplied document.
 - [x] Close independent post-fix Stage 5 source-fidelity review: MB-11/N06 now cover tab closure, network loss, session expiry/timeout, and gateway failure under the 60-second bound, with fail-closed handling for an unconfirmed helper exit; see `completion.review`.
 - [x] Close independent Stage 6 simplicity/reuse review by a reviewer who did not perform Stage 5, covering `reuse.md` and the changed MB-06/MB-07, MB-11, N06/N10/S03, and X05 criteria; see `completion.review`. Source tests were inspected but not run, and runtime/live acceptance remains NOT RUN.
+
+- [ ] Resolve the concurrent profile-transfer regression in `tests/test_transfer.py::test_import_extracts_normal_archive` before catalog-package acceptance.

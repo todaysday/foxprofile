@@ -2,7 +2,7 @@
 
 **Change:** `add-multi-user-manual-browser-workflow`  
 **Architecture priority:** Pragmatic DDD (DAO/DTO) → SRP → KISS/YAGNI → DRY.  
-**State:** specification package only; all implementation and live-acceptance tasks remain unchecked.
+**State:** implementation slice 1 is verified. Later implementation and live-acceptance tasks remain unchecked.
 
 Code-level reuse provenance, exact source revisions/symbols, licenses, inspected test evidence, adaptations, and custom-work gaps are documented in [reuse.md](reuse.md).
 
@@ -16,10 +16,10 @@ Dependencies: 1 → 2 → 3; 2 → 4; 2 → 5; (3,4,5) → 6; (3,4,6) → 7; (1�
 
 ## 1. Pin baseline and protect extension seams — IMPLEMENTATION_AGENT
 
-- [ ] 1.1 Compare the actual fork checkout with audited commit `530b993ff3a7d211aaa0904fba0817b77c75d4c9`; inventory existing specs, routes, direct Flet calls, launch/cookie-tool paths, serializers, tests and deployment assets. Verify with a recorded baseline and classified surface map.
-- [ ] 1.2 Establish the isolated `foxprofile_ext` package/assets and narrow composition seams; record the reason for each upstream file edit. Verify the diff contains no copied upstream implementation or unrelated refactor.
-- [ ] 1.3 Define principal/profile/runtime/error DTOs and policy/DAO responsibilities using existing patterns. Verify representative policy unit tests run without web server or browser dependencies.
-- [ ] 1.4 Prepare a compatibility test harness for auth/service boundaries, profile serialization and runner/process events; run the baseline upstream tests in the development checkout and record pre-existing failures separately.
+- [x] 1.1 Compare the actual fork checkout with audited commit `530b993ff3a7d211aaa0904fba0817b77c75d4c9`; inventory existing specs, routes, direct Flet calls, launch/cookie-tool paths, serializers, tests and deployment assets. Verify with a recorded baseline and classified surface map in [implementation-baseline.md](references/implementation-baseline.md).
+- [x] 1.2 Establish the isolated `foxprofile_ext` package/assets and narrow composition seams; record the reason for each upstream file edit. Verify the diff contains no copied upstream implementation or unrelated refactor. The public package factory binds only the assignment lookup; application adapters still own authentication and effects.
+- [x] 1.3 Define principal/profile/runtime/error DTOs and policy/DAO responsibilities using existing patterns. Verify representative policy unit tests run without web server or browser dependencies.
+- [x] 1.4 Prepare a compatibility test harness for auth/service boundaries, profile serialization and runner/process events; run the baseline upstream tests in the development checkout and record pre-existing failures separately. Current focused upstream and extension compatibility checks are documented in [implementation-baseline.md](references/implementation-baseline.md).
 
 ## 2. Add stable identity and durable extension state — IMPLEMENTATION_AGENT
 

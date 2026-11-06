@@ -36,6 +36,7 @@ def main() -> None:
 
     import uvicorn
 
+    from foxprofile_ext.transport import websocket_transport_options
     from src.api.app import create_app
     from src.api.auth import check_bind_safety
     from src.core.config import API_HOST, API_PORT, API_TOKEN
@@ -52,9 +53,9 @@ def main() -> None:
     logger.info("FoxProfile server on http://%s:%s (panel at /)", host, port)
     print(f"FoxProfile panel: http://{host}:{port}/   API docs: http://{host}:{port}/docs")
     try:
-        uvicorn.run(app, host=host, port=port, log_level="warning")
+        uvicorn.run(app, host=host, port=port, log_level="warning", **websocket_transport_options())
     finally:
-        container.browser_launcher.shutdown_all()
+        container.shutdown()
 
 
 if __name__ == "__main__":

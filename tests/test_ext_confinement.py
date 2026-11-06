@@ -272,3 +272,94 @@ def test_vnc_helper_shares_run_tmp_but_never_mounts_profile_data(tmp_path, monke
     assert "/profile" not in command
     assert environment["DISPLAY"] == ":101"
     assert environment["XAUTHORITY"] == "/tmp/Xauthority"
+
+
+def test_trusted_browser_executable_path_needs_approved_runtime_mount(tmp_path, monkeypatch):
+    spec = _spec(tmp_path)
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/true")
+    command, environment = build_confined_command(
+        spec,
+        (sys.executable, "-c", "pass"),
+        {
+            "FOXPROFILE_CAMOUFOX_EXECUTABLE": sys.executable,
+            "FOXPROFILE_CHROME_EXECUTABLE": sys.executable,
+        },
+    )
+    assert environment["FOXPROFILE_CAMOUFOX_EXECUTABLE"] == command[command.index("--") + 1]
+    assert (
+        environment["FOXPROFILE_CHROME_EXECUTABLE"] == environment["FOXPROFILE_CAMOUFOX_EXECUTABLE"]
+    )
+    assert "FOXPROFILE_CAMOUFOX_EXECUTABLE" not in build_confined_environment(
+        {"FOXPROFILE_CAMOUFOX_EXECUTABLE": "/private/untrusted"}
+    )
+    with pytest.raises(ConfinementUnavailable):
+        build_confined_command(
+            spec,
+            (sys.executable, "-c", "pass"),
+            {"FOXPROFILE_CAMOUFOX_EXECUTABLE": str(spec.profile_path / "cookies.sqlite")},
+        )
+
+
+def test_resolver_exact_alias_is_preserved_but_arbitrary_private_alias_rejected(
+    tmp_path, monkeypatch
+):
+    import foxprofile_ext.runtime.confinement as confinement
+
+    spec = _spec(tmp_path)
+    private = tmp_path / "private-run"
+    private.mkdir()
+    target = private / "resolver"
+    target.write_text("nameserver 192.0.2.1\n")
+    target.chmod(0o644)
+    original = Path.resolve
+    alias = tmp_path / "unrelated-alias"
+    alias.symlink_to(target)
+
+    def resolve(path, *args, **kwargs):
+        return target if path == Path("/etc/resolv.conf") else original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", resolve)
+    monkeypatch.setattr(
+        confinement, "_PRIVATE_HOST_PATHS", (*confinement._PRIVATE_HOST_PATHS, private)
+    )
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/true")
+    command, _ = build_confined_command(
+        replace(spec, runtime_paths=(*spec.runtime_paths, Path("/etc/resolv.conf"))),
+        (sys.executable, "-c", "pass"),
+    )
+    assert command[command.index("/etc/resolv.conf") - 1] == "--ro-bind"
+    assert command[command.index("/etc/resolv.conf") + 1] == "/etc/resolv.conf"
+    with pytest.raises(ConfinementUnavailable, match="private namespace"):
+        build_confined_command(
+            replace(spec, runtime_paths=(*spec.runtime_paths, alias)),
+            (sys.executable, "-c", "pass"),
+        )
+
+
+def test_real_confined_venv_import_fixed_script_and_localhost_resolution(tmp_path):
+    from foxprofile_ext.runtime.supervisor import _confined_arguments
+
+    spec = _spec(tmp_path)
+    resolvers = tuple(
+        path
+        for path in (Path("/etc/resolv.conf"), Path("/etc/hosts"), Path("/etc/nsswitch.conf"))
+        if path.is_file()
+    )
+    spec = replace(spec, runtime_paths=(*spec.runtime_paths, *resolvers))
+    script = spec.code_root / "src" / "venv_smoke.py"
+    script.write_text(
+        "import pathlib,pytest,socket,sys\n"
+        "assert 'site-packages' in pytest.__file__\n"
+        "assert socket.getaddrinfo('localhost',80)\n"
+        "pathlib.Path('/profile/venv-script-ok').write_text(sys.prefix)\n"
+    )
+    command = _confined_arguments([sys.executable, str(script)], spec.code_root)
+    try:
+        argv, environment = build_confined_command(spec, command)
+    except ConfinementUnavailable as error:
+        pytest.skip(str(error))
+    result = subprocess.run(argv, env=environment, capture_output=True, timeout=10)
+    if result.returncode != 0 and b"No permissions" in result.stderr:
+        pytest.skip(result.stderr.decode())
+    assert result.returncode == 0, result.stderr.decode()
+    assert (spec.profile_path / "venv-script-ok").read_text() == sys.prefix

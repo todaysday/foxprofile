@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-_SCHEMA_VERSION = 4
+_SCHEMA_VERSION = 5
 
 
 class ExtensionDatabase:
@@ -91,6 +91,15 @@ class ExtensionDatabase:
                 )
                 connection.execute("CREATE INDEX manual_leases_expiry ON manual_leases(expires_at)")
                 connection.execute("PRAGMA user_version = 4")
+                version = 4
+            if version < 5:
+                connection.execute(
+                    "CREATE TABLE runtime_descriptors (run_id TEXT PRIMARY KEY, profile_id TEXT NOT NULL, host_id TEXT NOT NULL, supervisor_pid INTEGER NOT NULL, supervisor_start_ticks INTEGER NOT NULL, browser_pid INTEGER, browser_start_ticks INTEGER, boundary_pid INTEGER, boundary_start_ticks INTEGER, display TEXT, namespace TEXT, tmp_path TEXT, xauthority_path TEXT, control_port INTEGER, control_token TEXT, updated_at REAL NOT NULL, CHECK (supervisor_pid > 0 AND supervisor_start_ticks >= 0), CHECK ((browser_pid IS NULL AND browser_start_ticks IS NULL) OR (browser_pid > 0 AND browser_start_ticks >= 0)), CHECK ((boundary_pid IS NULL AND boundary_start_ticks IS NULL) OR (boundary_pid > 0 AND boundary_start_ticks >= 0)), CHECK ((control_port IS NULL AND control_token IS NULL) OR (control_port BETWEEN 1 AND 65535 AND control_token IS NOT NULL)))"
+                )
+                connection.execute(
+                    "CREATE INDEX runtime_descriptors_profile ON runtime_descriptors(profile_id)"
+                )
+                connection.execute("PRAGMA user_version = 5")
             connection.commit()
         except BaseException:
             if connection.in_transaction:

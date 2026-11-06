@@ -24,6 +24,13 @@ from .dao import (
     UserDAO,
 )
 from .database import ExtensionDatabase
+from .manual import (
+    HelperLiveness,
+    LeaseAcquireResult,
+    ManualLeaseBusy,
+    ManualLeaseDAO,
+    ManualLeaseRecord,
+)
 
 __all__ = [
     "AdmissionResult",
@@ -35,7 +42,12 @@ __all__ = [
     "CatalogOperationRecord",
     "CapacityLedger",
     "ExtensionDatabase",
+    "HelperLiveness",
+    "LeaseAcquireResult",
     "LastAdministratorError",
+    "ManualLeaseBusy",
+    "ManualLeaseDAO",
+    "ManualLeaseRecord",
     "SessionDAO",
     "SettingsDAO",
     "ProcessLiveness",

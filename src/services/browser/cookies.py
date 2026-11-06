@@ -13,6 +13,8 @@ import pathlib
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any
 
 from ...core.logging import get_logger
@@ -22,6 +24,10 @@ logger = get_logger("browser.cookies")
 _TOOL = os.path.join(pathlib.Path(__file__).parent, "cookie_tool.py")
 _PROJECT_ROOT = str(pathlib.Path(__file__).resolve().parents[3])
 _TIMEOUT = 120
+
+_runtime_tool: ContextVar[tuple[object, str] | None] = ContextVar(
+    "foxprofile_runtime_tool", default=None
+)
 
 _SAMESITE_TO_EXT = {"Strict": "strict", "Lax": "lax", "None": "no_restriction"}
 _SAMESITE_FROM_EXT = {
@@ -43,9 +49,41 @@ class CookieError(Exception):
     pass
 
 
+@contextmanager
+def runtime_tool_context(adapter: object, profile_name: str):
+    """Bind one authenticated, exclusive profile helper operation."""
+    token = _runtime_tool.set((adapter, profile_name))
+    try:
+        yield
+    finally:
+        _runtime_tool.reset(token)
+
+
 def _call_tool(
     action: str, profile_name: str, os_type: str, stdin: str = "", engine: str = "camoufox"
 ) -> dict:
+    from foxprofile_ext.config import extension_enabled
+
+    if extension_enabled():
+        # This validates the authenticated request scope even if the helper
+        # adapter has not been installed. A service identity is never inferred.
+        from foxprofile_ext.request_context import current_principal
+
+        current_principal()
+        scope = _runtime_tool.get()
+        if scope is None or scope[1] != profile_name:
+            raise CookieError("Protected cookie operation requires an exclusive profile context")
+        adapter = scope[0]
+        run_helper = getattr(adapter, "run_helper", None)
+        if not callable(run_helper):
+            raise CookieError("Protected cookie helper runtime is unavailable")
+        result = run_helper(action, profile_name, os_type, engine, stdin, _TIMEOUT)
+        if not isinstance(result, dict):
+            raise CookieError("Protected cookie helper returned an invalid result")
+        if "error" in result:
+            raise CookieError(str(result["error"]))
+        return result
+
     env = os.environ.copy()
     env["PYTHONPATH"] = _PROJECT_ROOT + (
         os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""

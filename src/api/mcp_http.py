@@ -33,14 +33,17 @@ def _bearer(scope: Scope) -> str:
     return ""
 
 
-def build(self_url: str, token: str) -> tuple[Route, contextlib.AbstractAsyncContextManager]:
+def build(
+    self_url: str, token: str, *, require_service: bool = False
+) -> tuple[Route, contextlib.AbstractAsyncContextManager]:
     """Return the /mcp route and the lifespan context that runs its sessions."""
     mcp_server.configure(self_url, token)
     manager = StreamableHTTPSessionManager(
         app=mcp_server.mcp._mcp_server,
         stateless=True,
         json_response=True,
-        # Host/Origin checks are done by LocalOnlyGuard (token-less) or the token.
+        # Legacy token-less mode relies on LocalOnlyGuard; protected mode requires
+        # the distinct service bearer before this endpoint can be reached.
         security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     )
 
@@ -48,7 +51,9 @@ def build(self_url: str, token: str) -> tuple[Route, contextlib.AbstractAsyncCon
         # A class instance, not a function: Starlette then passes raw ASGI
         # (scope, receive, send) instead of wrapping it as a Request handler.
         async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-            if token and not secrets.compare_digest(_bearer(scope), token):
+            if (require_service and not token) or (
+                token and not secrets.compare_digest(_bearer(scope), token)
+            ):
                 response = JSONResponse(
                     {"detail": "Missing or invalid API token"},
                     status_code=401,

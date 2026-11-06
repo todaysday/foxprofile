@@ -1,17 +1,19 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
 
 
 class ProfileCreate(BaseModel):
-    name: str
-    proxy: str | None = None
-    os_type: str = "windows"
-    timezone: str | None = Field(
+    model_config = ConfigDict(extra="forbid")
+
+    name: StrictStr
+    proxy: StrictStr | None = None
+    os_type: StrictStr | None = None
+    timezone: StrictStr | None = Field(
         None, description="IANA timezone, e.g. Asia/Ho_Chi_Minh. Unset = follow the IP"
     )
-    locale: str | None = Field(
+    locale: StrictStr | None = Field(
         None, description="language-REGION, e.g. vi-VN. Unset = follow the IP"
     )
-    engine: str = Field(
+    engine: StrictStr = Field(
         "camoufox",
         description="camoufox (Firefox) or chrome (Chromium, fingerprint-chromium). "
         "Fixed once the profile is created",
@@ -21,12 +23,14 @@ class ProfileCreate(BaseModel):
 class ProfileUpdate(BaseModel):
     """All fields optional — only supplied fields are changed."""
 
-    name: str | None = None
-    proxy: str | None = None
-    os_type: str | None = None
-    timezone: str | None = Field(None, description='"" switches back to automatic')
-    locale: str | None = Field(None, description='"" switches back to automatic')
-    engine: str | None = Field(None, description="Cannot be changed; only the current value")
+    model_config = ConfigDict(extra="forbid")
+
+    name: StrictStr | None = None
+    proxy: StrictStr | None = None
+    os_type: StrictStr | None = None
+    timezone: StrictStr | None = Field(None, description='"" switches back to automatic')
+    locale: StrictStr | None = Field(None, description='"" switches back to automatic')
+    engine: StrictStr | None = Field(None, description="Cannot be changed; only the current value")
 
 
 class ProfileResponse(BaseModel):
@@ -52,8 +56,10 @@ class DataDirResponse(BaseModel):
 
 
 class ExportRequest(BaseModel):
-    export_dir: str
-    include_data: bool = True
+    model_config = ConfigDict(extra="forbid")
+
+    export_dir: StrictStr | None = None
+    include_data: StrictBool = True
 
 
 class ExportResponse(BaseModel):
@@ -63,8 +69,10 @@ class ExportResponse(BaseModel):
 
 
 class ImportRequest(BaseModel):
-    zip_path: str
-    overwrite: bool = False
+    model_config = ConfigDict(extra="forbid")
+
+    zip_path: StrictStr
+    overwrite: StrictBool = False
 
 
 class ImportResponse(BaseModel):
@@ -76,7 +84,9 @@ class ImportResponse(BaseModel):
 class CookieImportRequest(BaseModel):
     """Cookies as JSON (Cookie-Editor / EditThisCookie / Playwright) or Netscape text."""
 
-    content: str
+    model_config = ConfigDict(extra="forbid")
+
+    content: StrictStr
 
 
 class CookieImportResponse(BaseModel):

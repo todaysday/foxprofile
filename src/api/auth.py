@@ -1,8 +1,8 @@
 """Bearer-token authentication for the REST API.
 
-When FOXPROFILE_API_TOKEN is set every /api/v1 route except /health requires
-`Authorization: Bearer <token>` (or `X-API-Key: <token>`). Without a token the
-API only accepts connections from the local machine; see `check_bind_safety`.
+When FOXPROFILE_API_TOKEN is set, legacy mode protects /api/v1 routes with the
+service token. Explicit protected-personal mode accepts revocable browser
+sessions and keeps the service token as a separate machine identity.
 """
 
 import ipaddress
@@ -10,6 +10,8 @@ import secrets
 import socket
 
 from fastapi import HTTPException, Request
+
+from foxprofile_ext.config import extension_enabled
 
 from ..core.config import API_TOKEN
 
@@ -49,11 +51,12 @@ def is_loopback(host: str) -> bool:
 
 
 def check_bind_safety(host: str, token: str = API_TOKEN) -> None:
-    """Refuse to expose the API beyond this machine without a token."""
-    if not is_loopback(host) and not token:
+    """Require either a service credential or explicit protected-personal mode."""
+    if not is_loopback(host) and not token and not extension_enabled():
         raise SystemExit(
             f"Refusing to listen on {host} without FOXPROFILE_API_TOKEN: anyone who can "
             "reach this port could control every profile and read every cookie. "
+            "Enable protected personal authentication explicitly to use individual sessions. "
             "Set FOXPROFILE_API_TOKEN (at least 24 random characters) or use 127.0.0.1.",
         )
     if token and len(token) < 24:

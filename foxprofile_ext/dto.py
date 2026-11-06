@@ -154,6 +154,8 @@ class RuntimeDescriptor:
     xauthority_path: str | None = field(default=None, repr=False)
     control_port: int | None = field(default=None, repr=False)
     control_token: str | None = field(default=None, repr=False)
+    # Host-visible confinement boundary; browser identifies the actual engine.
+    boundary: ProcessIdentity | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         _text(self.host_id)
@@ -161,6 +163,7 @@ class RuntimeDescriptor:
             not isinstance(self.run, BrowserRunRefDTO)
             or not isinstance(self.supervisor, ProcessIdentity)
             or (self.browser is not None and not isinstance(self.browser, ProcessIdentity))
+            or (self.boundary is not None and not isinstance(self.boundary, ProcessIdentity))
         ):
             raise DomainError(ErrorCode.VALIDATION_ERROR)
         for value in (self.display, self.namespace, self.tmp_path, self.xauthority_path):

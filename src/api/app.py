@@ -7,11 +7,13 @@ from typing import TYPE_CHECKING
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from ..core.config import API_PORT, API_TOKEN, HEADLESS
 from ..core.logging import get_logger
 from . import mcp_http
 from .auth import require_token
+from .dependencies import extension_enabled, get_request_principal, require_cookie_csrf
 from .guard import LocalOnlyGuard
 from .routes import (
     browser_router,
@@ -20,6 +22,9 @@ from .routes import (
     profiles_router,
     proxy_router,
 )
+from .routes.ext_auth import router as ext_auth_router
+from .routes.ext_browser import router as ext_browser_router
+from .routes.ext_transfer import router as ext_transfer_router
 from .schemas.common import SuccessResponse
 
 if TYPE_CHECKING:
@@ -41,9 +46,11 @@ def create_app(container: Container, self_url: str | None = None) -> FastAPI:
     `self_url` is where this process's own API is reachable over loopback; the
     MCP endpoint's tools call back into it.
     """
+    ext_enabled = extension_enabled()
     mcp_route, mcp_lifespan = mcp_http.build(
         self_url or f"http://127.0.0.1:{API_PORT}",
         API_TOKEN,
+        require_service=ext_enabled,
     )
 
     @contextlib.asynccontextmanager
@@ -61,11 +68,24 @@ def create_app(container: Container, self_url: str | None = None) -> FastAPI:
         version=VERSION,
     )
     app.state.container = container
-    if not API_TOKEN:
+    app.mount(
+        "/assets/ext",
+        StaticFiles(
+            directory=pathlib.Path(__file__).resolve().parents[2] / "foxprofile_ext" / "assets"
+        ),
+        name="extension-assets",
+    )
+    if not API_TOKEN and not ext_enabled:
         # Token-less means local-only: block CSRF and DNS rebinding from websites.
         app.add_middleware(LocalOnlyGuard)
 
-    protected = [Depends(require_token)]
+    if ext_enabled:
+        protected = [Depends(get_request_principal), Depends(require_cookie_csrf)]
+        app.include_router(ext_auth_router, prefix=API_PREFIX)
+        app.include_router(ext_browser_router, prefix=API_PREFIX)
+        app.include_router(ext_transfer_router, prefix=API_PREFIX)
+    else:
+        protected = [Depends(require_token)]
     app.include_router(profiles_router, prefix=API_PREFIX, dependencies=protected)
     app.include_router(browser_router, prefix=API_PREFIX, dependencies=protected)
     app.include_router(page_router, prefix=API_PREFIX, dependencies=protected)
@@ -83,7 +103,8 @@ def create_app(container: Container, self_url: str | None = None) -> FastAPI:
         return {
             "name": "FoxProfile",
             "version": VERSION,
-            "auth_required": bool(API_TOKEN),
+            "auth_required": bool(API_TOKEN) or ext_enabled,
+            "auth_mode": "personal" if ext_enabled else "legacy",
             "headless": HEADLESS,
             "mcp_path": mcp_http.MCP_PATH,
         }

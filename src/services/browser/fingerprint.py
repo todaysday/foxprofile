@@ -35,7 +35,16 @@ def load_or_create(profile_dir: str, os_type: str) -> dict[str, Any]:
 
     from camoufox.fingerprints import generate_fingerprint
 
-    fingerprint = generate_fingerprint(os=os_type)
+    from foxprofile_ext.config import extension_enabled
+
+    options = {}
+    if extension_enabled() and os_type == "linux":
+        from camoufox.fingerprints import Screen
+
+        # Native first-generation constraint only. Saved profiles return above;
+        # display allocation follows their own geometry on every later launch.
+        options["screen"] = Screen(min_width=1366, max_width=1366, min_height=768, max_height=768)
+    fingerprint = generate_fingerprint(os=os_type, **options)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps({"os": os_type, "fingerprint": fingerprint}),

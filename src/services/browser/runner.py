@@ -1,8 +1,13 @@
 import asyncio
 import contextlib
+import json
+import math
 import os
+import secrets
 import signal
+import subprocess
 import sys
+import tempfile
 
 sys.path.insert(
     0,
@@ -39,6 +44,195 @@ def _safe_print(message: str) -> None:
         fallback = (message + "\n").encode("utf-8", errors="replace")
         sys.stdout.buffer.write(fallback)
         sys.stdout.flush()
+
+
+def _emit_runtime_metadata(
+    display_name: str | None, *, browser_process: dict | None = None
+) -> None:
+    """Announce sandbox-local display details for the trusted supervisor."""
+    from foxprofile_ext.config import extension_enabled
+
+    if not extension_enabled():
+        return
+    metadata = {
+        "display": display_name or os.environ.get("DISPLAY"),
+        "xauthority_path": os.environ.get("XAUTHORITY") or None,
+        # This is the namespace-local mount point; the supervisor maps it to
+        # its trusted private host run directory before persisting metadata.
+        "tmp_path": os.environ.get("TMPDIR", "/tmp"),
+        # Namespace inode identity is host-visible too; the supervisor verifies
+        # that it belongs to this confined child's process tree before storing it.
+        "namespace": os.readlink("/proc/self/ns/pid"),
+    }
+    if browser_process is not None:
+        metadata["browser_process"] = browser_process
+    _safe_print("RUNTIME:" + json.dumps(metadata, separators=(",", ":")))
+
+
+def camoufox_runtime_options(headless: bool | str) -> dict:
+    """Keep browser and stopped-profile helpers on the same native policy."""
+    options = {"headless": headless, "humanize": True}
+    executable = runtime_executable("camoufox")
+    if executable is not None:
+        options["executable_path"] = executable
+    return options
+
+
+def runtime_executable(engine: str) -> str | None:
+    """Use only the installed executable selected by the trusted supervisor."""
+    from foxprofile_ext.config import extension_enabled
+
+    if not extension_enabled():
+        return None
+    executable = os.environ.get(f"FOXPROFILE_{engine.upper()}_EXECUTABLE", "")
+    if (
+        not os.path.isabs(executable)
+        or not os.path.isfile(executable)
+        or not os.access(executable, os.X_OK)
+    ):
+        raise RuntimeError(f"Protected {engine} requires an installed runtime executable")
+    return executable
+
+
+def browser_process_metadata(engine: str) -> dict | None:
+    """Report the actual engine process, not its Python/Playwright launcher."""
+    executable = runtime_executable(engine)
+    if executable is None:
+        return None
+    executable = os.path.realpath(executable)
+    runner_pid = os.getpid()
+    processes = {}
+    matching = []
+    for name in os.listdir("/proc"):
+        if not name.isdecimal():
+            continue
+        pid = int(name)
+        try:
+            with open(f"/proc/{pid}/stat", encoding="utf-8") as stat:
+                data = stat.read()
+            fields = data[data.rindex(")") + 2 :].split()
+            processes[pid] = (int(fields[1]), int(fields[19]))
+            if pid != runner_pid and os.readlink(f"/proc/{pid}/exe") == executable:
+                matching.append(pid)
+        except (OSError, ValueError, IndexError):
+            continue
+    candidates = []
+    for pid in matching:
+        parent, depth = pid, 0
+        visited = set()
+        while parent in processes and parent != runner_pid and parent not in visited:
+            visited.add(parent)
+            parent = processes[parent][0]
+            depth += 1
+        if parent == runner_pid:
+            candidates.append((depth, pid))
+    candidates.sort()
+    if not candidates or (len(candidates) > 1 and candidates[0][0] == candidates[1][0]):
+        raise RuntimeError("Protected browser process could not be verified")
+    pid = candidates[0][1]
+    return {"pid": pid, "start_ticks": processes[pid][1]}
+
+
+class _PrivateVirtualDisplay(VirtualDisplay):
+    """Keep Xvfb cookie-protected, including its Linux abstract X socket."""
+
+    def __init__(self, **options) -> None:
+        super().__init__(**options)
+        self._authority_dir = tempfile.mkdtemp(prefix="foxprofile-xauth-")
+        descriptor, self.authority_path = tempfile.mkstemp(
+            prefix="Xauthority-", dir=self._authority_dir
+        )
+        os.close(descriptor)
+        self._cookie = secrets.token_hex(16)
+        try:
+            self.authorize(":0")
+        except BaseException:
+            os.unlink(self.authority_path)
+            os.rmdir(self._authority_dir)
+            raise
+
+    @property
+    def xvfb_args(self) -> tuple:
+        return tuple(arg for arg in super().xvfb_args if arg != "-ac") + (
+            "-auth",
+            self.authority_path,
+        )
+
+    def authorize(self, display_name: str) -> None:
+        # Xvfb reads the cookie before choosing its -displayfd number; clients
+        # then need that same cookie associated with the resulting display.
+        result = subprocess.run(
+            [
+                "xauth",
+                "-f",
+                self.authority_path,
+                "source",
+                "-",
+            ],
+            input=f"add {display_name} MIT-MAGIC-COOKIE-1 {self._cookie}\n",
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if result.returncode:
+            raise RuntimeError("Could not prepare private X authorization")
+
+    def kill(self) -> None:
+        try:
+            super().kill()
+        finally:
+            if os.environ.get("XAUTHORITY") == self.authority_path:
+                os.environ.pop("XAUTHORITY", None)
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(self.authority_path)
+            with contextlib.suppress(OSError):
+                os.rmdir(self._authority_dir)
+
+
+def start_virtual_display(options: dict) -> VirtualDisplay | None:
+    """Own the single virtual display used by either Camoufox entry point."""
+    if options["headless"] != "virtual":
+        return None
+    from foxprofile_ext.config import extension_enabled
+
+    xvfb.sweep_stale()
+    display_options = {}
+    protected = extension_enabled()
+    if protected:
+        # Allocate the framebuffer around the saved device; never resize its
+        # fingerprint to a client viewport or the upstream 1x1 virtual default.
+        fingerprint = options.get("fingerprint", {})
+        screen = fingerprint.get("screen", {})
+        window = fingerprint.get("window", {})
+        scale = screen.get("devicePixelRatio") or window.get("devicePixelRatio") or 1
+        width = max(
+            1366,
+            screen.get("width") or 0,
+            (window.get("screenX") or 0) + (window.get("outerWidth") or 0),
+        )
+        height = max(
+            768,
+            screen.get("height") or 0,
+            (window.get("screenY") or 0) + (window.get("outerHeight") or 0),
+        )
+        width, height = math.ceil(width * scale), math.ceil(height * scale)
+        if not 1 <= width <= 32768 or not 1 <= height <= 32768:
+            raise ValueError("Saved browser geometry exceeds supported virtual display size")
+        display_options["screen"] = f"{width}x{height}x24"
+    display = (_PrivateVirtualDisplay if protected else VirtualDisplay)(**display_options)
+    try:
+        options["virtual_display"] = display.get()
+        if protected:
+            display.authorize(options["virtual_display"])
+            os.environ["XAUTHORITY"] = display.authority_path
+        options["headless"] = False
+        xvfb.record(display.proc.pid, options["virtual_display"])
+        return display
+    except BaseException:
+        display.kill()
+        xvfb.clear()
+        raise
 
 
 def _compact_error(exc: Exception, limit: int = 700) -> str:
@@ -179,10 +373,8 @@ async def run_browser(
     profile_dir = os.path.join(os.getcwd(), DATA_DIR, profile_name)
 
     launch_config = {
-        "headless": HEADLESS,
         "os": os_type,
         "fingerprint": load_or_create(profile_dir, os_type),
-        "humanize": True,
         "block_images": False,
         "user_data_dir": profile_dir,
         "persistent_context": True,
@@ -201,6 +393,13 @@ async def run_browser(
     # record lets the launcher stop it if this process is killed instead.
     display = None
     try:
+        launch_config.update(camoufox_runtime_options(HEADLESS))
+        from foxprofile_ext.config import extension_enabled
+
+        if extension_enabled():
+            from foxprofile_ext.runtime.cache import require_geoip_cache
+
+            require_geoip_cache()
         # Blocking (up to ~30 s over a slow proxy), so off the event loop; inside
         # the try so a dead proxy reports LAUNCH_FAILED like any launch error.
         ip = await asyncio.to_thread(exit_ip, proxy_str)
@@ -208,13 +407,13 @@ async def run_browser(
         if not locale:
             launch_config["locale"] = await asyncio.to_thread(stable_locale, profile_dir, ip)
         pin_geoip_locale(launch_config["locale"])
-        if HEADLESS == "virtual":
-            await asyncio.to_thread(xvfb.sweep_stale)
-            display = VirtualDisplay()
-            launch_config["headless"] = False
-            launch_config["virtual_display"] = display.get()
-            xvfb.record(display.proc.pid, launch_config["virtual_display"])
+        display = await asyncio.to_thread(start_virtual_display, launch_config)
+        _emit_runtime_metadata(launch_config.get("virtual_display"))
         async with AsyncCamoufox(**launch_config) as context:
+            _emit_runtime_metadata(
+                launch_config.get("virtual_display"),
+                browser_process=browser_process_metadata("camoufox"),
+            )
             if not context.pages:
                 await context.new_page()
             if RESTORE_TABS:

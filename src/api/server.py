@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING
 
 import uvicorn
 
+from foxprofile_ext.transport import websocket_transport_options
+
 from ..core.config import API_HOST, API_PORT
 from ..core.logging import get_logger
 
@@ -29,6 +31,7 @@ class APIServer:
             port=API_PORT,
             log_level="warning",
             access_log=False,
+            **websocket_transport_options(),
         )
         self._server = uvicorn.Server(config)
 

@@ -31,8 +31,26 @@ def runner_command(profile: Profile) -> list[str]:
     ]
 
 
+def helper_command(action: str, profile_name: str, os_type: str, engine: str) -> list[str]:
+    """Build the fixed cookie-helper command for a trusted runtime supervisor."""
+    if action not in {"export", "import"}:
+        raise ValueError("unknown cookie helper action")
+    return [
+        sys.executable,
+        str(pathlib.Path(__file__).with_name("cookie_tool.py")),
+        action,
+        profile_name,
+        os_type,
+        engine,
+    ]
+
+
 def spawn_browser(profile: Profile) -> subprocess.Popen:
     """Spawn the browser subprocess for the given profile."""
+    from foxprofile_ext.config import extension_enabled
+
+    if extension_enabled():
+        raise RuntimeError("Protected browser launch requires the runtime adapter")
     env = os.environ.copy()
     existing_pythonpath = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = _PROJECT_ROOT + (
@@ -80,6 +98,8 @@ def wait_for_exit(
     proc: subprocess.Popen,
     name: str,
     notify_stopped: Callable[[], None],
+    *,
+    cleanup_runner: bool = True,
 ) -> None:
     """Block until the process exits, then fire the callback."""
     try:
@@ -88,5 +108,9 @@ def wait_for_exit(
         logger.exception("Wait error for profile %s: %s", name, e)
     finally:
         # A runner that died on its own (crash, OOM kill) never ran its cleanup.
-        cleanup(proc)
+        # Protected launches are represented here by the trusted supervisor
+        # process. Its owner has the host-namespace mapping needed to clean up
+        # the runner's X server; a source-side PID lookup would be ambiguous.
+        if cleanup_runner:
+            cleanup(proc)
         notify_stopped()

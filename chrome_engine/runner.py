@@ -23,7 +23,13 @@ from chrome_engine import fetch
 from chrome_engine.engine import ChromeEngine
 from src.core.config import DATA_DIR, HEADLESS, RESTORE_TABS
 from src.services.browser import control, session
-from src.services.browser.runner import restore_tabs, snapshot_tabs
+from src.services.browser.runner import (
+    _emit_runtime_metadata,
+    browser_process_metadata,
+    restore_tabs,
+    runtime_executable,
+    snapshot_tabs,
+)
 
 _shutdown = asyncio.Event()
 
@@ -58,6 +64,8 @@ def _install_progress() -> fetch.Progress:
 
 async def ensure_installed() -> None:
     """Download the pinned browser build on first use."""
+    if runtime_executable("chrome") is not None:
+        return
     if fetch.installed_executable():
         return
     _say("Chrome engine is not installed yet; downloading it once...")
@@ -79,26 +87,32 @@ async def run_browser(
 ) -> int:
     profile_dir = os.path.join(os.getcwd(), DATA_DIR, profile_name)
     proxy = proxy_str if proxy_str and proxy_str != "None" else None
-    engine = ChromeEngine(
-        profile_dir,
-        platform=os_type,
-        proxy=proxy,
-        headless=_headless(),
-        # "" keeps the timezone / locale following the proxy's exit IP.
-        timezone=timezone,
-        locale=locale,
-    )
+    engine = None
     _say(f"Starting Chrome engine for {profile_name}...")
     try:
+        engine = ChromeEngine(
+            profile_dir,
+            platform=os_type,
+            proxy=proxy,
+            headless=_headless(),
+            # "" keeps the timezone / locale following the proxy's exit IP.
+            timezone=timezone,
+            locale=locale,
+            executable=runtime_executable("chrome"),
+        )
         await ensure_installed()
+        _emit_runtime_metadata(None)
         context = await engine.start()
+        _emit_runtime_metadata(None, browser_process=browser_process_metadata("chrome"))
     except asyncio.CancelledError:
         _say("LAUNCH_CANCELLED")
-        await engine.stop()
+        if engine is not None:
+            await engine.stop()
         return 1
     except Exception as e:
         _say(f"LAUNCH_FAILED: {type(e).__name__}: {_compact(e)}")
-        await engine.stop()
+        if engine is not None:
+            await engine.stop()
         return 1
 
     try:

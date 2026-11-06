@@ -20,6 +20,9 @@ _APP_ROOT = "/opt/foxprofile"
 _PROFILE_ROOT = "/profile"
 _TEMP_ROOT = "/tmp"
 _SYSTEM_PATH = "/usr/bin:/bin"
+_RESOLVER_FILES = frozenset(
+    Path(value) for value in ("/etc/resolv.conf", "/etc/hosts", "/etc/nsswitch.conf")
+)
 _PRIVATE_HOST_PATHS = (
     Path("/proc"),
     Path("/sys"),
@@ -133,9 +136,22 @@ def _runtime_paths(spec: ConfinementSpec, code_root: Path) -> tuple[Path, ...]:
             raise ConfinementUnavailable("a read-only runtime path is unavailable") from error
         if not resolved.is_dir() and not resolved.is_file():
             raise ConfinementUnavailable("runtime paths must be files or directories")
+        resolver_file = mount_path in _RESOLVER_FILES
+        if resolver_file:
+            info = resolved.stat()
+            if (
+                not resolved.is_file()
+                or info.st_uid not in {0, os.getuid()}
+                or info.st_mode & 0o022
+            ):
+                raise ConfinementUnavailable(
+                    "resolver configuration must be a trusted read-only file"
+                )
         if resolved in blocked_roots or resolved == home:
             raise ConfinementUnavailable("a broad or private path cannot be a runtime mount")
-        if any(_path_overlaps(resolved, private) for private in _PRIVATE_HOST_PATHS):
+        if not resolver_file and any(
+            _path_overlaps(resolved, private) for private in _PRIVATE_HOST_PATHS
+        ):
             raise ConfinementUnavailable(
                 "a private namespace or service path cannot be a runtime mount"
             )
@@ -239,6 +255,17 @@ def _validate_command(
         resolved = executable.resolve(strict=True)
     except OSError as error:
         raise ConfinementUnavailable("command executable is unavailable") from error
+    # A venv Python is often a symlink to the system interpreter. Preserve
+    # its lexical path so Python still discovers the mounted pyvenv.cfg and
+    # site-packages, after verifying both alias and real target are approved.
+    target_approved = any(
+        resolved == path.resolve() or (path.is_dir() and path.resolve() in resolved.parents)
+        for path in runtime_paths
+    )
+    if target_approved:
+        for path in runtime_paths:
+            if executable == path or (path.is_dir() and path in executable.parents):
+                return _runtime_target(executable, code_root)
     for path in runtime_paths:
         runtime_root = path.resolve()
         if resolved == runtime_root:
@@ -304,7 +331,29 @@ def build_confined_command(
             *command[1:],
         )
     )
-    return argv, build_confined_environment(settings)
+    environment = build_confined_environment(settings)
+    for name in ("FOXPROFILE_CAMOUFOX_EXECUTABLE", "FOXPROFILE_CHROME_EXECUTABLE"):
+        value = (settings or {}).get(name)
+        if value is None:
+            continue
+        if not isinstance(value, str) or not Path(value).is_absolute():
+            raise ConfinementUnavailable("browser executable must be an absolute runtime path")
+        if not Path(value).is_file():
+            raise ConfinementUnavailable("browser executable is unavailable")
+        environment[name] = str(_validate_command((value,), runtime_paths, code_root))
+    cache_home = (settings or {}).get("XDG_CACHE_HOME")
+    if cache_home is not None:
+        if (
+            not isinstance(cache_home, str)
+            or "\x00" in cache_home
+            or not Path(cache_home).is_absolute()
+        ):
+            raise ConfinementUnavailable("GeoIP cache home must be an absolute runtime path")
+        cache = Path(cache_home) / "camoufox" / "geoip"
+        if cache not in runtime_paths or not cache.is_dir() or cache != cache.resolve():
+            raise ConfinementUnavailable("GeoIP cache requires its exact read-only runtime mount")
+        environment["XDG_CACHE_HOME"] = str(_runtime_target(cache, code_root).parents[1])
+    return argv, environment
 
 
 def probe_confinement(

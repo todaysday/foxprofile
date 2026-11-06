@@ -28,6 +28,7 @@ def main() -> None:
         gui.run()
     finally:
         api_server.stop()
+        container.shutdown()
 
 
 if __name__ == "__main__":

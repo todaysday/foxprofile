@@ -3,5 +3,6 @@
 pytest>=8.0
 ruff>=0.17.3
 httpx>=0.28.1
+tzdata>=2026.5
 setuptools>=77
 wheel

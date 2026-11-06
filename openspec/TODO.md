@@ -11,6 +11,8 @@
 - [x] Pin personal web/Flet actions, modals, Viewer and selection to immutable profile IDs. Explicit ID locators never fall back to names; canonical batch fields accept IDs only. Rename, deletion and UUID-as-name replacement regressions passed.
 - [x] Deliver packaged staging account/profile fixtures, a controlled native-input page and explicit-target API smoke commands. Fifteen fixture/real-local-HTTP checks passed; actual target/browser acceptance remains NOT RUN.
 - [x] Verify the private VNC backend with real Xvfb/x11vnc, including private RFB transport, helper watchdog, held-input release and browser-preserving cleanup; actual browser and live-host acceptance remain open.
+- [x] Require authoritative RUNNING state before manual backend startup; verify RESERVED/STARTING/STOPPING requests create no helper and do not stop the browser.
+- [x] Make fresh development timezone-alias tests reproducible with tzdata; preserve the existing probe algorithm and runtime dependency policy.
 
 ## Review follow-ups
 

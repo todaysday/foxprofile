@@ -19,7 +19,14 @@ from ..catalog import CatalogOperationError, ProfileCatalog
 from ..dto import RuntimeDescriptor
 from ..errors import DomainError, ErrorCode
 from ..runtime.confinement import ConfinementPurpose, ConfinementSpec
-from ..storage import CapacityLedger, ExtensionDatabase, ManualLeaseDAO, SessionDAO, UserDAO
+from ..storage import (
+    CapacityLedger,
+    ExtensionDatabase,
+    ManualLeaseDAO,
+    RunStatus,
+    SessionDAO,
+    UserDAO,
+)
 from .backend import PrivateVNCBackend, VNCBackendUnavailable
 from .contracts import ManualBackend, ManualRuntime
 from .service import ManualSessionService
@@ -135,7 +142,9 @@ def build_manual_gateway(
         run = next(
             (item for item in ledger.active_runs() if item.ref.profile_id == profile_id), None
         )
-        descriptor = verified(run.ref) if run is not None else None
+        if run is None or run.status is not RunStatus.RUNNING:
+            return None
+        descriptor = verified(run.ref)
         return ManualRuntime(descriptor, profile.engine, True) if descriptor is not None else None
 
     # Fixed system/Python dependencies plus exact explicitly supplied native assets.

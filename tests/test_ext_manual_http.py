@@ -36,6 +36,7 @@ from foxprofile_ext.storage import (
     CatalogOperationDAO,
     ExtensionDatabase,
     ManualLeaseDAO,
+    RunStatus,
     SessionDAO,
     UserDAO,
 )
@@ -109,7 +110,7 @@ class SocketBackend:
 
 
 @pytest.fixture
-def gateway_api(tmp_path, monkeypatch):
+def gateway_api(tmp_path, monkeypatch, request):
     monkeypatch.setenv("FOXPROFILE_EXT_ENABLED", "true")
     monkeypatch.setattr(api_auth, "API_TOKEN", SERVICE_TOKEN)
     monkeypatch.setattr(api_app, "API_TOKEN", SERVICE_TOKEN)
@@ -141,6 +142,14 @@ def gateway_api(tmp_path, monkeypatch):
     )
     ledger = CapacityLedger(database)
     runs = ledger.reserve([profile_a.profile_id, profile_b.profile_id], "canary-host").runs
+    status = getattr(request, "param", RunStatus.RUNNING)
+    for run in runs:
+        if status is not RunStatus.RESERVED:
+            assert ledger.claim(run.ref, "canary-host", ProcessIdentity(101, 201))
+        if status in {RunStatus.RUNNING, RunStatus.STOPPING}:
+            assert ledger.mark_running(run.ref)
+        if status is RunStatus.STOPPING:
+            assert ledger.mark_stopping(run.ref)
     descriptors = {
         run.ref.profile_id: RuntimeDescriptor(
             run.ref,
@@ -260,6 +269,37 @@ def test_lifecycle_owner_session_acl_redaction_and_capacity(gateway_api):
     assert env.ledger.active_runs() == before
     assert env.backend.events[-2:] == ["release", "stop"]
     assert env.lookups
+
+
+@pytest.mark.parametrize(
+    "gateway_api", [RunStatus.RESERVED, RunStatus.STARTING, RunStatus.STOPPING], indirect=True
+)
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux bubblewrap/fcntl gateway")
+def test_factory_rejects_nonrunning_run_before_backend_start(gateway_api):
+    env = gateway_api
+    before = env.ledger.active_runs()
+    response = create(env)
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "STALE_BROWSER_RUN"
+    assert not env.backend.events
+    assert not env.backend.entries
+    assert not env.lookups
+    assert ManualLeaseDAO(env.database).current() is None
+    assert env.ledger.active_runs() == before
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux bubblewrap/fcntl gateway")
+def test_factory_opens_only_exact_running_ref(gateway_api):
+    env = gateway_api
+    descriptor = env.descriptors[env.profile_a.profile_id]
+    before = env.ledger.active_runs()
+    assert env.ledger.get(descriptor.run).status is RunStatus.RUNNING
+    response = create(env)
+    assert response.status_code == 200
+    assert response.json()["browser_run_id"] == descriptor.run.run_id
+    assert env.backend.events == ["start"]
+    assert env.lookups and all(ref == descriptor.run for ref in env.lookups)
+    assert env.ledger.active_runs() == before
 
 
 @pytest.mark.parametrize(

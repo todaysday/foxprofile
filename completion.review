@@ -189,3 +189,8 @@
 
 - Normal fresh development installation and pip dependency validation passed. Portable fixtures inject controlled coordinators; real Linux namespaces, display and native-process contracts retain explicit platform/opt-in guards and run in the dedicated integration job. Legacy, DAO/policy and path-normalization checks retain portable coverage.
 - IND841 evidence: **163 passed, 18 native opt-in skips** in focused fresh-environment categories; dedicated native selection **89 passed, no skips**. Actionlint, Ruff, formatting, whitespace and Code Simplifier checks passed. Windows/macOS and Python 3.10 were not executed locally; workflow preservation is not an execution claim.
+
+#### Final integration corrections
+
+- Fresh archived checkpoint `26fcf9e` with native tests enabled reached **978 passed, 3 failed, 24 deselected** before the three-failure stop. Failures were the previously identified baseline timezone-alias environment issue. Added development-only tzdata: normal installation resolved **2026.6**; the unchanged Chrome probe module went from **4 failed/43 passed to 47 passed**. Runtime requirements, algorithm and assertions remain unchanged.
+- Closed the factory readiness gap: verified live descriptors alone no longer promote RESERVED/STARTING/STOPPING records to manual access. Only authoritative RUNNING records reach descriptor verification/backend startup; rejected requests preserve the browser and create no helper. Three denial cases reproduced before correction. HTTP verification: **46 passed, 1 opt-in skip**, separate native RFB **1 passed**, service/store **45 passed**. Code Simplifier, Ruff and formatting passed. These corrections require the final immutable regression run; the earlier archived run is not reported as a pass.

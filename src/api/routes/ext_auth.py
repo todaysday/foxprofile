@@ -225,7 +225,11 @@ def delete_profiles_batch(
 ) -> dict[str, object]:
     try:
         results = _container(request).protected_application.delete_profiles(
-            principal, body.profile_ids
+            principal,
+            [
+                f"id:{profile_id}" if profile_id.strip() else profile_id
+                for profile_id in body.profile_ids
+            ],
         )
     except DomainError as error:
         raise domain_http_error(error) from error

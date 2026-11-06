@@ -17,6 +17,7 @@ from ...utils.validation import (
 from ..theme.colors import COLORS, FONT_BOLD, FONT_DATA, FONT_SEMIBOLD
 from ..theme.page import build_engine_dropdown, build_os_dropdown
 from ..theme.styles import ACCENT_STYLE, DLG_FIELD_KWARGS, OUTLINE_STYLE
+from .lifecycle import authorized, close_dialog, dialog_authorizer, scrub_dialog
 
 
 def open_profile_dialog(
@@ -24,7 +25,11 @@ def open_profile_dialog(
     proxy_service: IProxyService,
     on_save: Callable[[str, str, str, str, str, str], str | None],
     profile: Profile | None = None,
+    *,
+    authorize: Callable[[], object] | None = None,
 ) -> None:
+    if authorize:
+        authorize()
     is_edit = profile is not None
     title = get_string("edit_profile") if is_edit else get_string("create_new_profile")
     subtitle = (
@@ -46,9 +51,8 @@ def open_profile_dialog(
         text_style=_DATA,
         **DLG_FIELD_KWARGS,
     )
-    os_dropdown = build_os_dropdown(
-        profile.os_type if profile is not None else "windows",
-    )
+    default_os = "linux" if authorize else "windows"
+    os_dropdown = build_os_dropdown(profile.os_type if profile is not None else default_os)
     os_dropdown.expand = 2
     # Fixed once created: the engines keep incompatible browser data.
     engine_dropdown = build_engine_dropdown(
@@ -76,7 +80,19 @@ def open_profile_dialog(
         ),
     )
 
+    os_explicit = False
+
+    def on_os_change(_: ft.ControlEvent) -> None:
+        nonlocal os_explicit
+        os_explicit = True
+
+    os_dropdown.on_select = on_os_change
+
     def on_engine_change(_: ft.ControlEvent) -> None:
+        if not authorized(authorize):
+            return
+        if authorize and not is_edit and not os_explicit:
+            os_dropdown.value = "windows" if engine_dropdown.value == "chrome" else "linux"
         engine_note.visible = engine_dropdown.value == "chrome" and not is_edit
         page.update()
 
@@ -113,7 +129,7 @@ def open_profile_dialog(
         style=OUTLINE_STYLE,
     )
     ip_btn.on_click = lambda _: _do_ip_check(
-        page, proxy_field, timezone_field, locale_field, geo_result, ip_btn
+        page, proxy_field, timezone_field, locale_field, geo_result, ip_btn, authorize
     )
 
     check_btn.on_click = lambda _: _do_proxy_check(
@@ -122,9 +138,12 @@ def open_profile_dialog(
         proxy_error,
         check_btn,
         proxy_service,
+        authorize,
     )
 
     def on_submit(_: ft.ControlEvent) -> None:
+        if not authorized(authorize):
+            return
         name = (name_field.value or "").strip()
         proxy = (proxy_field.value or "").strip()
         os_type = os_dropdown.value or "windows"
@@ -161,7 +180,7 @@ def open_profile_dialog(
             name_error.visible = True
             page.update()
         else:
-            page.pop_dialog()
+            close_dialog(page, dlg)
 
     engine_dropdown.label = None
     os_dropdown.label = None
@@ -171,6 +190,7 @@ def open_profile_dialog(
         dropdown.text_size = 14
     dlg = ft.AlertDialog(
         modal=True,
+        on_dismiss=lambda _: scrub_dialog(dlg),
         bgcolor=COLORS["card_bg"],
         shape=ft.RoundedRectangleBorder(radius=12),
         title_padding=ft.Padding.only(left=24, right=24, top=22, bottom=0),
@@ -240,7 +260,7 @@ def open_profile_dialog(
             ft.TextButton(
                 get_string("cancel"),
                 style=ft.ButtonStyle(color=COLORS["text_sub"]),
-                on_click=lambda _: page.pop_dialog(),
+                on_click=lambda _: close_dialog(page, dlg) if authorized(authorize) else None,
             ),
             ft.Button(
                 save_label,
@@ -250,7 +270,11 @@ def open_profile_dialog(
             ),
         ],
     )
+    if authorize:
+        authorize()
     page.show_dialog(dlg)
+
+    authorize = dialog_authorizer(dlg, authorize)
 
 
 _DATA = ft.TextStyle(font_family=FONT_DATA, size=13)
@@ -282,7 +306,10 @@ def _do_proxy_check(
     proxy_error: ft.Text,
     check_btn: ft.OutlinedButton,
     proxy_service: IProxyService,
+    authorize: Callable[[], object] | None = None,
 ) -> None:
+    if not authorized(authorize):
+        return
     proxy = (proxy_field.value or "").strip()
     if not proxy:
         proxy_error.value = get_string("enter_proxy_to_check")
@@ -297,7 +324,11 @@ def _do_proxy_check(
     page.update()
 
     def do_check() -> None:
+        if not authorized(authorize):
+            return
         success, message = proxy_service.check_proxy_sync(proxy)
+        if not authorized(authorize):
+            return
         check_btn.content = ft.Text(get_string("check_proxy"))
         check_btn.disabled = False
         proxy_error.value = message
@@ -316,7 +347,10 @@ def _do_ip_check(
     locale_field: ft.TextField,
     geo_result: ft.Column,
     ip_btn: ft.OutlinedButton,
+    authorize: Callable[[], object] | None = None,
 ) -> None:
+    if not authorized(authorize):
+        return
     proxy = (proxy_field.value or "").strip()
     timezone = (timezone_field.value or "").strip()
     locale = (locale_field.value or "").strip()
@@ -338,18 +372,28 @@ def _do_ip_check(
     page.update()
 
     def use_locale(value: str) -> None:
+        if not authorized(authorize):
+            return
         locale_field.value = value
         page.update()
 
     def do_check() -> None:
+        if not authorized(authorize):
+            return
         try:
             result = check_geo(proxy or None, timezone or None, locale or None)
+            if not authorized(authorize):
+                return
             geo_result.controls = _geo_lines(result, use_locale)
             geo_result.height = min(160, 22 * len(geo_result.controls))
         except Exception as e:
+            if not authorized(authorize):
+                return
             geo_result.controls = [
                 ft.Text(get_string("geo_check_failed", error=e), size=12, color=COLORS["error"])
             ]
+        if not authorized(authorize):
+            return
         ip_btn.content = ft.Text(get_string("check_ip"))
         ip_btn.disabled = False
         geo_result.visible = True

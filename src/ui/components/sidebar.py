@@ -69,6 +69,7 @@ def build_sidebar(
     filter_column: ft.Column | None = None,
     language: str = "en",
     on_language: Callable[[str], None] | None = None,
+    show_mcp: bool = True,
 ) -> ft.Container:
     log_toggle_btn.on_click = on_toggle_log
     return ft.Container(
@@ -168,6 +169,7 @@ def build_sidebar(
                 ft.Container(height=8),
                 ft.OutlinedButton(
                     get_string("mcp_button"),
+                    visible=show_mcp,
                     icon=ft.Icons.SMART_TOY_OUTLINED,
                     width=208,
                     height=38,

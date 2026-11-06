@@ -490,11 +490,12 @@ const store = {
 };
 let lang = store.get("foxprofile.lang") || "en";
 let token = store.get("foxprofile.token") || "";
+let panel = null, manualActive = false, actorGeneration = 0, viewerGeneration = 0, viewerLifetime = 0;
 let profiles = [], running = new Set(), fingerprints = {};
 let filter = "all";
-const busy = new Map();          // name -> "starting" | "stopping"
-const failed = new Map();        // name -> error message of the last failed launch
-const liveSince = new Map();     // name -> Date the profile was first seen running
+const busy = new Map();          // profile key -> "starting" | "stopping"
+const failed = new Map();        // profile key -> error message of the last failed launch
+const liveSince = new Map();     // profile key -> Date the profile was first seen running
 const justLanded = new Set();    // stamps to animate on the next render
 const selected = new Set();
 const $ = (id) => document.getElementById(id);
@@ -544,6 +545,7 @@ function toast(msg, isError = false) {
 
 class ApiError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
 async function api(method, path, body, { raw = false } = {}) {
+  if (panel?.personal) return panel.request(method, path, body, { raw });
   const headers = {};
   if (token) headers.Authorization = "Bearer " + token;
   if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -562,7 +564,20 @@ async function api(method, path, body, { raw = false } = {}) {
   const ct = res.headers.get("content-type") || "";
   return ct.includes("json") ? res.json() : res.text();
 }
+function scopedApi(active = () => true) {
+  const actor = actorGeneration;
+  return async (...args) => {
+    if (actor !== actorGeneration || !active()) throw new ApiError(401, t("session_expired"));
+    const result = await api(...args);
+    if (actor !== actorGeneration || !active()) throw new ApiError(401, t("session_expired"));
+    return result;
+  };
+}
 const enc = encodeURIComponent;
+function profileKey(p) { return panel?.personal ? p.profile_id : p.name; }
+// AICODE-NOTE: Explicit ID locators prevent deleted IDs from resolving as replacement names.
+function profileLocator(p) { return (panel?.personal ? "id:" : "") + profileKey(p); }
+function profilePath(p) { return `/profiles/${enc(profileLocator(p))}`; }
 
 function maskProxy(p) {
   if (!p) return "";
@@ -575,26 +590,31 @@ function maskProxy(p) {
 const hhmm = (d) => d.toTimeString().slice(0, 5);
 
 async function refresh() {
+  const actor = actorGeneration;
   try {
-    const [list, run] = await Promise.all([api("GET", "/profiles"), api("GET", "/browser")]);
+    const [list, run] = await Promise.all([api("GET", "/profiles"), panel?.personal ? Promise.resolve(null) : api("GET", "/browser")]);
+    if (actor !== actorGeneration) return;
     profiles = list.profiles;
-    const now = new Set(run.running);
-    for (const name of now) if (!liveSince.has(name)) liveSince.set(name, new Date());
-    for (const name of [...liveSince.keys()]) if (!now.has(name)) liveSince.delete(name);
+    if (panel?.personal) for (const p of profiles) if (p.fingerprint) fingerprints[profileKey(p)] = p.fingerprint;
+    const now = new Set(panel?.personal ? profiles.filter((p) => p.state === "running").map(profileKey) : run.running);
+    for (const key of now) if (!liveSince.has(key)) liveSince.set(key, new Date());
+    for (const key of [...liveSince.keys()]) if (!now.has(key)) liveSince.delete(key);
     running = now;
-    for (const name of [...selected]) if (!profiles.some((p) => p.name === name)) selected.delete(name);
-    for (const name of [...failed.keys()]) if (now.has(name) || !profiles.some((p) => p.name === name)) failed.delete(name);
-    await Promise.all(profiles.filter((p) => !(p.name in fingerprints)).map(loadFingerprint));
-    render();
+    for (const key of [...selected]) if (!profiles.some((p) => profileKey(p) === key)) selected.delete(key);
+    for (const key of [...failed.keys()]) if (now.has(key) || !profiles.some((p) => profileKey(p) === key)) failed.delete(key);
+    await Promise.all(profiles.filter((p) => !(profileKey(p) in fingerprints)).map(loadFingerprint));
+    if (actor === actorGeneration) render();
   } catch (e) { if (e.status !== 401) toast(e.message, true); }
 }
 async function loadFingerprint(p) {
-  try { fingerprints[p.name] = await api("GET", `/profiles/${enc(p.name)}/fingerprint`); } catch { fingerprints[p.name] = null; }
+  const actor = actorGeneration;
+  try { const detail = await api("GET", profilePath(p) + "/fingerprint"); if (actor === actorGeneration) fingerprints[profileKey(p)] = detail; }
+  catch { if (actor === actorGeneration) fingerprints[profileKey(p)] = null; }
 }
 
 const FILTERS = [
   ["all", "f_all", () => true],
-  ["running", "f_running", (p) => running.has(p.name)],
+  ["running", "f_running", (p) => running.has(profileKey(p))],
   ["proxy", "f_proxy", (p) => !!p.proxy],
   ["direct", "f_direct", (p) => !p.proxy],
   ["chrome", "f_chrome", (p) => p.engine === "chrome"],
@@ -612,7 +632,7 @@ function render() {
   // Rebuilding the list replaces every button; skip it when nothing changed so a
   // periodic refresh cannot swap the button under the user's cursor mid-click.
   const key = JSON.stringify([lang, q, filter, profiles, [...running].sort(), [...busy], [...failed], [...selected].sort(),
-    [...justLanded], shown.map((p) => fingerprints[p.name] || null)]);
+    [...justLanded], shown.map((p) => fingerprints[profileKey(p)] || null)]);
   if (key === lastRender) return;
   lastRender = key;
 
@@ -649,11 +669,13 @@ function emptyState(filtered, q = "") {
 }
 
 function headRow(shown) {
-  const all = shown.length > 0 && shown.every((p) => selected.has(p.name));
+  const actor = actorGeneration;
+  const all = shown.length > 0 && shown.every((p) => selected.has(profileKey(p)));
   const box = h("input", { type: "checkbox", "aria-label": t("select_all"), onchange: (e) => {
-    shown.forEach((p) => (e.target.checked ? selected.add(p.name) : selected.delete(p.name))); render(); } });
+    if (actor !== actorGeneration) return;
+    shown.forEach((p) => (e.target.checked ? selected.add(profileKey(p)) : selected.delete(profileKey(p)))); render(); } });
   box.checked = all;
-  box.indeterminate = !all && shown.some((p) => selected.has(p.name));
+  box.indeterminate = !all && shown.some((p) => selected.has(profileKey(p)));
   return h("div", { class: "row head-row", role: "row" },
     h("div", { class: "c-sel", role: "columnheader" }, box),
     h("div", { role: "columnheader" }, t("col_profile")), h("div", { role: "columnheader" }, t("col_device")), h("div", { role: "columnheader" }, t("col_proxy")),
@@ -661,33 +683,39 @@ function headRow(shown) {
 }
 
 function stamp(p) {
-  const state = busy.get(p.name);
-  if (state) return h("span", { class: "stamp pending" }, t(state === "stopping" ? "stamp_stopping" : "stamp_starting"));
-  if (running.has(p.name)) {
-    const since = liveSince.get(p.name);
-    return h("span", { class: "stamp" + (justLanded.has(p.name) ? " land" : "") },
+  const key = profileKey(p);
+  const state = busy.get(key) || (p.state === "reserved" ? "starting" : p.state);
+  const pending = { starting: "stamp_starting", stopping: "stamp_stopping", recovering: "stamp_recovering" };
+  if (pending[state]) return h("span", { class: "stamp pending" }, t(pending[state]));
+  if (running.has(key)) {
+    const since = liveSince.get(key);
+    return h("span", { class: "stamp" + (justLanded.has(key) ? " land" : "") },
       t("stamp_live"), since ? h("small", {}, hhmm(since)) : null);
   }
-  if (failed.has(p.name)) return h("span", { class: "stamp failed", title: failed.get(p.name) }, t("stamp_failed"));
+  if (failed.has(key) || p.state === "failed") return h("span", { class: "stamp failed", title: failed.get(key) }, t("stamp_failed"));
   return h("span", { class: "idle" }, t("idle"));
 }
 
 function row(p) {
-  const on = running.has(p.name);
-  const fp = fingerprints[p.name];
-  const isBusy = busy.has(p.name);
+  const key = profileKey(p);
+  const actor = actorGeneration;
+  const current = (fn) => (...args) => { if (actor === actorGeneration) return fn(...args); };
+  const on = running.has(key);
+  const occupied = panel?.personal ? p.is_running : on;
+  const fp = fingerprints[key];
+  const isBusy = busy.has(key) || ["reserved", "starting", "stopping", "recovering"].includes(p.state);
   const os = { windows: "WIN", macos: "MAC", linux: "LIN" }[p.os_type] || "OS";
   const engine = p.engine === "chrome" ? "Chrome" : "Camoufox";
   const box = h("input", { type: "checkbox", "aria-label": t("select_row", { name: p.name }),
-    onchange: (e) => { e.target.checked ? selected.add(p.name) : selected.delete(p.name); render(); } });
-  box.checked = selected.has(p.name);
+    onchange: current((e) => { e.target.checked ? selected.add(key) : selected.delete(key); render(); }) });
+  box.checked = selected.has(key);
   const proxy = maskProxy(p.proxy);
-  const main = on
-    ? h("button", { class: "btn btn-ink main", disabled: isBusy, onclick: () => toggle(p) }, icon("stop", true), t("stop"))
-    : h("button", { class: "btn btn-act main", disabled: isBusy, onclick: () => toggle(p) }, icon("play", true), t("launch"));
+  const main = occupied
+    ? h("button", { class: "btn btn-ink main", disabled: busy.has(key) || p.state === "stopping", onclick: current(() => toggle(p)) }, icon("stop", true), t("stop"))
+    : h("button", { class: "btn btn-act main", disabled: isBusy, onclick: current(() => toggle(p)) }, icon("play", true), t("launch"));
   const iconBtn = (name, label, fn, cls = "", disabled = false) =>
-    h("button", { class: "icon-btn " + cls, title: label, "aria-label": `${label}: ${p.name}`, disabled, onclick: fn }, icon(name));
-  return h("div", { class: "row body" + (on ? " live" : "") + (selected.has(p.name) ? " selected" : ""), role: "row" },
+    h("button", { class: "icon-btn " + cls, title: label, "aria-label": `${label}: ${p.name}`, disabled, onclick: current(fn) }, icon(name));
+  return h("div", { class: "row body" + (on ? " live" : "") + (selected.has(key) ? " selected" : ""), role: "row" },
     h("div", { class: "c-sel", role: "cell" }, box),
     h("div", { class: "c-name stack", role: "cell" },
       h("span", { class: "name", title: p.name }, p.name),
@@ -705,67 +733,102 @@ function row(p) {
       h("span", { class: "minor" + (p.locale ? " data" : "") }, p.locale || t("follow_ip"))),
     h("div", { class: "c-stamp", role: "cell" }, stamp(p)),
     h("div", { class: "actions", role: "cell" }, main,
-      iconBtn("monitor", t("view"), () => openViewer(p.name), "", !on || isBusy),
-      iconBtn("cookie", t("cookies"), () => openCookies(p), "", on),
+      iconBtn("monitor", t("view"), () => openViewer(p), "", !on || isBusy),
+      iconBtn("cookie", t("cookies"), () => openCookies(p), "", occupied),
       iconBtn("edit", t("edit"), () => openEditor(p)),
-      iconBtn("trash", t("delete"), () => removeProfile(p), "danger", on)));
+      iconBtn("trash", t("delete"), () => removeProfile(p), "danger", occupied)));
 }
 
 function bulkBar() {
-  const names = [...selected];
+  const actor = actorGeneration;
+  const act = (action) => { if (actor === actorGeneration) return bulk(action); };
+  const keys = [...selected];
   return h("div", { class: "bulk" },
-    h("span", { class: "n" }, t("selected", { n: names.length })),
-    h("button", { class: "btn btn-act", onclick: () => bulk("launch") }, icon("play", true), t("bulk_launch")),
-    h("button", { class: "btn btn-line", onclick: () => bulk("stop") }, icon("stop", true), t("bulk_stop")),
-    h("button", { class: "btn btn-line", onclick: () => bulk("delete") }, icon("trash", true), t("bulk_delete")),
-    h("button", { class: "btn btn-ghost", style: "margin-left:auto", onclick: () => { selected.clear(); render(); } }, t("clear_sel")));
+    h("span", { class: "n" }, t("selected", { n: keys.length })),
+    h("button", { class: "btn btn-act", onclick: () => act("launch") }, icon("play", true), t("bulk_launch")),
+    h("button", { class: "btn btn-line", onclick: () => act("stop") }, icon("stop", true), t("bulk_stop")),
+    h("button", { class: "btn btn-line", onclick: () => act("delete") }, icon("trash", true), t("bulk_delete")),
+    h("button", { class: "btn btn-ghost", style: "margin-left:auto", onclick: () => { if (actor === actorGeneration) { selected.clear(); render(); } } }, t("clear_sel")));
 }
 
 async function bulk(action) {
-  const names = [...selected];
+  const api = scopedApi();
+  const keys = [...selected];
+  const actor = actorGeneration;
+  if (panel?.personal) {
+    const targets = profiles.filter((p) => keys.includes(profileKey(p)) && (action === "stop" ? p.is_running : !p.is_running));
+    if (!targets.length) return;
+    if (action === "delete" && !(await confirmDialog(t("confirm_bulk_delete", { n: targets.length }), t("bulk_delete"), true))) return;
+    if (actor !== actorGeneration) return;
+    try {
+      const path = action === "delete" ? "/ext/profiles/delete-batch" : `/ext/browser/${action === "launch" ? "start" : "stop"}-batch`;
+      const result = await api("POST", path, { profile_ids: targets.map((p) => p.profile_id) });
+      const outcomes = result.profiles || [];
+      if (action === "delete") for (const item of outcomes) if (item.deleted) { selected.delete(item.profile_id); delete fingerprints[item.profile_id]; }
+      const errors = outcomes.filter((item) => item.error_code);
+      if (errors.length) toast(errors.map((item) => `${item.name}: ${panel.errorMessage(item.error_code)}`).join("; "), true);
+    } catch (e) { if (e.status !== 401) toast(e.message, true); }
+    return refresh();
+  }
   if (action === "delete") {
-    const stopped = names.filter((n) => !running.has(n));
+    const stopped = keys.filter((n) => !running.has(n));
     if (!stopped.length) return toast(t("stop_first"), true);
     if (!(await confirmDialog(t("confirm_bulk_delete", { n: stopped.length }), t("bulk_delete"), true))) return;
     let deleted = 0;
     for (const n of stopped) { try { await api("DELETE", `/profiles/${enc(n)}`); deleted++; selected.delete(n); delete fingerprints[n]; } catch (e) { toast(`${n}: ${e.message}`, true); } }
-    const skipped = names.length - deleted;
+    const skipped = keys.length - deleted;
     if (deleted) toast(t("deleted_n", { n: deleted }) + (skipped ? " · " + t("bulk_skip_running", { n: skipped }) : ""));
     return refresh();
   }
-  const targets = profiles.filter((p) => names.includes(p.name) && (action === "launch" ? !running.has(p.name) : running.has(p.name)));
+  const targets = profiles.filter((p) => keys.includes(profileKey(p)) && (action === "launch" ? !running.has(profileKey(p)) : running.has(profileKey(p))));
   await Promise.all(targets.map((p) => toggle(p, { quiet: true })));
 }
 
 async function toggle(p, { quiet = false } = {}) {
-  const stopping = running.has(p.name);
-  busy.set(p.name, stopping ? "stopping" : "starting");
-  failed.delete(p.name);
+  const locator = profileLocator(p);
+  const key = profileKey(p);
+  const actor = actorGeneration;
+  const api = scopedApi();
+  const stopping = panel?.personal ? p.is_running : running.has(key);
+  busy.set(key, stopping ? "stopping" : "starting");
+  failed.delete(key);
   render();
   try {
     if (stopping) {
-      await api("POST", `/browser/${enc(p.name)}/stop`);
+      await api("POST", `/browser/${enc(locator)}/stop`);
       if (!quiet) toast(t("stopped", { name: p.name }));
     } else {
       if (!quiet) toast(t("launching", { name: p.name }));
-      const r = await api("POST", `/browser/${enc(p.name)}/launch`);
-      delete fingerprints[p.name];
-      liveSince.set(p.name, new Date());
-      justLanded.add(p.name);
-      if (!quiet) toast(r && r.message && !/started/i.test(r.message) ? r.message : t("started", { name: p.name }));
+      const r = panel?.personal
+        ? await api("POST", "/ext/browser/start-batch", { profile_ids: [p.profile_id] })
+        : await api("POST", `/browser/${enc(p.name)}/launch`);
+      if (panel?.personal && r.profiles?.some((item) => item.error_code)) throw new ApiError(409, panel.errorMessage(r.profiles.find((item) => item.error_code).error_code));
+      delete fingerprints[key];
+      if (!panel?.personal) { liveSince.set(key, new Date()); justLanded.add(key); }
+      if (!quiet && !panel?.personal) toast(r && r.message && !/started/i.test(r.message) ? r.message : t("started", { name: p.name }));
     }
   } catch (e) {
-    if (!stopping) failed.set(p.name, e.message);
+    if (actor !== actorGeneration) return;
+    if (!stopping) failed.set(key, e.message);
     toast(`${p.name}: ${e.message}`, true);
   }
-  busy.delete(p.name);
+  if (actor !== actorGeneration) return;
+  busy.delete(key);
   await refresh();
 }
 
+let privateGeneration = 0;
 function modal(build, { wide = false, onDismiss = null } = {}) {
+  ++privateGeneration;
   const root = $("modal-root");
   const opener = document.activeElement;
-  const close = () => { bg.remove(); if (opener && opener.isConnected && opener.focus) opener.focus(); };
+  const close = () => {
+    if (!bg.isConnected) return;
+    ++privateGeneration;
+    bg.remove();
+    for (const input of bg.querySelectorAll("input, textarea")) { input.value = ""; input.removeAttribute("value"); }
+    if (opener && opener.isConnected && opener.focus) opener.focus();
+  };
   const dismiss = () => (onDismiss ? onDismiss() : close());
   const bg = h("div", { class: "modal-bg", onclick: (e) => { if (e.target === bg) dismiss(); } });
   bg.dismiss = dismiss;
@@ -802,18 +865,30 @@ function field(label, input, hint) {
   return h("div", { class: "field" }, h("label", { for: input.id }, label), input, hint ? h("div", { class: "hint" }, hint) : null);
 }
 
-function openEditor(p) {
+async function openEditor(p) {
+  const path = p ? profilePath(p) : "/profiles";
+  let form = null;
+  const api = scopedApi(() => !form || form.isConnected);
+  const version = ++privateGeneration;
+  if (p && panel?.personal) {
+    try { p = await api("GET", path); }
+    catch (e) { if (e.status !== 401) toast(e.message, true); return; }
+  }
+  if (version !== privateGeneration) return;
   modal((close) => {
     const name = h("input", { id: "f-name", value: p ? p.name : "", required: true, maxlength: 64, autocomplete: "off" });
+    const initialOs = p?.os_type || (panel?.personal ? "linux" : "windows");
     const os = h("select", { id: "f-os" }, [["windows", "Windows"], ["macos", "macOS"], ["linux", "Linux"]].map(([v, label]) =>
-      h("option", { value: v, selected: (p ? p.os_type : "windows") === v }, label)));
+      h("option", { value: v, selected: initialOs === v }, label)));
     // The engine is fixed once a profile exists: the two keep incompatible browser data.
     const engine = h("select", { id: "f-engine", disabled: !!p },
       [["camoufox", t("engine_camoufox")], ["chrome", t("engine_chrome")]].map(([v, label]) =>
         h("option", { value: v, selected: (p ? p.engine : "camoufox") === v }, label)));
     const engineNote = h("div", { class: "note" }, icon("alert", true), h("span", {}, t("engine_note")));
     const syncNote = () => { engineNote.style.display = !p && engine.value === "chrome" ? "" : "none"; };
-    engine.onchange = syncNote; syncNote();
+    let osChosen = !!p;
+    os.onchange = () => { osChosen = true; };
+    engine.onchange = () => { if (!osChosen) os.value = engine.value === "chrome" || !panel?.personal ? "windows" : "linux"; syncNote(); }; syncNote();
     const proxy = h("input", { id: "f-proxy", value: p && p.proxy ? p.proxy : "", placeholder: "socks5://user:pass@host:port", autocomplete: "off", class: "data" });
     const tz = h("input", { id: "f-tz", value: p && p.timezone ? p.timezone : "", placeholder: t("tz_hint"), autocomplete: "off", class: "data" });
     const loc = h("input", { id: "f-locale", value: p && p.locale ? p.locale : "", placeholder: t("locale_hint"), autocomplete: "off", class: "data" });
@@ -837,8 +912,9 @@ function openEditor(p) {
       } catch (e) { say("err", e.message); }
       check.disabled = false;
     } }, icon("plug", true), t("check_proxy"));
-    return h("form", { onsubmit: async (e) => {
+    return form = h("form", { onsubmit: async (e) => {
       e.preventDefault();
+      if (!form.isConnected) return;
       say("", "");
       const submitBtn = e.currentTarget.querySelector(".modal-foot .btn-act");
       if (submitBtn) submitBtn.disabled = true;
@@ -846,7 +922,7 @@ function openEditor(p) {
         timezone: tz.value.trim(), locale: loc.value.trim() };
       if (!p) body.engine = engine.value;
       try {
-        if (p) { await api("PATCH", `/profiles/${enc(p.name)}`, body); delete fingerprints[p.name]; toast(t("saved")); }
+        if (p) { await api("PATCH", path, body); delete fingerprints[profileKey(p)]; toast(t("saved")); }
         else { await api("POST", "/profiles", body); toast(t("created", { name: body.name })); }
         close(); refresh();
       } catch (ex) { say("err", ex.message); }
@@ -891,10 +967,13 @@ function geoLines(r, useLocale) {
 }
 
 async function removeProfile(p) {
-  if (running.has(p.name)) return toast(t("stop_first"), true);
+  const path = profilePath(p);
+  const key = profileKey(p);
+  const api = scopedApi();
+  if (running.has(key) || (panel?.personal && p.is_running)) return toast(t("stop_first"), true);
   if (!(await confirmDialog(t("confirm_delete", { name: p.name }), t("delete"), true))) return;
-  try { await api("DELETE", `/profiles/${enc(p.name)}`); selected.delete(p.name); toast(t("deleted", { name: p.name })); delete fingerprints[p.name]; refresh(); }
-  catch (e) { toast(e.message, true); }
+  try { await api("DELETE", path); selected.delete(key); toast(t("deleted", { name: p.name })); delete fingerprints[key]; refresh(); }
+  catch (e) { if (e.status !== 401) toast(e.message, true); }
 }
 
 function download(filename, text, type) {
@@ -905,12 +984,17 @@ function download(filename, text, type) {
 }
 
 function openCookies(p) {
-  if (running.has(p.name)) return toast(t("stop_first"), true);
+  const path = profilePath(p);
+  const key = profileKey(p);
+  let dialog = null;
+  const api = scopedApi(() => !dialog || dialog.isConnected);
+  const actor = actorGeneration;
+  if (running.has(key) || (panel?.personal && p.is_running)) return toast(t("stop_first"), true);
   modal((close) => {
     const msg = h("div", { class: "msg", role: "status" });
     const fpSection = h("div");
     const renderFp = () => {
-      const fp = fingerprints[p.name];
+      const fp = fingerprints[key];
       fpSection.replaceChildren(
         h("div", { class: "field" }, h("label", {}, t("fp_title"))),
         fp && fp.exists
@@ -923,22 +1007,24 @@ function openCookies(p) {
     renderFp();
     const actions = [];
     const run = async (fn) => {
-      if (actions.some((b) => b.disabled)) return;
+      if (!dialog?.isConnected || actions.some((b) => b.disabled)) return;
       actions.forEach((b) => (b.disabled = true));
       msg.className = "msg info"; msg.textContent = t("working");
       try { await fn(); msg.textContent = ""; } catch (e) { msg.className = "msg err"; msg.textContent = e.message; }
       finally { actions.forEach((b) => (b.disabled = false)); }
     };
     const exportAs = (format) => run(async () => {
-      const res = await api("GET", `/profiles/${enc(p.name)}/cookies?format=${format}`, undefined, { raw: true });
+      const res = await api("GET", path + `/cookies?format=${format}`, undefined, { raw: true });
       const text = await res.text();
+      if (actor !== actorGeneration || !dialog.isConnected) return;
       const n = res.headers.get("X-Cookie-Count") || "?";
       download(`${p.name}_cookies.${format === "json" ? "json" : "txt"}`, text, format === "json" ? "application/json" : "text/plain");
       toast(t("exported", { n }));
     });
     const file = h("input", { type: "file", accept: ".json,.txt", class: "hidden", onchange: () => run(async () => {
       const content = await file.files[0].text();
-      const r = await api("POST", `/profiles/${enc(p.name)}/cookies`, { content });
+      if (actor !== actorGeneration || !dialog.isConnected) return;
+      const r = await api("POST", path + "/cookies", { content });
       if (!r.success) throw new Error(r.error);
       toast(t("imported", { n: r.imported }));
     }) });
@@ -947,7 +1033,7 @@ function openCookies(p) {
       actions.push(b);
       return b;
     };
-    return h("div", {},
+    return dialog = h("div", {},
       modalHead(t("cookies"), `${p.name} · ${t("cookie_hint")}`, close),
       h("div", { class: "modal-body" },
         h("div", { class: "choice" },
@@ -959,8 +1045,8 @@ function openCookies(p) {
           choice("fingerprint", t("reset_fp"), t("reset_fp_hint"), async () => {
             if (!(await confirmDialog(t("confirm_reset", { name: p.name }), t("reset_fp"), true))) return;
             await run(async () => {
-              await api("DELETE", `/profiles/${enc(p.name)}/fingerprint`);
-              fingerprints[p.name] = null; renderFp(); toast(t("fp_reset")); refresh();
+              await api("DELETE", path + "/fingerprint");
+              fingerprints[key] = null; renderFp(); toast(t("fp_reset")); refresh();
             });
           })),
         msg),
@@ -969,8 +1055,10 @@ function openCookies(p) {
 }
 
 // --- MCP setup guide -----------------------------------------------------------
-async function copyText(text) {
+async function copyText(text, actor = actorGeneration) {
+  if (actor !== actorGeneration) return false;
   try { await navigator.clipboard.writeText(text); return true; } catch {}
+  if (actor !== actorGeneration) return false;
   // navigator.clipboard needs a secure context; plain-HTTP panels fall back here.
   const area = h("textarea", { style: "position:fixed;opacity:0" });
   area.value = text; document.body.append(area); area.select();
@@ -979,9 +1067,14 @@ async function copyText(text) {
 }
 
 async function openMcpGuide() {
+  if (panel?.personal && !panel.isAdmin()) return;
+  const version = ++privateGeneration;
+  const actor = actorGeneration;
+  const api = scopedApi();
   let setup;
   try { setup = await api("GET", `/mcp/setup?base_url=${enc(location.origin)}`); }
-  catch (e) { return toast(e.message, true); }
+  catch (e) { if (e.status !== 401) toast(e.message, true); return; }
+  if (version !== privateGeneration) return;
   const state = { client: "claude-code", insertToken: false };
   const sample = (profiles[0] && profiles[0].name) || "shop-facebook-01";
   modal((close) => {
@@ -994,7 +1087,7 @@ async function openMcpGuide() {
       h("input", { type: "checkbox", onchange: (e) => { state.insertToken = e.target.checked; draw(); } }),
       t("mcp_insert_token"));
     const example = t("mcp_example", { name: sample });
-    const fill = (text) => (state.insertToken && token ? text.split(setup.token_placeholder).join(token) : text);
+    const fill = (text) => (!panel?.personal && state.insertToken && token ? text.split(setup.token_placeholder).join(token) : text);
     function draw() {
       const cfg = setup.configs.find((c) => c.id === state.client);
       chips.replaceChildren(...setup.configs.map((c) => h("button", { type: "button", class: c.id === state.client ? "active" : "",
@@ -1004,7 +1097,11 @@ async function openMcpGuide() {
       note.replaceChildren(cfg.id === "claude-desktop" ? h("div", { class: "note calm" }, icon("alert", true), h("span", {}, t("mcp_remote_note"))) : "");
       status.textContent = "";
     }
-    const copyBtn = async (text) => { status.textContent = (await copyText(text)) ? t("mcp_copied") : ""; };
+    const copyBtn = async (text) => {
+      if (actor !== actorGeneration) return;
+      const copied = await copyText(text, actor);
+      if (actor === actorGeneration) status.textContent = copied ? t("mcp_copied") : "";
+    };
     draw();
     return h("div", {},
       modalHead(t("mcp_title"), t("mcp_intro"), close),
@@ -1016,7 +1113,7 @@ async function openMcpGuide() {
         h("div", { class: "where-row", style: "margin-top:16px" }, where,
           h("button", { type: "button", class: "btn btn-act", onclick: () => copyBtn(code.textContent) }, t("mcp_copy"))),
         code, note,
-        setup.auth_required ? tokenBox : null,
+        setup.auth_required && !panel?.personal ? tokenBox : null,
         h("div", { class: "step" }, t("mcp_restart")),
         h("div", { class: "where-row" }, h("i", {}, example),
           h("button", { type: "button", class: "btn btn-line", onclick: () => copyBtn(example) }, t("mcp_copy"))),
@@ -1027,47 +1124,73 @@ async function openMcpGuide() {
 }
 
 // --- Remote viewer -----------------------------------------------------------
-let viewing = null, viewTimer = null, shotUrl = null, shotInFlight = false;
+let viewing = null, viewTimer = null, shotUrl = null, shotInFlight = null;
 function page(path) { return `/browser/${enc(viewing)}/page/${path}`; }
-async function openViewer(name) {
-  viewing = name;
-  $("v-name").textContent = name;
+async function openViewer(p) {
+  ++privateGeneration;
+  if (viewing) {
+    const previous = viewerLifetime;
+    await closeViewer();
+    if (viewerLifetime !== previous + 1) return;
+  }
+  ++viewerLifetime; ++viewerGeneration;
+  viewing = profileLocator(p);
+  $("v-name").textContent = p.name;
   $("viewer").classList.remove("hidden");
-  await updateScreen(true);
-  viewTimer = setInterval(() => updateScreen(false), 2000);
+  await resumeViewer();
 }
-function closeViewer() {
+async function closeViewer() {
+  const viewer = ++viewerLifetime;
+  ++viewerGeneration;
+  if (manualActive) await panel?.manual?.close(false);
+  if (viewer !== viewerLifetime) return;
   clearInterval(viewTimer); viewTimer = null; viewing = null;
   if (shotUrl) { URL.revokeObjectURL(shotUrl); shotUrl = null; }
   const img = $("v-screen"); if (img) img.src = "";
   $("viewer").classList.add("hidden");
   refresh();
 }
+async function resumeViewer() {
+  const viewer = viewerLifetime;
+  await updateScreen(true);
+  if (viewer === viewerLifetime && viewing && !manualActive && !viewTimer) viewTimer = setInterval(() => updateScreen(false), 2000);
+}
 async function updateScreen(withTabs) {
-  if (!viewing || shotInFlight || document.hidden) return;
-  shotInFlight = true;
+  if (!viewing || manualActive || shotInFlight === viewerGeneration || document.hidden) return;
+  const viewer = viewerGeneration;
+  shotInFlight = viewer;
   try {
     const res = await api("GET", page("screenshot"), undefined, { raw: true });
-    const url = URL.createObjectURL(await res.blob());
+    const frame = await res.blob();
+    if (viewer !== viewerGeneration || manualActive || !viewing) return;
+    const url = URL.createObjectURL(frame);
     $("v-screen").src = url;
     if (shotUrl) URL.revokeObjectURL(shotUrl);
     shotUrl = url;
     if (withTabs) await updateTabs();
   } catch (e) {
     // 503: still starting, the next tick retries. 409: the browser is gone.
-    if (e.status === 409) { toast(t("stopped", { name: viewing }), true); closeViewer(); }
-  } finally { shotInFlight = false; }
+    if (viewer === viewerGeneration && [403, 404, 409].includes(e.status)) {
+      toast(e.status === 409 ? t("stopped", { name: $("v-name").textContent }) : e.message, true);
+      closeViewer();
+    }
+  } finally { if (shotInFlight === viewer) shotInFlight = null; }
 }
 async function updateTabs() {
+  if (!viewing || manualActive) return;
+  const viewer = viewerGeneration;
   const { tabs } = await api("GET", page("tabs"));
+  if (viewer !== viewerGeneration || manualActive || !viewing) return;
   const active = tabs.find((x) => x.active);
   if (active && document.activeElement !== $("v-url")) $("v-url").value = active.url;
   $("v-tabs").replaceChildren(...tabs.map((x) => h("button", { class: x.active ? "active" : "", title: x.url,
-    onclick: () => act("POST", page(`tabs/${x.index}/select`)) }, x.title || x.url)));
+    onclick: () => { if (viewer === viewerGeneration) act("POST", page(`tabs/${x.index}/select`)); } }, x.title || x.url)));
 }
 async function act(method, path, body) {
-  try { await api(method, path, body); } catch (e) { toast(e.message, true); }
-  await updateScreen(true);
+  if (!viewing || manualActive) return;
+  const viewer = viewerGeneration;
+  try { await api(method, path, body); } catch (e) { if (e.status !== 401) toast(e.message, true); }
+  if (viewer === viewerGeneration) await updateScreen(true);
 }
 
 $("v-close").onclick = closeViewer;
@@ -1076,13 +1199,16 @@ $("v-reload").onclick = () => act("POST", page("press"), { key: "F5" });
 $("v-newtab").onclick = () => act("POST", page("tabs"), { url: null });
 $("v-nav").onsubmit = (e) => { e.preventDefault(); act("POST", page("navigate"), { url: $("v-url").value.trim() }); };
 $("v-screen").onclick = (e) => {
+  if (manualActive || !viewing) return;
   const img = e.currentTarget, rect = img.getBoundingClientRect();
+  if (!rect.width || !rect.height || !img.naturalWidth) return;
   const x = (e.clientX - rect.left) * (img.naturalWidth / rect.width);
   const y = (e.clientY - rect.top) * (img.naturalHeight / rect.height);
   act("POST", page("click-at"), { x, y });
 };
 $("v-type").onsubmit = (e) => {
   e.preventDefault();
+  if (manualActive || !viewing) return;
   const text = $("v-text").value;
   if (!text) return;
   $("v-text").value = "";
@@ -1092,15 +1218,29 @@ document.querySelectorAll("[data-key]").forEach((b) => { b.onclick = () => act("
 
 // --- Boot ----------------------------------------------------------------------
 let listTimer = null;
+function resetActor() {
+  ++actorGeneration; ++viewerGeneration; ++viewerLifetime; ++privateGeneration;
+  clearInterval(viewTimer); viewTimer = null; viewing = null; manualActive = false;
+  if (shotUrl) URL.revokeObjectURL(shotUrl); shotUrl = null;
+  $("v-screen").removeAttribute("src"); $("v-tabs").replaceChildren();
+  $("v-name").textContent = ""; $("v-url").value = ""; $("v-text").value = "";
+  for (const dialog of [...$("modal-root").children]) { dialog.dismiss?.(); dialog.remove(); }
+  filter = "all"; profiles = []; running.clear(); selected.clear(); busy.clear(); failed.clear(); liveSince.clear(); justLanded.clear(); fingerprints = {};
+  $("sheet").replaceChildren(); $("counts").replaceChildren(); $("filters").replaceChildren(); $("search").value = "";
+  clearTimeout(toastTimer); $("toast").classList.add("hidden"); $("toast").replaceChildren(); lastRender = "";
+}
 function showLogin() {
+  if (panel?.personal) panel.clear(); else resetActor();
   clearInterval(listTimer); listTimer = null;
   $("app").classList.add("hidden"); $("viewer").classList.add("hidden"); $("login").classList.remove("hidden");
-  $("token").focus();
+  (panel?.personal ? $("username") : $("token")).focus();
 }
 async function showApp(authRequired) {
+  const actor = actorGeneration;
   $("login").classList.add("hidden"); $("app").classList.remove("hidden");
   $("logout-btn").classList.toggle("hidden", !authRequired);
   await refresh();
+  if (actor !== actorGeneration) return;
   if (!listTimer) listTimer = setInterval(() => { if (!viewing && !document.hidden) refresh(); }, 4000);
 }
 $("login-form").onsubmit = async (e) => {
@@ -1113,7 +1253,7 @@ $("logout-btn").onclick = () => { token = ""; store.set("foxprofile.token", null
 $("new-btn").onclick = () => openEditor(null);
 $("mcp-btn").onclick = openMcpGuide;
 $("search").oninput = render;
-document.querySelectorAll("[data-lang]").forEach((b) => { b.onclick = () => { lang = b.dataset.lang; store.set("foxprofile.lang", lang); applyI18n(); lastRender = ""; render(); }; });
+document.querySelectorAll("[data-lang]").forEach((b) => { b.onclick = () => { lang = b.dataset.lang; store.set("foxprofile.lang", lang); applyI18n(); panel?.labels(); lastRender = ""; render(); }; });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (!$("viewer").classList.contains("hidden")) { closeViewer(); return; }
@@ -1129,6 +1269,22 @@ document.addEventListener("keydown", (e) => {
     const res = await fetch("/api/v1/info");
     if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
     const info = await res.json();
+    const { createPanel } = await import("/assets/ext/panel.js");
+    panel = createPanel({ $, h, t, strings: I18N, ApiError, modal, modalHead, field, toast, confirmDialog, showLogin, showApp, reset: resetActor,
+      profiles: () => profiles, profile: () => profiles.find((p) => profileLocator(p) === viewing),
+      removeServiceToken: () => { token = ""; store.set("foxprofile.token", null); $("token").value = ""; },
+      suspend: (active) => {
+        manualActive = active; ++viewerGeneration;
+        clearInterval(viewTimer); viewTimer = null;
+        if (active) {
+          if (shotUrl) URL.revokeObjectURL(shotUrl); shotUrl = null;
+          $("v-screen").removeAttribute("src"); $("v-text").value = "";
+        }
+      },
+      resume: resumeViewer,
+    }, info);
+    applyI18n(); panel.labels();
+    if (panel.personal) return panel.enter();
     if (info.auth_required && !token) return showLogin();
     try { await showApp(info.auth_required); } catch { showLogin(); }
   } catch (e) {

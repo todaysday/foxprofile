@@ -708,8 +708,11 @@ class ProtectedApplication:
         resolved: list[ProfileRefDTO] = []
         seen: set[str] = set()
         for identifier in identifiers:
-            by_id = next((item for item in profiles if item.profile_id == identifier), None)
-            candidate = by_id or next((item for item in profiles if item.name == identifier), None)
+            canonical = identifier.startswith("id:")
+            profile_id = identifier[3:] if canonical else identifier
+            candidate = next((item for item in profiles if item.profile_id == profile_id), None)
+            if candidate is None and not canonical:
+                candidate = next((item for item in profiles if item.name == identifier), None)
             if candidate is None:
                 raise DomainError(ErrorCode.FORBIDDEN_OR_NOT_FOUND)
             try:

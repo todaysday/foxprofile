@@ -1,6 +1,7 @@
 import contextlib
 import threading
 import urllib.request
+from collections.abc import Callable
 
 import flet as ft
 
@@ -9,6 +10,7 @@ from ...core.strings import get_string
 from ...services import mcp_setup
 from ..theme.colors import COLORS
 from ..theme.styles import ACCENT_STYLE, OUTLINE_STYLE
+from .lifecycle import authorized, close_dialog, dialog_authorizer, scrub_dialog
 
 _API_URL = f"http://127.0.0.1:{API_PORT}"
 _MCP_URL = f"{_API_URL}/mcp"
@@ -25,8 +27,15 @@ def _code_box(text: ft.Text) -> ft.Container:
     )
 
 
-def open_mcp_guide(page: ft.Page, clipboard: ft.Clipboard) -> None:
+def open_mcp_guide(
+    page: ft.Page,
+    clipboard: ft.Clipboard,
+    *,
+    authorize: Callable[[], object] | None = None,
+) -> None:
     """Step-by-step MCP setup with ready-to-paste configs for common AI apps."""
+    if authorize:
+        authorize()
     state = {"client": "claude-code", "real_token": False}
 
     status = ft.Text(get_string("mcp_endpoint", url=_MCP_URL), size=12, color=COLORS["text_sub"])
@@ -45,12 +54,16 @@ def open_mcp_guide(page: ft.Page, clipboard: ft.Clipboard) -> None:
     )
 
     def configs() -> list[mcp_setup.ClientConfig]:
+        if authorize:
+            authorize()
         token = None
         if API_TOKEN:
             token = API_TOKEN if state["real_token"] else mcp_setup.TOKEN_PLACEHOLDER
         return mcp_setup.build_configs(_MCP_URL, token, local=True, api_url=_API_URL)
 
     def render() -> None:
+        if not authorized(authorize):
+            return
         all_configs = configs()
         current = next(c for c in all_configs if c.id == state["client"])
         client_row.controls = [
@@ -78,21 +91,35 @@ def open_mcp_guide(page: ft.Page, clipboard: ft.Clipboard) -> None:
         render()
 
     async def copy_code(_: ft.ControlEvent) -> None:
+        if not authorized(authorize):
+            return
         await clipboard.set(code.value or "")
+        if not authorized(authorize):
+            return
         copied.value = get_string("mcp_copied")
         page.update()
 
     async def copy_example(_: ft.ControlEvent) -> None:
+        if not authorized(authorize):
+            return
         await clipboard.set(example.value or "")
+        if not authorized(authorize):
+            return
         copied.value = get_string("mcp_copied")
         page.update()
 
     def check_health() -> None:
+        if not authorized(authorize):
+            return
         try:
             with urllib.request.urlopen(f"{_API_URL}/api/v1/health", timeout=3):
+                if not authorized(authorize):
+                    return
                 health.value = get_string("mcp_status_ok")
                 health.color = COLORS["success"]
         except OSError as e:
+            if not authorized(authorize):
+                return
             health.value = get_string("mcp_status_down", error=e)
             health.color = COLORS["error"]
         with contextlib.suppress(Exception):
@@ -107,6 +134,7 @@ def open_mcp_guide(page: ft.Page, clipboard: ft.Clipboard) -> None:
 
     dlg = ft.AlertDialog(
         modal=True,
+        on_dismiss=lambda _: scrub_dialog(dlg),
         bgcolor=COLORS["card_bg"],
         title=ft.Row(
             spacing=10,
@@ -184,10 +212,11 @@ def open_mcp_guide(page: ft.Page, clipboard: ft.Clipboard) -> None:
             ft.TextButton(
                 get_string("close_btn"),
                 style=ft.ButtonStyle(color=COLORS["text_sub"]),
-                on_click=lambda _: page.pop_dialog(),
+                on_click=lambda _: close_dialog(page, dlg) if authorized(authorize) else None,
             ),
         ],
     )
     page.show_dialog(dlg)
+    authorize = dialog_authorizer(dlg, authorize)
     render()
     threading.Thread(target=check_health, daemon=True).start()

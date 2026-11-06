@@ -6,6 +6,7 @@ from ...core.strings import get_string
 from ...models.profile import Profile
 from ..theme.colors import COLORS
 from ..theme.styles import ACCENT_STYLE
+from .lifecycle import authorized, close_dialog, scrub_dialog
 
 
 def open_export_dialog(
@@ -13,6 +14,8 @@ def open_export_dialog(
     file_picker: ft.FilePicker,
     profiles: list[Profile],
     on_complete: Callable[[list[str], str, bool], None],
+    *,
+    authorize: Callable[[], object] | None = None,
 ) -> None:
     if not profiles:
         return
@@ -22,15 +25,17 @@ def open_export_dialog(
     include_data_cb = ft.Checkbox(label=get_string("include_browser_data"), value=True)
 
     async def on_export(_: ft.ControlEvent) -> None:
+        if not authorized(authorize) or not dlg.open:
+            return
         selected = [cb.label for cb in checkboxes if cb.value]
         if not selected:
             return
         include_data = include_data_cb.value
-        page.pop_dialog()
+        close_dialog(page, dlg)
         dir_path = await file_picker.get_directory_path(
             dialog_title=get_string("select_export_dir"),
         )
-        if dir_path:
+        if dir_path and authorized(authorize):
             on_complete(selected, dir_path, include_data)
 
     def sync_select_all() -> None:
@@ -40,6 +45,8 @@ def open_export_dialog(
         )
 
     def on_profile_change(_: ft.ControlEvent) -> None:
+        if not dlg.open or not authorized(authorize):
+            return
         sync_select_all()
         page.update()
 
@@ -47,6 +54,8 @@ def open_export_dialog(
         cb.on_change = on_profile_change
 
     def toggle_all(e: ft.ControlEvent) -> None:
+        if not dlg.open or not authorized(authorize):
+            return
         target = e.control.value
         if target is None:
             target = True
@@ -66,6 +75,7 @@ def open_export_dialog(
 
     dlg = ft.AlertDialog(
         modal=True,
+        on_dismiss=lambda _: scrub_dialog(dlg),
         bgcolor=COLORS["card_bg"],
         title=ft.Text(get_string("export_profiles"), size=20, weight=ft.FontWeight.BOLD),
         content=ft.Container(
@@ -90,7 +100,10 @@ def open_export_dialog(
             ),
         ),
         actions=[
-            ft.TextButton(get_string("cancel"), on_click=lambda _: page.pop_dialog()),
+            ft.TextButton(
+                get_string("cancel"),
+                on_click=lambda _: close_dialog(page, dlg) if authorized(authorize) else None,
+            ),
             ft.Button(
                 get_string("export"),
                 icon=ft.Icons.UPLOAD,

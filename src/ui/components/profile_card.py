@@ -79,6 +79,7 @@ def build_profile_card(
     device: str = "",
     since: str = "",
     failed: bool = False,
+    runtime_state: str | None = None,
 ) -> ft.Container:
     """One profile as a table row: identity, device, proxy, geo, stamp, actions."""
     if is_running:
@@ -121,7 +122,22 @@ def build_profile_card(
                 _cell("proxy", _proxy(profile)),
                 _cell("geo", _geo(profile)),
                 # A Row lets the stamp keep its own width instead of filling the cell.
-                _cell("status", ft.Row(controls=[_stamp(is_loading, is_running, since, failed)])),
+                _cell(
+                    "status",
+                    ft.Row(
+                        controls=[
+                            _stamp(
+                                is_loading
+                                or runtime_state
+                                in {"reserved", "starting", "stopping", "recovering"},
+                                is_running if runtime_state is None else runtime_state == "running",
+                                since,
+                                failed,
+                                runtime_state,
+                            )
+                        ]
+                    ),
+                ),
                 _cell(
                     "actions",
                     ft.Row(
@@ -231,7 +247,13 @@ def _geo(profile: Profile) -> ft.Column:
     return _stack(tz, locale)
 
 
-def _stamp(is_loading: bool, is_running: bool, since: str, failed: bool = False) -> ft.Control:
+def _stamp(
+    is_loading: bool,
+    is_running: bool,
+    since: str,
+    failed: bool = False,
+    runtime_state: str | None = None,
+) -> ft.Control:
     """The entry stamp: a rotated rubber-stamp mark while a profile is live.
 
     State reads by form as well as ink: live is a double rule, starting a single
@@ -265,7 +287,9 @@ def _stamp(is_loading: bool, is_running: bool, since: str, failed: bool = False)
             border_radius=6,
             border=ft.Border.all(1, COLORS["text_sub"]),
             content=ft.Text(
-                get_string("stamp_starting").upper(),
+                get_string(f"personal_state_{runtime_state}").upper()
+                if runtime_state in {"stopping", "recovering"}
+                else get_string("stamp_starting").upper(),
                 size=10.5,
                 font_family=FONT_DATA,
                 weight=ft.FontWeight.W_700,

@@ -81,11 +81,13 @@ class FakeProtectedApplication:
 
     def _resolve(self, principal: PrincipalDTO, identifier: str):
         principal = self.current_principal(principal)
+        canonical = identifier.startswith("id:")
+        profile_id = identifier[3:] if canonical else identifier
         profile = next(
             (
                 item
                 for item in self.profiles.values()
-                if item.profile_id == identifier or item.name == identifier
+                if item.profile_id == profile_id or (not canonical and item.name == identifier)
             ),
             None,
         )
@@ -353,13 +355,13 @@ def test_missing_csrf_or_wrong_origin_has_zero_batch_effects(api, headers):
     assert protected.coordinator_calls == 0
 
 
-def test_batch_start_deduplicates_aliases_after_whole_request_authorization(api):
+def test_batch_start_deduplicates_ids_after_whole_request_authorization(api):
     client, _, _, protected, _ = api
     auth = _login(client, "alice")
 
     response = client.post(
         "/api/v1/ext/browser/start-batch",
-        json={"profile_ids": ["id-a", "profile-a"]},
+        json={"profile_ids": ["id-a", "id-a"]},
         headers=_mutation_headers(auth["csrf_token"]),
     )
 
@@ -367,6 +369,19 @@ def test_batch_start_deduplicates_aliases_after_whole_request_authorization(api)
     assert protected.coordinator_calls == 1
     assert protected.start_effects == ["id-a"]
     assert response.json()["count"] == 1
+
+
+def test_batch_start_rejects_name_alias_before_any_effect(api):
+    client, _, _, protected, _ = api
+    auth = _login(client, "alice")
+    response = client.post(
+        "/api/v1/ext/browser/start-batch",
+        json={"profile_ids": ["id-a", "profile-a"]},
+        headers=_mutation_headers(auth["csrf_token"]),
+    )
+    assert response.status_code == 404
+    assert protected.coordinator_calls == 0
+    assert protected.start_effects == []
 
 
 def test_screenshot_and_control_recheck_revoked_profile_assignment(api):
@@ -447,8 +462,6 @@ def test_mcp_setup_is_personal_admin_only(api):
 
 @pytest.fixture
 def real_api(monkeypatch, tmp_path):
-    from foxprofile_ext import runtime_factory
-
     monkeypatch.setenv("FOXPROFILE_EXT_ENABLED", "true")
     database_path = tmp_path / "extension.sqlite3"
     monkeypatch.setenv("FOXPROFILE_EXT_DB", str(database_path))
@@ -456,13 +469,14 @@ def real_api(monkeypatch, tmp_path):
     monkeypatch.setattr(manager_module, "PROFILES_FILE", tmp_path / "profiles.json")
     monkeypatch.setattr(api_auth, "API_TOKEN", SERVICE_TOKEN)
     monkeypatch.setattr(api_app, "API_TOKEN", SERVICE_TOKEN)
-    monkeypatch.setattr(runtime_factory, "_installed_executable", lambda _engine: None)
     database = ExtensionDatabase(database_path)
     users = UserDAO(database)
     users.bootstrap_admin("admin-id", "admin", hash_password(PASSWORD))
     users.create("alice-id", "alice", hash_password(PASSWORD))
     users.create("bob-id", "bob", hash_password(PASSWORD))
-    container = Container()
+    container = Container(
+        run_coordinator=SimpleNamespace(status=lambda *_: None, shutdown=lambda **_: None)
+    )
     alice = container.auth_service.login("alice", PASSWORD).principal
     bob = container.auth_service.login("bob", PASSWORD).principal
     own = container.protected_application.create_profile(alice, name="Own")
@@ -515,8 +529,8 @@ def test_real_managed_import_export_download_is_scoped_and_one_use(real_api):
         assert all("sqlite" not in name and ".env" not in name for name in archive.namelist())
     assert client.get(url).status_code == 404
     assert not list((database.path.parent / ".foxprofile-transfers").glob("*.zip"))
-    # Actual default composition supplies the runtime status path without an
-    # installed browser, an implicit service identity, or a network download.
+    # The injected idle runtime keeps catalog/transfer coverage independent of
+    # installed browsers and native process namespaces.
     actor = container.auth_service.login("alice", PASSWORD).principal
     assert container.protected_application.run_status(actor, profile_id) is None
 

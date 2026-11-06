@@ -39,21 +39,19 @@ class StopCoordinator:
 
 @pytest.fixture
 def ui_api(monkeypatch, tmp_path):
-    from foxprofile_ext import runtime_factory
-
     monkeypatch.setenv("FOXPROFILE_EXT_ENABLED", "true")
     monkeypatch.setenv("FOXPROFILE_EXT_DB", str(tmp_path / "extension.sqlite3"))
     monkeypatch.setattr(manager_module, "DATA_DIR", tmp_path / "browserdata")
     monkeypatch.setattr(manager_module, "PROFILES_FILE", tmp_path / "profiles.json")
     monkeypatch.setattr(api_auth, "API_TOKEN", SERVICE_TOKEN)
     monkeypatch.setattr(api_app, "API_TOKEN", SERVICE_TOKEN)
-    monkeypatch.setattr(runtime_factory, "_installed_executable", lambda _engine: None)
     database = ExtensionDatabase(tmp_path / "extension.sqlite3")
     users = UserDAO(database)
     users.bootstrap_admin("admin-id", "admin", hash_password(PASSWORD))
     users.create("alice-id", "alice", hash_password(PASSWORD))
     users.create("bob-id", "bob", hash_password(PASSWORD))
-    container = Container()
+    coordinator = StopCoordinator()
+    container = Container(run_coordinator=coordinator)
     application = container.protected_application
     actors = {
         username: container.auth_service.login(username, PASSWORD).principal
@@ -70,9 +68,6 @@ def ui_api(monkeypatch, tmp_path):
     foreign = application.create_profile(
         actors["bob"], name="Foreign", proxy="http://foreign:secret@192.0.2.20:8080"
     )
-    original_coordinator = application._run_coordinator
-    coordinator = StopCoordinator()
-    application._run_coordinator = coordinator
     client = TestClient(api_app.create_app(container), base_url=ORIGIN)
     yield SimpleNamespace(
         client=client,
@@ -89,7 +84,6 @@ def ui_api(monkeypatch, tmp_path):
         assignments=AssignmentDAO(database),
         data_dir=tmp_path / "browserdata",
     )
-    application._run_coordinator = original_coordinator
     container.shutdown(timeout=0)
 
 
@@ -159,7 +153,7 @@ def test_batch_denies_foreign_or_missing_target_before_any_effect(ui_api, operat
     deleted = []
     monkeypatch.setattr(api.app._catalog, "delete", lambda *args: deleted.append(args))
     url = f"/api/v1/ext/{'browser/stop' if operation == 'stop' else 'profiles/delete'}-batch"
-    for denied in (api.foreign.profile_id, "Foreign", "missing"):
+    for denied in (api.foreign.profile_id, "Foreign", "Own", "missing"):
         response = api.client.post(
             url, json={"profile_ids": [api.own.profile_id, denied]}, headers=headers
         )
@@ -188,7 +182,7 @@ def test_stop_batch_deduplicates_and_reports_actual_per_target_results(ui_api):
     api.coordinator.results[api.second.profile_id] = RuntimeError("private path /private/run/token")
     response = api.client.post(
         "/api/v1/ext/browser/stop-batch",
-        json={"profile_ids": [api.own.profile_id, "Own", api.second.profile_id]},
+        json={"profile_ids": [api.own.profile_id, api.own.profile_id, api.second.profile_id]},
         headers=headers,
     )
     assert response.status_code == 200
@@ -212,7 +206,7 @@ def test_delete_batch_preflights_every_busy_target_then_deduplicates(ui_api):
     api = ui_api
     headers = login(api, "alice")
     run = api.ledger.reserve((api.second.profile_id,), "test-host").runs[0]
-    body = {"profile_ids": [api.own.profile_id, "Own", api.second.profile_id]}
+    body = {"profile_ids": [api.own.profile_id, api.own.profile_id, api.second.profile_id]}
     denied = api.client.post("/api/v1/ext/profiles/delete-batch", json=body, headers=headers)
     assert denied.status_code == 409
     assert api.app.resolve_profile(api.actors["alice"], "Own")

@@ -5,6 +5,7 @@ import flet as ft
 from ...core.strings import get_string
 from ...interfaces.protocols import IProfileManager
 from ..dialogs import open_export_dialog
+from ..dialogs.lifecycle import authorized
 
 
 async def import_profile(
@@ -12,7 +13,11 @@ async def import_profile(
     pm: IProfileManager,
     log: Callable[[str], None],
     refresh: Callable[[], None],
+    *,
+    authorize: Callable[[], object] | None = None,
 ) -> None:
+    if not authorized(authorize):
+        return
     files = await file_picker.pick_files(
         allow_multiple=True,
         allowed_extensions=["zip"],
@@ -22,6 +27,8 @@ async def import_profile(
         return
     ok_count = 0
     for f in files:
+        if not authorized(authorize):
+            return
         if f.path:
             success, result = pm.import_profile(f.path)
             if success:

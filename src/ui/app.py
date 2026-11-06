@@ -34,9 +34,18 @@ logger = get_logger("app")
 class App:
     def __init__(self, container: Container | None = None) -> None:
         c = container or Container()
-        self.pm: IProfileManager = c.profile_manager
-        self.bl: IBrowserLauncher = c.browser_launcher
-        self.ps: IProxyService = c.proxy_service
+        from foxprofile_ext.config import extension_enabled
+
+        self.personal = None
+        if extension_enabled():
+            from foxprofile_ext.desktop import DesktopSession
+
+            from .protected import PersonalDesktop
+
+            self.personal = PersonalDesktop(self, DesktopSession(c))
+        self.pm: IProfileManager = None if self.personal else c.profile_manager
+        self.bl: IBrowserLauncher = None if self.personal else c.browser_launcher
+        self.ps: IProxyService = None if self.personal else c.proxy_service
         self.state = AppState()
         self.page: ft.Page | None = None
         self._reconcile_started = False
@@ -70,7 +79,8 @@ class App:
         page.services.append(self.clipboard)
         self._file_picker = fp
         self._build_ui()
-        self.state._last_running_snapshot = self.bl.running_profile_names()
+        if self.bl:
+            self.state._last_running_snapshot = self.bl.running_profile_names()
         if not self._reconcile_started:
             self._reconcile_started = True
             page.run_task(self._ui_reconcile_loop)
@@ -78,17 +88,23 @@ class App:
     def _build_ui(self) -> None:
         """(Re)build every control; strings are read at build time."""
         assert self.page is not None
+        if self.personal and self.personal.session.binding is None:
+            self.personal.build_entry()
+            return
+        if self.personal:
+            self.personal.close_dialogs()
         self.refs = build_ui_refs(
             pm=self.pm,
-            on_change_page=self._change_page,
+            on_change_page=self._session_callback(self._change_page),
             file_picker=self._file_picker,
-            on_search=self._on_search,
+            on_search=self._session_callback(self._on_search),
         )
         self._filter_column = ft.Column(spacing=2)
         self._header_slot = ft.Container()
         self.page.title = get_string("window_title")
         self.page.controls.clear()
-        self.page.add(self._build_root_layout(self.refs))
+        layout = self._build_root_layout(self.refs)
+        self.page.add(self.personal.wrap(layout) if self.personal else layout)
         self._restore_log()
         self._refresh_profiles()
 
@@ -114,21 +130,23 @@ class App:
         self._build_ui()
 
     def _build_root_layout(self, r: UIRefs) -> ft.Row:
+        handlers = self.h
         sidebar = build_sidebar(
             r.stats_text,
             r.running_text,
             r.log_text,
             r.log_column,
             r.log_toggle_btn,
-            on_new_profile=lambda _: self.h.open_add_dialog(),
-            on_import=self.h.on_import,
-            on_export=lambda _: self.h.on_export_open(),
-            on_mcp=lambda _: open_mcp_guide(self.page, self.clipboard),
-            on_toggle_log=lambda _: self.h.toggle_log(),
-            on_fullscreen_log=lambda _: self.h.open_log_fullscreen(),
+            on_new_profile=lambda _: handlers.open_add_dialog(),
+            on_import=handlers.on_import,
+            on_export=lambda _: handlers.on_export_open(),
+            on_mcp=self._session_callback(lambda _: self._open_mcp()),
+            on_toggle_log=lambda _: handlers.toggle_log(),
+            on_fullscreen_log=lambda _: handlers.open_log_fullscreen(),
             filter_column=self._filter_column,
             language=current_language(),
-            on_language=self._set_language,
+            on_language=self._session_callback(self._set_language),
+            show_mcp=self.personal.is_admin() if self.personal else True,
         )
         content = build_content_area(
             r.content_subtitle,
@@ -149,6 +167,35 @@ class App:
             ],
         )
 
+    def _open_mcp(self) -> None:
+        if self.personal:
+            self.personal.open_mcp()
+        else:
+            open_mcp_guide(self.page, self.clipboard)
+
+    def _profile_key(self, profile) -> str:
+        return profile.profile_id if self.personal else profile.name
+
+    def _row_callback(self, callback, profile):
+        key = self._profile_key(profile)
+        return lambda _: callback(key)
+
+    def _session_callback(self, callback):
+        if not self.personal:
+            return callback
+        from foxprofile_ext.errors import DomainError
+
+        binding = self.personal.session.binding
+
+        def call(*args, **kwargs):
+            try:
+                binding.actor()
+            except DomainError:
+                return None
+            return callback(*args, **kwargs)
+
+        return call
+
     def _on_search(self, query: str) -> None:
         self.state.search_query = query.strip().lower()
         self.state.current_page = 1
@@ -162,7 +209,7 @@ class App:
     def _filter_tests(self) -> dict:
         return {
             "all": lambda p: True,
-            "running": lambda p: self.bl.is_running(p.name),
+            "running": lambda p: self.bl.is_running(self._profile_key(p)),
             "proxy": lambda p: bool(p.proxy),
             "direct": lambda p: not p.proxy,
             "chrome": lambda p: p.engine == "chrome",
@@ -188,7 +235,7 @@ class App:
         self._flush_log()
         all_profiles, page_profiles, total_pages = self._get_page_profiles()
 
-        all_names = set(self.pm.profiles)
+        all_names = {self._profile_key(p) for p in self.pm.list_profiles()}
         for stale in self.state.selected_names() - all_names:
             self.state.toggle_selection(stale)
 
@@ -205,16 +252,19 @@ class App:
         self._filter_column.controls = build_filter_buttons(
             self.filter,
             {fid: sum(1 for p in everything if test(p)) for fid, test in tests.items()},
-            self._on_filter,
+            self._session_callback(self._on_filter),
         )
-        names = [p.name for p in page_profiles]
+        names = [self._profile_key(p) for p in page_profiles]
         all_sel = bool(names) and all(self.state.is_selected(n) for n in names)
         any_sel = any(self.state.is_selected(n) for n in names)
+        handlers = self.h
         self._header_slot.content = (
             build_header_row(
                 all_sel,
                 any_sel,
-                lambda select: self.h.on_select_all_page() if select else self.h.on_deselect_page(),
+                lambda select: (
+                    handlers.on_select_all_page() if select else handlers.on_deselect_page()
+                ),
             )
             if page_profiles
             else None
@@ -224,17 +274,18 @@ class App:
             [
                 build_profile_card(
                     p,
-                    self.state.is_loading(p.name),
-                    self.bl.is_running(p.name),
-                    self.h.on_launch,
-                    self.h.on_edit,
-                    self.h.on_delete,
-                    is_selected=self.state.is_selected(p.name),
-                    on_select=self.h.on_toggle_select,
-                    on_cookies=self.h.on_cookies,
-                    device=self._device_label(p.name),
+                    self.state.is_loading(self._profile_key(p)),
+                    self.bl.is_running(self._profile_key(p)),
+                    self._row_callback(self.h.on_launch, p),
+                    self._row_callback(self.h.on_edit, p),
+                    self._row_callback(self.h.on_delete, p),
+                    is_selected=self.state.is_selected(self._profile_key(p)),
+                    on_select=self._row_callback(self.h.on_toggle_select, p),
+                    on_cookies=self._row_callback(self.h.on_cookies, p),
+                    device=self._device_label(self._profile_key(p)),
                     since=self._live_since.get(p.name, ""),
-                    failed=p.name in self.state.failed,
+                    failed=self._profile_key(p) in self.state.failed,
+                    runtime_state=self.personal.run_state(p.profile_id) if self.personal else None,
                 )
                 for p in page_profiles
             ]
@@ -264,9 +315,12 @@ class App:
         r.next_btn.disabled = self.state.current_page >= total_pages
         self._safe_update()
 
-    @staticmethod
-    def _device_label(name: str) -> str:
-        info = fingerprint.summary(os.path.join(DATA_DIR, name))
+    def _device_label(self, name: str) -> str:
+        info = (
+            self.personal.session.binding.fingerprint(name)
+            if self.personal
+            else fingerprint.summary(os.path.join(DATA_DIR, name))
+        )
         if not info:
             return ""
         cpu = f"{info['hardware_concurrency']} CPU"
@@ -291,12 +345,12 @@ class App:
                         ),
                         ft.OutlinedButton(
                             get_string("clear_filters"),
-                            on_click=lambda _: self._clear_filters(),
+                            on_click=self._session_callback(lambda _: self._clear_filters()),
                         ),
                     ],
                 ),
             )
-        return build_empty_state(lambda _: self.h.open_add_dialog())
+        return build_empty_state(self._session_callback(lambda _: self.h.open_add_dialog()))
 
     def _clear_filters(self) -> None:
         self.filter = "all"
@@ -364,7 +418,14 @@ class App:
     async def _ui_reconcile_loop(self) -> None:
         while self.page:
             try:
-                running_now = self.bl.running_profile_names()
+                if self.personal and not self.personal.reconcile():
+                    await asyncio.sleep(0.12)
+                    continue
+                running_now = (
+                    self.personal.run_snapshot()
+                    if self.personal
+                    else self.bl.running_profile_names()
+                )
                 changed = running_now != self.state._last_running_snapshot
                 if changed:
                     self.state._last_running_snapshot = running_now

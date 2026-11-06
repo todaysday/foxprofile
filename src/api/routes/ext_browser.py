@@ -35,7 +35,10 @@ def start_batch(
     try:
         results = request.app.state.container.protected_application.start_profiles(
             principal,
-            body.profile_ids,
+            [
+                f"id:{profile_id}" if profile_id.strip() else profile_id
+                for profile_id in body.profile_ids
+            ],
             wait=body.wait,
             timeout=LAUNCH_WAIT_TIMEOUT,
         )
@@ -67,7 +70,12 @@ def stop_batch(
 ) -> dict[str, object]:
     try:
         results = request.app.state.container.protected_application.stop_runs(
-            principal, body.profile_ids, timeout=LAUNCH_WAIT_TIMEOUT
+            principal,
+            [
+                f"id:{profile_id}" if profile_id.strip() else profile_id
+                for profile_id in body.profile_ids
+            ],
+            timeout=LAUNCH_WAIT_TIMEOUT,
         )
     except DomainError as error:
         raise domain_http_error(error) from error

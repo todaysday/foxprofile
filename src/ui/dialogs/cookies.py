@@ -5,6 +5,7 @@ import flet as ft
 from ...core.strings import get_string
 from ..theme.colors import COLORS
 from ..theme.styles import OUTLINE_STYLE
+from .lifecycle import close_dialog, scrub_dialog
 
 
 def open_cookie_dialog(
@@ -14,6 +15,8 @@ def open_cookie_dialog(
     on_export: Callable[[str], Awaitable[None]],
     on_import: Callable[[], Awaitable[None]],
     on_reset_fingerprint: Callable[[], None],
+    *,
+    is_current: Callable[[], bool] | None = None,
 ) -> None:
     """Dialog for cookie export/import and fingerprint reset of one profile."""
 
@@ -40,23 +43,32 @@ def open_cookie_dialog(
         )
 
     async def export_json(_: ft.ControlEvent) -> None:
-        page.pop_dialog()
+        if not dlg.open or (is_current and not is_current()):
+            return
+        close_dialog(page, dlg)
         await on_export("json")
 
     async def export_netscape(_: ft.ControlEvent) -> None:
-        page.pop_dialog()
+        if not dlg.open or (is_current and not is_current()):
+            return
+        close_dialog(page, dlg)
         await on_export("netscape")
 
     async def do_import(_: ft.ControlEvent) -> None:
-        page.pop_dialog()
+        if not dlg.open or (is_current and not is_current()):
+            return
+        close_dialog(page, dlg)
         await on_import()
 
     def reset_fp(_: ft.ControlEvent) -> None:
-        page.pop_dialog()
+        if not dlg.open or (is_current and not is_current()):
+            return
+        close_dialog(page, dlg)
         on_reset_fingerprint()
 
     dlg = ft.AlertDialog(
         modal=True,
+        on_dismiss=lambda _: scrub_dialog(dlg),
         bgcolor=COLORS["card_bg"],
         title=ft.Text(
             get_string("cookie_dialog_title"),
@@ -109,8 +121,13 @@ def open_cookie_dialog(
             ft.TextButton(
                 get_string("close_btn"),
                 style=ft.ButtonStyle(color=COLORS["text_sub"]),
-                on_click=lambda _: page.pop_dialog(),
+                on_click=lambda _: (
+                    close_dialog(page, dlg)
+                    if dlg.open and (is_current is None or is_current())
+                    else None
+                ),
             ),
         ],
     )
-    page.show_dialog(dlg)
+    if is_current is None or is_current():
+        page.show_dialog(dlg)

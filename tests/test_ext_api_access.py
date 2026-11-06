@@ -27,6 +27,7 @@ from src.api import app as api_app
 from src.api import auth as api_auth
 from src.core.container import Container
 from src.services.profile import manager as manager_module
+from src.utils.proxy_parser import mask_proxy
 
 SERVICE_TOKEN = "trusted-service-token-that-is-long-enough"
 PASSWORD = "correct horse battery staple"
@@ -101,7 +102,7 @@ class FakeProtectedApplication:
 
         principal = self.current_principal(principal)
         return tuple(
-            VisibleProfileDTO(profile.profile_id, profile.name)
+            VisibleProfileDTO(profile.profile_id, profile.name, proxy=mask_proxy(profile.proxy))
             for profile in self.profiles.values()
             if principal.kind is PrincipalKind.SERVICE
             or principal.role is Role.ADMIN
@@ -258,7 +259,9 @@ def test_profile_lists_are_server_filtered_and_redacted(api):
         "profile-a",
         "profile-b",
     ]
-    assert "proxy" not in ordinary.text
+    assert ordinary.json()["profiles"][0]["proxy"] == "http://192.0.2.10:8080"
+    assert "user:pass" not in ordinary.text
+    assert "192.0.2.20" not in ordinary.text
     assert "data_dir" not in ordinary.text
     assert "foreign:secret" not in administrator.text
     assert user["user"]["role"] == "user"

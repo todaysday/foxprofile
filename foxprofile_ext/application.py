@@ -15,7 +15,9 @@ from pathlib import Path
 from typing import BinaryIO, TypeVar
 
 from src.models.profile import ENGINES, Profile
+from src.services.browser import fingerprint
 from src.services.profile.transfer import export_to_zip, read_profile_meta
+from src.utils.proxy_parser import mask_proxy
 from src.utils.validation import (
     validate_locale,
     validate_profile_name,
@@ -45,6 +47,30 @@ class VisibleProfileDTO:
 
     profile_id: str
     name: str
+    os_type: str = "linux"
+    engine: str = "camoufox"
+    proxy: str = ""
+    timezone: str | None = None
+    locale: str | None = None
+    state: str = "idle"
+    is_running: bool = False
+    fingerprint: dict[str, object] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class StopProfileDTO:
+    profile_id: str
+    name: str
+    stopped: bool
+    error_code: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DeleteProfileDTO:
+    profile_id: str
+    name: str
+    deleted: bool
+    error_code: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -289,16 +315,37 @@ class ProtectedApplication:
     def list_profiles(self, principal: PrincipalDTO | None) -> tuple[VisibleProfileDTO, ...]:
         with catalog_lock(self._catalog.lock_path):
             actor = self.current_principal(principal)
+            states = self._capacity.lifecycle_states()
+            assigned = (
+                frozenset(self._assignments.profiles_for_user(actor.subject_id))
+                if actor.kind is PrincipalKind.PERSONAL and actor.role is not Role.ADMIN
+                else None
+            )
             visible = []
             for profile in self._catalog.list_profiles():
-                ref = ProfileRefDTO(profile.profile_id, profile.name)
-                try:
-                    require_profile_access(actor, ref, self._assignments.is_assigned)
-                except DomainError as error:
-                    if error.code is ErrorCode.FORBIDDEN_OR_NOT_FOUND:
-                        continue
-                    raise
-                visible.append(VisibleProfileDTO(ref.profile_id, ref.name))
+                if assigned is not None and profile.profile_id not in assigned:
+                    continue
+                state = states.get(profile.profile_id, "idle")
+                saved = fingerprint.summary(self._catalog.manager._data_path(profile.name))
+                summary: dict[str, object] = {"exists": saved is not None}
+                for key in ("os", "platform", "screen", "hardware_concurrency"):
+                    value = saved.get(key) if saved is not None else None
+                    expected_type = int if key == "hardware_concurrency" else str
+                    summary[key] = value if type(value) is expected_type else None
+                visible.append(
+                    VisibleProfileDTO(
+                        profile_id=profile.profile_id,
+                        name=profile.name,
+                        os_type=profile.os_type,
+                        engine=profile.engine,
+                        proxy=mask_proxy(profile.proxy),
+                        timezone=profile.timezone,
+                        locale=profile.locale,
+                        state=state,
+                        is_running=state not in {"idle", "failed"},
+                        fingerprint=summary,
+                    )
+                )
             return tuple(visible)
 
     def profile_count(self, principal: PrincipalDTO | None) -> int:
@@ -409,6 +456,30 @@ class ProtectedApplication:
             actor_user_id = actor.subject_id if actor.kind is PrincipalKind.PERSONAL else None
             self._catalog.delete(actor_user_id, profile.profile_id)
 
+    def delete_profiles(
+        self, principal: PrincipalDTO | None, identifiers: Sequence[str]
+    ) -> tuple[DeleteProfileDTO, ...]:
+        """Preflight every target and stopped precondition before deleting any."""
+        self._validate_identifiers(identifiers)
+        with catalog_lock(self._catalog.lock_path):
+            actor = self.current_principal(principal)
+            refs = self._resolve_profiles_locked(actor, identifiers)
+            occupied = {run.ref.profile_id for run in self._capacity.active_runs()}
+            if any(ref.profile_id in occupied for ref in refs):
+                raise DomainError(ErrorCode.PROFILE_BUSY)
+            actor_user_id = actor.subject_id if actor.kind is PrincipalKind.PERSONAL else None
+            results = []
+            for ref in refs:
+                try:
+                    self._catalog.delete(actor_user_id, ref.profile_id)
+                except (CatalogOperationError, OSError):
+                    results.append(
+                        DeleteProfileDTO(ref.profile_id, ref.name, False, "PROFILE_DELETE_FAILED")
+                    )
+                else:
+                    results.append(DeleteProfileDTO(ref.profile_id, ref.name, True))
+            return tuple(results)
+
     @staticmethod
     def _validate_profile_fields(
         name: object,
@@ -433,6 +504,14 @@ class ProtectedApplication:
             or engine not in ENGINES
         ):
             raise DomainError(ErrorCode.VALIDATION_ERROR)
+
+    def assignments_for_user(self, principal: PrincipalDTO | None, user_id: str) -> tuple[str, ...]:
+        with catalog_lock(self._catalog.lock_path):
+            actor = self.current_principal(principal)
+            require_admin(actor)
+            if not any(user.user_id == user_id for user in self._auth.list_users(actor)):
+                raise DomainError(ErrorCode.FORBIDDEN_OR_NOT_FOUND)
+            return self._assignments.profiles_for_user(user_id)
 
     def replace_assignments(
         self,
@@ -548,6 +627,36 @@ class ProtectedApplication:
             raise DomainError(ErrorCode.RUNTIME_RECOVERING)
         return result
 
+    def stop_runs(
+        self,
+        principal: PrincipalDTO | None,
+        identifiers: Sequence[str],
+        *,
+        timeout: float = 30,
+    ) -> tuple[StopProfileDTO, ...]:
+        """Authorize the whole batch before invoking per-generation stop effects."""
+        self._validate_launch_options(False, timeout)
+        self._validate_identifiers(identifiers)
+        with catalog_lock(self._catalog.lock_path):
+            actor = self.current_principal(principal)
+            refs = self._resolve_profiles_locked(actor, identifiers)
+        stop = getattr(self._run_coordinator, "stop", None)
+        if not callable(stop):
+            raise DomainError(ErrorCode.RUNTIME_RECOVERING)
+        results = []
+        for ref in refs:
+            try:
+                stopped = stop(actor, ref, timeout=timeout)
+                if type(stopped) is not bool:
+                    raise DomainError(ErrorCode.RUNTIME_RECOVERING)
+            except DomainError as error:
+                results.append(StopProfileDTO(ref.profile_id, ref.name, False, error.code.value))
+            except (OSError, RuntimeError):
+                results.append(StopProfileDTO(ref.profile_id, ref.name, False, "RUN_STOP_FAILED"))
+            else:
+                results.append(StopProfileDTO(ref.profile_id, ref.name, stopped))
+        return tuple(results)
+
     def control_run(
         self,
         principal: PrincipalDTO | None,
@@ -646,6 +755,16 @@ class ProtectedApplication:
             or principal.role is Role.ADMIN
             or self._assignments.is_assigned(principal.subject_id, profile_id)
         )
+
+    @staticmethod
+    def _validate_identifiers(identifiers: Sequence[str]) -> None:
+        if (
+            isinstance(identifiers, (str, bytes))
+            or not isinstance(identifiers, Sequence)
+            or not identifiers
+            or any(not isinstance(item, str) or not item.strip() for item in identifiers)
+        ):
+            raise DomainError(ErrorCode.VALIDATION_ERROR)
 
     @staticmethod
     def _validate_launch_options(wait: bool, timeout: float) -> None:

@@ -110,7 +110,6 @@ def list_profiles(
         application = request.app.state.container.protected_application
         try:
             profiles = application.list_profiles(principal)
-            running = {item.profile_id for item in application.running_profiles(principal)}
         except DomainError as error:
             raise domain_http_error(error) from error
         return JSONResponse(
@@ -119,7 +118,14 @@ def list_profiles(
                     {
                         "profile_id": profile.profile_id,
                         "name": profile.name,
-                        "is_running": profile.profile_id in running,
+                        "os_type": profile.os_type,
+                        "engine": profile.engine,
+                        "proxy": profile.proxy,
+                        "timezone": profile.timezone,
+                        "locale": profile.locale,
+                        "state": profile.state,
+                        "is_running": profile.is_running,
+                        "fingerprint": profile.fingerprint,
                     }
                     for profile in profiles
                 ],

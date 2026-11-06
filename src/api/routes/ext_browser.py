@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import asdict
+
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr
 
@@ -12,10 +14,13 @@ from ..dependencies import domain_http_error, get_request_principal, require_coo
 router = APIRouter(prefix="/ext/browser", tags=["browser"])
 
 
-class BatchStartRequest(BaseModel):
+class BatchProfilesRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     profile_ids: list[StrictStr]
+
+
+class BatchStartRequest(BatchProfilesRequest):
     wait: StrictBool = False
 
 
@@ -52,3 +57,19 @@ def start_batch(
         ],
         "count": len(results),
     }
+
+
+@router.post("/stop-batch", dependencies=[Depends(require_cookie_csrf)])
+def stop_batch(
+    body: BatchProfilesRequest,
+    request: Request,
+    principal: PrincipalDTO = Depends(get_request_principal),
+) -> dict[str, object]:
+    try:
+        results = request.app.state.container.protected_application.stop_runs(
+            principal, body.profile_ids, timeout=LAUNCH_WAIT_TIMEOUT
+        )
+    except DomainError as error:
+        raise domain_http_error(error) from error
+    request.app.state.container.event_bus.emit()
+    return {"profiles": [asdict(result) for result in results], "count": len(results)}

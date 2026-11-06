@@ -214,10 +214,30 @@ def test_visible_profile_serialization_has_only_redacted_fields(access):
     serialized = [asdict(profile) for profile in visible]
     content = json.dumps(serialized)
 
-    assert serialized == [{"profile_id": visible[0].profile_id, "name": "Profile A"}]
-    assert set(serialized[0]) == {"profile_id", "name"}
+    assert serialized == [
+        {
+            "profile_id": visible[0].profile_id,
+            "name": "Profile A",
+            "os_type": "windows",
+            "engine": "camoufox",
+            "proxy": "http://192.0.2.1:8080",
+            "timezone": None,
+            "locale": None,
+            "state": "idle",
+            "is_running": False,
+            "fingerprint": {
+                "exists": False,
+                "os": None,
+                "platform": None,
+                "screen": None,
+                "hardware_concurrency": None,
+            },
+        }
+    ]
     assert "secret" not in content
-    assert "192.0.2." not in content
+    assert "192.0.2.2" not in content
+    assert "192.0.2.3" not in content
+    assert str(access["catalog"].manager._data_path("Profile A")) not in content
     assert "data_dir" not in content
     assert "Profile B" not in content
 

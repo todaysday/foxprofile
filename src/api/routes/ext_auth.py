@@ -202,6 +202,37 @@ def reset_password(
     return {"user": _public_user(user)}
 
 
+@router.get("/admin/users/{user_id}/profile-assignments")
+def get_profile_assignments(
+    user_id: str,
+    request: Request,
+    principal: PrincipalDTO = Depends(get_request_principal),
+) -> dict[str, list[str]]:
+    try:
+        profile_ids = _container(request).protected_application.assignments_for_user(
+            principal, user_id
+        )
+    except DomainError as error:
+        raise domain_http_error(error) from error
+    return {"profile_ids": list(profile_ids)}
+
+
+@router.post("/profiles/delete-batch", dependencies=[Depends(require_cookie_csrf)])
+def delete_profiles_batch(
+    body: ProfileAssignmentsRequest,
+    request: Request,
+    principal: PrincipalDTO = Depends(get_request_principal),
+) -> dict[str, object]:
+    try:
+        results = _container(request).protected_application.delete_profiles(
+            principal, body.profile_ids
+        )
+    except DomainError as error:
+        raise domain_http_error(error) from error
+    _container(request).event_bus.emit()
+    return {"profiles": [asdict(result) for result in results], "count": len(results)}
+
+
 @router.put(
     "/admin/users/{user_id}/profile-assignments",
     dependencies=[Depends(require_cookie_csrf)],

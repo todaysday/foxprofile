@@ -150,9 +150,9 @@ class RuntimeCoordinator:
             current, run = self._current_run(principal, profile)
             if run is None:
                 return False
-            if run.status is RunStatus.RESERVED:
-                return self.ledger.cancel_unclaimed(run.ref)
-            return self.runtime.request_stop(run.ref.profile_id, run.ref.run_id, timeout)
+            if run.status is RunStatus.RESERVED and self.ledger.cancel_unclaimed(run.ref):
+                return True
+        return self.runtime.request_stop(run.ref.profile_id, run.ref.run_id, timeout)
 
     def control(
         self,

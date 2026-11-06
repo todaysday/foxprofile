@@ -8,7 +8,7 @@ from fastapi import Depends, HTTPException, Request
 
 from foxprofile_ext.config import extension_enabled
 from foxprofile_ext.dto import PrincipalDTO, PrincipalKind
-from foxprofile_ext.errors import DomainError, ErrorCode
+from foxprofile_ext.errors import DomainError, ErrorCode, ProfileCapacityExceeded
 
 from . import auth
 
@@ -40,9 +40,10 @@ def domain_http_error(error: DomainError) -> HTTPException:
         ErrorCode.MANUAL_SESSION_CLOSED: 410,
         ErrorCode.RUNTIME_RECOVERING: 503,
     }[error.code]
-    return HTTPException(
-        status_code=status, detail={"code": error.code.value, "message": error.message}
-    )
+    detail = {"code": error.code.value, "message": error.message}
+    if isinstance(error, ProfileCapacityExceeded):
+        detail["max_concurrent_profiles"] = error.max_concurrent_profiles
+    return HTTPException(status_code=status, detail=detail)
 
 
 def _has_service_credential(request: Request) -> bool:
@@ -63,7 +64,10 @@ def _request_origin(request: Request) -> str:
 
 def require_exact_origin(request: Request) -> None:
     origin = request.headers.get("Origin", "")
-    parsed = urlsplit(origin)
+    try:
+        parsed = urlsplit(origin)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Origin is not allowed") from None
     if (
         not origin
         or origin == "null"

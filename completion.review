@@ -147,3 +147,9 @@
 
 - Base API/runtime checkpoint `46d0a33` passed an index-only disposable checkout import smoke and focused runtime, supervisor, GeoIP cache and API access suites: **79 passed**. The broader preceding regression had **784 passed, 1 failed, 16 skipped, 24 deselected**; its sole failure was ambient Python children entering a real-process metadata test.
 - IND740 isolated that collector in a fresh subprocess, retained real `/proc` verification and root-versus-grandchild selection, and reaped its own children. Hooks verification: **34 passed, 1 skipped**, including an unrelated ambient Python child. Ruff and Code Simplifier review passed; production process selection was not weakened. Native browser and live-host acceptance remain NOT RUN.
+
+#### IND730 UI service contracts and stop-race correction
+
+- Added complete authorized/redacted profile summaries, administrator assignment reads, typed public capacity limits and whole-target stop/delete preflight. Stop waits outside the catalog lock and handles a claim winning reserved-run cancellation without abandoning that generation.
+- Closed malformed-Origin mutation failure: invalid URL syntax now returns the existing HTTP 403 before issuing a session. Updated prior exact-field assertions to the selected public summary allowlist while preserving credential/path/foreign-profile denial.
+- Final focused verification: **51 passed** across UI contracts, access and the corrected API summary test; additional Origin/CSRF checks **3 passed**. Ruff, formatting, diff checks and Code Simplifier review passed. UI rendering and live acceptance remain separate gates.

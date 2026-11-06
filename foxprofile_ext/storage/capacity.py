@@ -123,6 +123,18 @@ class CapacityLedger:
             )
             return tuple(self._record(row) for row in rows)
 
+    def lifecycle_states(self) -> dict[str, str]:
+        """Read active lifecycle states and recovery status in one snapshot."""
+        with self.database.read() as connection:
+            rows = connection.execute(
+                "SELECT profile_id, status, blocked FROM browser_runs "
+                "CROSS JOIN capacity_recovery WHERE singleton = 1 "
+                "AND status IN ('reserved', 'starting', 'running', 'stopping')"
+            )
+            return {
+                row["profile_id"]: "recovering" if row["blocked"] else row["status"] for row in rows
+            }
+
     def claim(self, ref: BrowserRunRefDTO, host_id: str, process: ProcessIdentity) -> bool:
         with self.database.transaction() as connection:
             cursor = connection.execute(

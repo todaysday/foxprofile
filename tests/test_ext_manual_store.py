@@ -203,6 +203,22 @@ def test_logout_does_not_delete_live_lease_and_private_helper_is_not_repr(tmp_pa
     assert "4500" not in repr(dao.current())
 
 
+def test_cleanup_deadline_only_tightens_for_exact_open_lease(tmp_path):
+    dao = ManualLeaseDAO(ExtensionDatabase(tmp_path / "manual.sqlite3"))
+    lease = _acquire(dao).record
+    binding = (lease.session_id, "user-a", "personal-a", "profile-a", "run-a", "host-a")
+    assert dao.tighten_cleanup_deadline(*binding, 160, 101)
+    assert dao.tighten_cleanup_deadline(*binding, 210, 102)
+    assert dao.get(lease.session_id).cleanup_deadline == 160
+    assert not dao.tighten_cleanup_deadline(*binding[:-1], "host-b", 110, 103)
+    assert dao.close_after_exit(*binding, 104, lambda host, helper: HelperLiveness.DEAD)
+    assert not dao.tighten_cleanup_deadline(*binding, 105, 105)
+    assert dao.get(lease.session_id).cleanup_deadline == 160
+    new = _acquire(dao, owner="user-b", personal="personal-b", profile="p-b", run="r-b")
+    assert not dao.tighten_cleanup_deadline(*binding, 106, 106)
+    assert dao.current() == new.record
+
+
 @pytest.mark.parametrize(
     "times", [(100, float("inf"), 220), (100, 200, float("nan")), (True, 200, 220)]
 )

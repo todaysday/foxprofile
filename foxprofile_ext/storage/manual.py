@@ -231,6 +231,39 @@ class ManualLeaseDAO:
                 process.start_ticks,
             )
 
+    def tighten_cleanup_deadline(
+        self,
+        session_id: str,
+        owner_user_id: str,
+        personal_session_id: str,
+        profile_id: str,
+        browser_run_id: str,
+        host_id: str,
+        deadline: float,
+        updated_at: float,
+    ) -> bool:
+        """Persist the earliest loss deadline; retry/reconnect cannot extend it."""
+        _epoch(deadline)
+        _epoch(updated_at)
+        with self.database.transaction() as connection:
+            cursor = connection.execute(
+                "UPDATE manual_leases SET cleanup_deadline = MIN(cleanup_deadline, ?), "
+                "updated_at = ? WHERE session_id = ? AND owner_user_id = ? "
+                "AND personal_session_id = ? AND profile_id = ? AND browser_run_id = ? "
+                "AND host_id = ? AND state != 'closed'",
+                (
+                    deadline,
+                    updated_at,
+                    session_id,
+                    owner_user_id,
+                    personal_session_id,
+                    profile_id,
+                    browser_run_id,
+                    host_id,
+                ),
+            )
+            return cursor.rowcount == 1
+
     def close_after_exit(
         self,
         session_id: str,

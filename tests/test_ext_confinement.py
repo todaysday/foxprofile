@@ -274,6 +274,7 @@ def test_vnc_helper_shares_run_tmp_but_never_mounts_profile_data(tmp_path, monke
     assert environment["XAUTHORITY"] == "/tmp/Xauthority"
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="bubblewrap is Linux-only")
 def test_trusted_browser_executable_path_needs_approved_runtime_mount(tmp_path, monkeypatch):
     spec = _spec(tmp_path)
     monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/true")
@@ -300,6 +301,7 @@ def test_trusted_browser_executable_path_needs_approved_runtime_mount(tmp_path, 
         )
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="bubblewrap is Linux-only")
 def test_resolver_exact_alias_is_preserved_but_arbitrary_private_alias_rejected(
     tmp_path, monkeypatch
 ):
@@ -336,6 +338,7 @@ def test_resolver_exact_alias_is_preserved_but_arbitrary_private_alias_rejected(
         )
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="bubblewrap is Linux-only")
 def test_real_confined_venv_import_fixed_script_and_localhost_resolution(tmp_path):
     from foxprofile_ext.runtime.supervisor import _confined_arguments
 

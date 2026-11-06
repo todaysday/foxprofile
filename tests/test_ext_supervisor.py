@@ -101,6 +101,7 @@ def stop_owned(process, runtime=None, ref=None):
         process.wait(timeout=8)
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux /proc supervisor protocol")
 def test_durable_claim_precedes_controlled_child_effect_and_private_input(tmp_path):
     marker = tmp_path / "effect"
     # Child verifies durable parent registration before its first observable effect.
@@ -126,6 +127,7 @@ def test_durable_claim_precedes_controlled_child_effect_and_private_input(tmp_pa
     assert not private_tmp.exists()
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux /proc supervisor protocol")
 def test_late_cancelled_supervisor_creates_no_browser_effect(tmp_path):
     marker = tmp_path / "effect"
     code = f"from pathlib import Path; Path({str(marker)!r}).write_text('spawned')"
@@ -136,6 +138,7 @@ def test_late_cancelled_supervisor_creates_no_browser_effect(tmp_path):
     assert ledger.get(ref).status is RunStatus.CANCELLED
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux /proc supervisor protocol")
 def test_parent_stdout_loss_retains_browser_and_restart_adopts_private_control(tmp_path):
     code = "\n".join(
         (
@@ -173,6 +176,7 @@ def test_parent_stdout_loss_retains_browser_and_restart_adopts_private_control(t
     assert ledger.get(ref).status is RunStatus.CLOSED
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux /proc supervisor protocol")
 def test_child_startup_failure_releases_only_after_supervisor_cleanup(tmp_path):
     _, ledger, ref, process, _ = start_supervisor(tmp_path, "raise SystemExit(17)")
     process.communicate(timeout=10)
@@ -180,6 +184,7 @@ def test_child_startup_failure_releases_only_after_supervisor_cleanup(tmp_path):
     assert ledger.get(ref).status is RunStatus.CLOSED
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux /proc supervisor protocol")
 def test_stale_callbacks_never_release_new_generation(tmp_path):
     database, ledger, old, process, _ = start_supervisor(tmp_path, "pass")
     process.communicate(timeout=10)
@@ -191,6 +196,7 @@ def test_stale_callbacks_never_release_new_generation(tmp_path):
     assert len(ledger.active_runs()) == 1
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux /proc supervisor protocol")
 def test_sigkill_supervisor_keeps_live_browser_counted(tmp_path):
     database, ledger, ref, process, _ = start_supervisor(
         tmp_path, "import time; print('child-live',flush=True); time.sleep(30)"
@@ -213,6 +219,7 @@ def test_sigkill_supervisor_keeps_live_browser_counted(tmp_path):
         stop_owned(process)
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux namespace mount paths")
 def test_fixed_host_script_is_remapped_without_mutating_proxy_arguments():
     command = [
         sys.executable,
@@ -234,6 +241,10 @@ def test_runtime_xauthority_cannot_escape_private_run(tmp_path, path):
         )
 
 
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux") or os.getenv("FOXPROFILE_RUN_NATIVE_X_TESTS") != "1",
+    reason="opt-in Linux bubblewrap process integration",
+)
 def test_real_bwrap_boundary_browser_pid_mapping_and_detached_descendant_cleanup(tmp_path):
     from src.models.profile import Profile
 
@@ -291,6 +302,7 @@ def test_real_bwrap_boundary_browser_pid_mapping_and_detached_descendant_cleanup
         stop_owned(process)
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux /proc supervisor protocol")
 def test_private_gate_eof_never_executes_tool(tmp_path):
     marker = tmp_path / "gate-effect"
     code = f"from pathlib import Path; Path({str(marker)!r}).write_text('unsafe')"
@@ -307,6 +319,7 @@ def test_private_gate_eof_never_executes_tool(tmp_path):
     assert not marker.exists()
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux /proc supervisor protocol")
 def test_browser_mapping_rejects_wrong_executable_or_generation(tmp_path):
     from foxprofile_ext.runtime.supervisor import _map_browser_process
 

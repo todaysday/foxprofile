@@ -93,7 +93,7 @@ def test_private_channel_revocation_is_synchronous_idempotent_and_late_safe():
     peer.close()
 
 
-@pytest.mark.skipif(not hasattr(os, "fork"), reason="Linux helper gate")
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux fork/prctl helper gate")
 def test_receipt_failure_reaps_gated_child_without_exec(tmp_path, monkeypatch):
     identities = []
 
@@ -120,8 +120,8 @@ def test_receipt_failure_reaps_gated_child_without_exec(tmp_path, monkeypatch):
 
 @pytest.fixture
 def native(tmp_path):
-    if os.getenv("FOXPROFILE_RUN_NATIVE_X_TESTS") != "1":
-        pytest.skip("opt-in offline native-X harness")
+    if not sys.platform.startswith("linux") or os.getenv("FOXPROFILE_RUN_NATIVE_X_TESTS") != "1":
+        pytest.skip("opt-in Linux native-X harness")
     binaries = {name: shutil.which(name) for name in ("Xvfb", "x11vnc", "xauth", "bwrap")}
     assert all(binaries.values()), binaries
     profile, temporary, state = (tmp_path / name for name in ("profile", "run", "state"))

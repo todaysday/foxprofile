@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import types
+from pathlib import Path
 
 import pytest
 
@@ -279,7 +280,7 @@ def test_helper_preserves_baseline_options_outside_protected_camoufox(
 def test_helper_command_is_fixed_to_cookie_tool_actions():
     command = helper_command("import", "profile-a", "linux", "camoufox")
 
-    assert command[1].endswith("/src/services/browser/cookie_tool.py")
+    assert Path(command[1]).as_posix().endswith("/src/services/browser/cookie_tool.py")
     assert command[2:] == ["import", "profile-a", "linux", "camoufox"]
     with pytest.raises(ValueError, match="unknown cookie helper action"):
         helper_command("shell", "profile-a", "linux", "camoufox")
@@ -524,6 +525,7 @@ def test_chrome_uses_trusted_executable_without_cache_download(monkeypatch, prot
     assert engine._executable == protected_executables
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux /proc browser identities")
 def test_actual_browser_metadata_selects_root_engine_process_and_rejects_mismatch(monkeypatch):
     from textwrap import dedent
 
@@ -581,6 +583,7 @@ def test_actual_browser_metadata_selects_root_engine_process_and_rejects_mismatc
     assert result.returncode == 0, result.stderr
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux private X display policy")
 def test_private_x_cookie_uses_stdin_and_never_argv_or_logs(monkeypatch, capsys):
     calls = []
     canary = "12" * 16
@@ -606,7 +609,7 @@ def test_private_x_cookie_uses_stdin_and_never_argv_or_logs(monkeypatch, capsys)
 
 
 @pytest.mark.skipif(
-    os.getenv("FOXPROFILE_RUN_NATIVE_X_TESTS") != "1",
+    not sys.platform.startswith("linux") or os.getenv("FOXPROFILE_RUN_NATIVE_X_TESTS") != "1",
     reason="explicit offline native-X harness only; no browser is launched",
 )
 def test_native_xauthority_denies_missing_wrong_and_sibling_cookies(tmp_path):

@@ -1,6 +1,7 @@
 """Protected profile facade checks over isolated extension/catalog fixtures."""
 
 import json
+import os
 import sys
 import threading
 import time
@@ -567,7 +568,7 @@ def test_enabled_container_recovers_before_serving_and_blocks_raw_services(tmp_p
     recovered = []
     monkeypatch.setattr(ProfileCatalog, "recover", lambda self: recovered.append(self))
 
-    container = Container()
+    container = Container(run_coordinator=_Coordinator())
 
     assert len(recovered) == 1
     assert (tmp_path / "foxprofile_ext.sqlite3").exists()
@@ -615,6 +616,10 @@ def test_enabled_container_fails_closed_on_invalid_catalog_migration(tmp_path, m
         Container()
 
 
+@pytest.mark.skipif(
+    sys.platform != "linux" or os.getenv("FOXPROFILE_RUN_NATIVE_X_TESTS") != "1",
+    reason="opt-in Linux bubblewrap process integration",
+)
 def test_default_container_runs_confined_stub_and_reports_status_without_browser(
     tmp_path, monkeypatch
 ):

@@ -1,4 +1,7 @@
 -r requirements.txt
+-r requirements-extension.txt
 pytest>=8.0
 ruff>=0.17.3
 httpx>=0.28.1
+setuptools>=77
+wheel

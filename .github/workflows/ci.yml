@@ -16,9 +16,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install "ruff>=0.6"
-      - run: ruff check src tests chrome_engine
-      - run: ruff format --check src tests chrome_engine
+      - run: pip install "ruff>=0.17.3"
+      - run: ruff check src tests chrome_engine foxprofile_ext
+      - run: ruff format --check src tests chrome_engine foxprofile_ext
 
   test:
     strategy:
@@ -35,4 +35,33 @@ jobs:
           cache: pip
           cache-dependency-path: requirements*.txt
       - run: pip install -r requirements-dev.txt
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
       - run: pytest -q
+
+  extension-integration:
+    runs-on: ubuntu-latest
+    env:
+      FOXPROFILE_RUN_NATIVE_X_TESTS: "1"
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - run: sudo apt-get update && sudo apt-get install -y bubblewrap xvfb x11vnc xauth x11-utils strace libx11-6
+      - name: Allow unprivileged namespaces on the disposable runner
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: python -m playwright install --with-deps chromium
+      - name: Require isolated Chromium before browser contracts
+        run: python -c "from playwright.sync_api import sync_playwright; p = sync_playwright().start(); b = p.chromium.launch(); b.close(); p.stop()"
+      - name: Native manual gateway, browser panel, and distributions
+        run: >-
+          pytest -q tests/test_ext_web_panel.py tests/test_ext_packaging.py
+          tests/test_ext_vnc_backend.py tests/test_ext_manual_http.py
+          tests/test_ext_access.py::test_default_container_runs_confined_stub_and_reports_status_without_browser
+          tests/test_ext_runtime_hooks.py::test_native_xauthority_denies_missing_wrong_and_sibling_cookies
+          tests/test_ext_supervisor.py::test_real_bwrap_boundary_browser_pid_mapping_and_detached_descendant_cleanup

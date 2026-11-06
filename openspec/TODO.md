@@ -6,7 +6,7 @@
 - [ ] Hand off slice 9 to a separate deployment agent; complete its five live deployment and acceptance tasks with recorded evidence.
 - [ ] Keep live acceptance open and do not archive this change until required acceptance is complete.
 - [ ] Finish compatibility/startup gates, protected gateway composition, web/Flet integration, distribution verification and the offline deployment handoff before slice 8 completion.
-- [ ] Verify CI installs extension test dependencies and distinguishes Linux process/native tests from portable legacy/domain tests on the existing OS matrix.
+- [x] Verify CI dependency installation and separate Linux native contracts from portable checks. Fresh-environment categories passed (163 passed, 18 opt-in skips); the native selection passed 89 without skips. Windows/macOS and Python 3.10 execution remains unverified locally.
 - [x] Close the maintenance review findings: exclusive temporary files preserve the catalog and external bytes; descriptor-validated locking rejects planted links before chmod. Independent targeted review verified 113 passing tests within the trusted service-owned directory boundary.
 - [x] Pin personal web/Flet actions, modals, Viewer and selection to immutable profile IDs. Explicit ID locators never fall back to names; canonical batch fields accept IDs only. Rename, deletion and UUID-as-name replacement regressions passed.
 - [x] Deliver packaged staging account/profile fixtures, a controlled native-input page and explicit-target API smoke commands. Fifteen fixture/real-local-HTTP checks passed; actual target/browser acceptance remains NOT RUN.

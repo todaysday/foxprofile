@@ -30,6 +30,10 @@ from src.models.profile import Profile
 from src.services.browser.launcher import BrowserLauncher
 
 SERVICE = PrincipalDTO("test-service", PrincipalKind.SERVICE)
+pytestmark = pytest.mark.skipif(
+    not sys.platform.startswith("linux"),
+    reason="RuntimeSupervisor requires Linux process namespaces and /proc identities",
+)
 
 
 @pytest.fixture

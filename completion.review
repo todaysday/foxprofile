@@ -184,3 +184,8 @@
 
 - Explicit package discovery/data includes runtime modules, the controlled input page, panel/font assets, all 61 unchanged upstream noVNC files and provenance/licenses. Mandatory wheel/sdist, isolated installed-import/asset and accidental-private-file exclusion checks: **2 passed** after final UI and fixture delivery.
 - IND860 fixture CLI verification: **15 passed**, including offline preparation with socket connections forbidden, real catalog/DAO/auth/grants, private outputs, explicit fixture identity, loopback controlled-page serving and actual subprocess HTTP smoke against an isolated real Container/API. Canonical ID examples and smoke calls were rechecked after the identity correction. Ruff, page JavaScript syntax and Code Simplifier checks passed. Real target/browser acceptance remains NOT RUN.
+
+#### CI dependency and platform verification
+
+- Normal fresh development installation and pip dependency validation passed. Portable fixtures inject controlled coordinators; real Linux namespaces, display and native-process contracts retain explicit platform/opt-in guards and run in the dedicated integration job. Legacy, DAO/policy and path-normalization checks retain portable coverage.
+- IND841 evidence: **163 passed, 18 native opt-in skips** in focused fresh-environment categories; dedicated native selection **89 passed, no skips**. Actionlint, Ruff, formatting, whitespace and Code Simplifier checks passed. Windows/macOS and Python 3.10 were not executed locally; workflow preservation is not an execution claim.

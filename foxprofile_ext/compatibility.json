@@ -5,13 +5,15 @@
     "version": "2.4.0"
   },
   "candidate": {
-    "commit": "46d0a33783b9b9475ec5a670a2ac239fe8eeb67f",
-    "status": "uncommitted-draft",
-    "note": "Current HEAD plus working-tree implementation; release owner must lock final commit after validation."
+    "commit": "e959a26e11c9e10a241754096a46c28ee1f295f7",
+    "status": "locked",
+    "note": "Immutable runtime-source checkpoint. Exact packaged-release revision, full verification evidence and artifact digests are published in the external handoff after release-input metadata is committed, avoiding a self-referential commit hash."
   },
   "schema": {
     "version": 5,
-    "catalog_id": "immutable UUID hex; locally persisted; excluded from portable archives"
+    "catalog_id": "immutable UUID hex; locally persisted; excluded from portable archives",
+    "sql_snapshot": "deploy/extension/schema-v5.json",
+    "sql_sha256": "3d078a14687be573088ff700d6234687e5243bc48548ee3f98e7693b01d1898b"
   },
   "offline_evidence": {
     "status": "PASS; focused offline scope only",
@@ -3966,16 +3968,25 @@
     },
     "camoufox_browser": "NOT RUN; no live browser version claimed",
     "novnc": "63107bd06d9e1f6136ff21aeda8cd62cbf0d433e",
-    "vnc_adapter": "x11vnc; NOT INSTALLED in offline environment; native host acceptance NOT RUN",
+    "vnc_adapter": "x11vnc 0.9.17-1 amd64; offline native binary SHA-256 249bdc17e09fd96ea73ca7fbec2d8f3cd9ff411d0bbfb634d99431548fb77132; target-host and ARM64 acceptance NOT RUN",
     "confinement": "Linux bubblewrap 0.12.0 in offline environment; live two-host validation NOT RUN"
   },
   "deployment": {
-    "topology": "Single host, shared SQLite ledger and catalog lock across API worker processes; exact run supervisor owns child group.",
+    "topology": "Single host, one lifecycle manager and one ASGI worker per installation; shared SQLite admission does not supply cross-worker gateway/backend IPC; exact run supervisor owns child group.",
     "engines": "Camoufox manual access; Chrome management/capacity supported, manual access explicitly unsupported.",
     "offline_host": "Linux/x86_64",
     "live_hosts": {
       "linux_arm64": "NOT RUN",
       "linux_x86_64": "NOT RUN"
     }
+  },
+  "release_inputs": {
+    "dependency_report": "deploy/extension/dependencies-tested-py312-linux.txt",
+    "dependency_report_sha256": "56a45b7ce21c1a2cce32067d4b408e2ca394dd19e81f7bd675cd68877ed74127",
+    "dependency_report_scope": "Observed Linux Python 3.12.14 development/test environment; pip freeze --all includes test/build tools, no private URLs/paths, not a production-only artifact lock. Matching dependency wheels/image remain separate release inputs.",
+    "final_packaged_release_revision": "PENDING external handoff after release-input commit",
+    "final_distribution_sha256": "PENDING",
+    "definitive_full_regression": "PENDING root receipt on exact release-input candidate after these metadata inputs are committed",
+    "post_lock_verification": "PENDING definitive full suite, compatibility and installed-artifact checks on exact release-input candidate"
   }
 }

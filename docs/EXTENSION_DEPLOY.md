@@ -67,7 +67,7 @@ Install and verify Camoufox and Chrome builds **before startup**; configure thei
 actual installed executable paths. An optional engine can be omitted when unused.
 Protected runtime discovery does not implicitly download a missing browser.
 Install bubblewrap (`bwrap`), Xvfb, xauth and x11vnc using the host's native package
-system. Verify user namespace/confinement support in staging. Failure must remain
+system. Install distro `tzdata` so minimal images provide the IANA timezone database. Verify user namespace/confinement support in staging. Failure must remain
 protected; do not weaken confinement to start a browser.
 
 Set `FOXPROFILE_X11VNC_EXECUTABLE` to the exact absolute executable and

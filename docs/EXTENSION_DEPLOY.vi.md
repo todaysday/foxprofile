@@ -57,8 +57,8 @@ panel dùng account/session riêng; service credential chỉ ở server.
 
 Cài và xác minh Camoufox/Chrome build trước startup, đặt đúng executable path.
 Có thể bỏ engine không dùng. Protected runtime không tự download browser còn thiếu.
-Cài bubblewrap (`bwrap`), Xvfb, xauth, x11vnc qua native package system của host;
-kiểm tra user namespace/confinement tại staging. Lỗi phải fail closed, không chạy
+Cài bubblewrap (`bwrap`), Xvfb, xauth, x11vnc và `tzdata` qua native package system của host; `tzdata` cung cấp IANA timezone database cho image tối giản.
+Kiểm tra user namespace/confinement tại staging. Lỗi phải fail closed, không chạy
 browser thiếu confinement.
 
 `FOXPROFILE_X11VNC_EXECUTABLE` là executable tuyệt đối chính xác;

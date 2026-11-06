@@ -1,0 +1,21 @@
+[
+  "CREATE UNIQUE INDEX browser_runs_one_active_profile ON browser_runs(profile_id) WHERE status IN ('reserved', 'starting', 'running', 'stopping')",
+  "CREATE INDEX browser_runs_status ON browser_runs(status)",
+  "CREATE INDEX catalog_operations_status ON catalog_operations(status)",
+  "CREATE INDEX manual_leases_expiry ON manual_leases(expires_at)",
+  "CREATE UNIQUE INDEX manual_leases_one_open ON manual_leases((1)) WHERE state IN ('provisioning', 'active', 'closing', 'recovering')",
+  "CREATE INDEX profile_grants_profile_id ON profile_grants(profile_id)",
+  "CREATE INDEX runtime_descriptors_profile ON runtime_descriptors(profile_id)",
+  "CREATE INDEX sessions_user_id ON sessions(user_id)",
+  "CREATE INDEX transfer_handles_owner ON transfer_handles(user_id, profile_id, status)",
+  "CREATE TABLE browser_runs (run_id TEXT PRIMARY KEY, profile_id TEXT NOT NULL, host_id TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('reserved', 'starting', 'running', 'stopping', 'cancelled', 'closed')), pid INTEGER, start_ticks INTEGER, created_at REAL NOT NULL, CHECK ((pid IS NULL AND start_ticks IS NULL) OR (pid > 0 AND start_ticks >= 0)))",
+  "CREATE TABLE capacity_recovery (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), blocked INTEGER NOT NULL CHECK (blocked IN (0, 1)))",
+  "CREATE TABLE catalog_operations (operation_id TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK (kind IN ('create', 'import', 'rename', 'delete', 'identity_migration')), profile_id TEXT NOT NULL, source_name TEXT, destination_name TEXT, status TEXT NOT NULL CHECK (status IN ('pending', 'complete', 'failed')), created_at REAL NOT NULL, updated_at REAL NOT NULL, actor_user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL, target_profile_id TEXT)",
+  "CREATE TABLE manual_leases (session_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, personal_session_id TEXT NOT NULL, profile_id TEXT NOT NULL, browser_run_id TEXT NOT NULL, host_id TEXT NOT NULL, state TEXT NOT NULL CHECK (state IN ('provisioning', 'active', 'closing', 'recovering', 'closed')), created_at REAL NOT NULL, updated_at REAL NOT NULL, expires_at REAL NOT NULL, cleanup_deadline REAL NOT NULL, helper_pid INTEGER, helper_start_ticks INTEGER, CHECK (expires_at > created_at), CHECK (cleanup_deadline > created_at), CHECK ((helper_pid IS NULL AND helper_start_ticks IS NULL) OR (helper_pid > 0 AND helper_start_ticks >= 0)))",
+  "CREATE TABLE profile_grants (user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE, profile_id TEXT NOT NULL, PRIMARY KEY (user_id, profile_id))",
+  "CREATE TABLE runtime_descriptors (run_id TEXT PRIMARY KEY, profile_id TEXT NOT NULL, host_id TEXT NOT NULL, supervisor_pid INTEGER NOT NULL, supervisor_start_ticks INTEGER NOT NULL, browser_pid INTEGER, browser_start_ticks INTEGER, boundary_pid INTEGER, boundary_start_ticks INTEGER, display TEXT, namespace TEXT, tmp_path TEXT, xauthority_path TEXT, control_port INTEGER, control_token TEXT, updated_at REAL NOT NULL, CHECK (supervisor_pid > 0 AND supervisor_start_ticks >= 0), CHECK ((browser_pid IS NULL AND browser_start_ticks IS NULL) OR (browser_pid > 0 AND browser_start_ticks >= 0)), CHECK ((boundary_pid IS NULL AND boundary_start_ticks IS NULL) OR (boundary_pid > 0 AND boundary_start_ticks >= 0)), CHECK ((control_port IS NULL AND control_token IS NULL) OR (control_port BETWEEN 1 AND 65535 AND control_token IS NOT NULL)))",
+  "CREATE TABLE sessions (session_id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE, token_hash TEXT NOT NULL UNIQUE, auth_version INTEGER NOT NULL CHECK (auth_version >= 0), created_at REAL NOT NULL, expires_at REAL NOT NULL CHECK (expires_at > created_at))",
+  "CREATE TABLE settings (setting_key TEXT PRIMARY KEY, setting_value TEXT NOT NULL)",
+  "CREATE TABLE transfer_handles (handle_id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE, profile_id TEXT NOT NULL, server_path TEXT NOT NULL, expires_at REAL NOT NULL, status TEXT NOT NULL CHECK (status IN ('active', 'revoked', 'consumed')))",
+  "CREATE TABLE users (user_id TEXT PRIMARY KEY, username TEXT NOT NULL COLLATE NOCASE UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL CHECK (role IN ('admin', 'user')), active INTEGER NOT NULL CHECK (active IN (0, 1)), auth_version INTEGER NOT NULL DEFAULT 0 CHECK (auth_version >= 0))"
+]

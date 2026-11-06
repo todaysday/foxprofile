@@ -249,6 +249,33 @@ class TestAtomicSave:
         tmp_file = tmp_path / "profiles.json.tmp"
         assert not tmp_file.exists()
 
+    @pytest.mark.parametrize("stage", ["write", "replace"])
+    def test_failed_save_preserves_catalog_and_cleans_owned_temporary_file(
+        self, manager_in_tmp, monkeypatch, stage
+    ):
+        pm, tmp_path = manager_in_tmp
+        pm.add_profile("saved", "", "linux")
+        profiles_file = tmp_path / "profiles.json"
+        original_catalog = profiles_file.read_bytes()
+        planted = tmp_path / "profiles.json.tmp"
+        planted.write_bytes(b"pre-existing temporary file")
+        original_paths = set(tmp_path.iterdir())
+        pm.profiles.clear()
+
+        def interrupted(*args, **kwargs):
+            if stage == "write":
+                args[1].write("partial data")
+            raise OSError("synthetic save failure")
+
+        target = "json.dump" if stage == "write" else "_replace"
+        monkeypatch.setattr(f"src.services.profile.manager.{target}", interrupted)
+        with pytest.raises(OSError, match="synthetic save failure"):
+            pm.save_profiles()
+
+        assert profiles_file.read_bytes() == original_catalog
+        assert planted.read_bytes() == b"pre-existing temporary file"
+        assert set(tmp_path.iterdir()) == original_paths
+
 
 class TestRLock:
     def test_concurrent_add_no_duplicate(self, manager_in_tmp):

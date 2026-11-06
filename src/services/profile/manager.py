@@ -3,6 +3,7 @@ import json
 import os
 import pathlib
 import shutil
+import tempfile
 import threading
 import time
 import uuid
@@ -97,9 +98,17 @@ class ProfileManager:
     def save_profiles(self) -> None:
         """Atomic write: write to a temp file then os.replace."""
         path = self.profiles_file
-        tmp = path.with_suffix(".json.tmp")
+        tmp = None
         try:
-            with tmp.open("w", encoding="utf-8") as f:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as f:
+                tmp = pathlib.Path(f.name)
                 json.dump(
                     {name: p.to_dict() for name, p in self.profiles.items()},
                     f,
@@ -120,8 +129,9 @@ class ProfileManager:
             logger.debug("Profiles saved")
         except Exception as e:
             logger.exception("Error saving profiles: %s", e)
-            with contextlib.suppress(OSError):
-                tmp.unlink(missing_ok=True)
+            if tmp is not None:
+                with contextlib.suppress(OSError):
+                    tmp.unlink(missing_ok=True)
             raise
 
     def add_profile(

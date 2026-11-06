@@ -1,0 +1,31 @@
+[Unit]
+Description=FoxProfile protected extension (single lifecycle manager)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=foxprofile
+Group=foxprofile
+WorkingDirectory=/opt/foxprofile-extension/releases/LOCKED_COMMIT
+EnvironmentFile=/etc/foxprofile-extension/runtime.env
+EnvironmentFile=/etc/foxprofile-extension/secrets.env
+ExecStart=/opt/foxprofile-extension/venvs/LOCKED_COMMIT/bin/python -m src.server
+Restart=on-failure
+RestartSec=5
+UMask=0077
+RuntimeDirectory=foxprofile-extension
+RuntimeDirectoryMode=0700
+KillMode=control-group
+TimeoutStopSec=70
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/foxprofile-extension /run/foxprofile-extension
+# Keep browser, Xvfb and VNC helper in this same service/private temporary namespace.
+# Bubblewrap requires working unprivileged user namespaces. Do not add restrictions
+# that prohibit its namespace creation without testing protected confinement first.
+# Resolve host policy in isolated staging; never use an unconfined fallback.
+
+[Install]
+WantedBy=multi-user.target

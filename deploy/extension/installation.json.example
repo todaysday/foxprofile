@@ -1,0 +1,9 @@
+{
+  "profiles_file": "/srv/foxprofile-extension/catalog.json",
+  "data_dir": "/srv/foxprofile-extension/profiles",
+  "database": "/srv/foxprofile-extension/state.sqlite3",
+  "configuration_dir": "/etc/foxprofile-extension",
+  "release_dir": "/opt/foxprofile-extension/releases/LOCKED_COMMIT",
+  "dependencies_file": "/srv/foxprofile-extension/dependencies.txt",
+  "release_revision": "REPLACE_WITH_EXACT_40_HEX_FORK_COMMIT"
+}

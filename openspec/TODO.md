@@ -7,6 +7,9 @@
 - [ ] Keep live acceptance open and do not archive this change until required acceptance is complete.
 - [ ] Finish compatibility/startup gates, protected gateway composition, web/Flet integration, distribution verification and the offline deployment handoff before slice 8 completion.
 - [ ] Verify CI installs extension test dependencies and distinguishes Linux process/native tests from portable legacy/domain tests on the existing OS matrix.
+- [x] Close the maintenance review findings: exclusive temporary files preserve the catalog and external bytes; descriptor-validated locking rejects planted links before chmod. Independent targeted review verified 113 passing tests within the trusted service-owned directory boundary.
+- [ ] Pin every personal web action/modal/Viewer/selection to the captured immutable profile ID so rename/name reuse cannot retarget an operation to a replacement profile.
+- [ ] Deliver packaged staging account/profile fixtures, a controlled native-input page and explicit-target API smoke commands for the deployment agent; distinguish this harness from actual live acceptance.
 - [x] Verify the private VNC backend with real Xvfb/x11vnc, including private RFB transport, helper watchdog, held-input release and browser-preserving cleanup; actual browser and live-host acceptance remain open.
 
 ## Review follow-ups

@@ -1,0 +1,23 @@
+{
+  "status": "BLOCKED: target hosts and access not supplied; slice 09 NOT RUN",
+  "installation_identity": "UNRESOLVED",
+  "architecture": "UNRESOLVED: amd64 or arm64",
+  "host_and_access_method": "UNRESOLVED: keep access credentials outside this manifest",
+  "deployment_agent": "UNRESOLVED",
+  "fork_commit": "UNRESOLVED",
+  "upstream_base": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+  "process_and_service_owner": "UNRESOLVED",
+  "service_or_container_topology": "UNRESOLVED: one lifecycle manager, one ASGI worker",
+  "configuration_paths": "UNRESOLVED",
+  "catalog_database_and_profile_paths": "UNRESOLVED",
+  "private_backup_and_empty_staging_destination": "UNRESOLVED",
+  "matching_release_and_dependency_artifacts": "UNRESOLVED",
+  "installed_browser_builds": "UNRESOLVED",
+  "x11vnc_executable_version_sha256": "UNRESOLVED: independently verify on each architecture",
+  "native_dependencies_and_namespace_policy": "UNRESOLVED: bubblewrap, Xvfb, xauth, x11vnc",
+  "reverse_proxy_tls_and_wss": "UNRESOLVED",
+  "runtime_x_socket_xauthority_and_temporary_namespace": "UNRESOLVED",
+  "resource_limits": "UNRESOLVED: measure host capacity in slice 09",
+  "saved_capacity": "UNRESOLVED: preserve valid value; absent defaults to 10",
+  "live_acceptance_report": "NOT RUN"
+}

@@ -5,6 +5,9 @@
 - [ ] Complete the remaining implementation and offline verification tasks in slices 1–8 of `openspec/changes/add-multi-user-manual-browser-workflow/tasks.md`.
 - [ ] Hand off slice 9 to a separate deployment agent; complete its five live deployment and acceptance tasks with recorded evidence.
 - [ ] Keep live acceptance open and do not archive this change until required acceptance is complete.
+- [ ] Finish compatibility/startup gates, protected gateway composition, web/Flet integration, distribution verification and the offline deployment handoff before slice 8 completion.
+- [ ] Verify CI installs extension test dependencies and distinguishes Linux process/native tests from portable legacy/domain tests on the existing OS matrix.
+- [x] Verify the private VNC backend with real Xvfb/x11vnc, including private RFB transport, helper watchdog, held-input release and browser-preserving cleanup; actual browser and live-host acceptance remain open.
 
 ## Review follow-ups
 

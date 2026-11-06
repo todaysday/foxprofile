@@ -80,10 +80,13 @@ def create_app(container: Container, self_url: str | None = None) -> FastAPI:
         app.add_middleware(LocalOnlyGuard)
 
     if ext_enabled:
+        from foxprofile_ext.manual.http import router as manual_router
+
         protected = [Depends(get_request_principal), Depends(require_cookie_csrf)]
         app.include_router(ext_auth_router, prefix=API_PREFIX)
         app.include_router(ext_browser_router, prefix=API_PREFIX)
         app.include_router(ext_transfer_router, prefix=API_PREFIX)
+        app.include_router(manual_router, prefix=API_PREFIX)
     else:
         protected = [Depends(require_token)]
     app.include_router(profiles_router, prefix=API_PREFIX, dependencies=protected)

@@ -183,10 +183,30 @@ class ManualSessionService:
             raise
 
     def disconnect(
-        self, principal: PrincipalDTO | None, session_id: str, browser_run_id: str
+        self,
+        principal: PrincipalDTO | None,
+        session_id: str,
+        browser_run_id: str,
+        *,
+        detection_budget_seconds: float = 0,
     ) -> ManualSessionDTO:
-        """Explicit loss starts cleanup immediately; reconnect never resets it."""
+        """Include trusted transport detection time in the first-loss deadline."""
+        if (
+            type(detection_budget_seconds) not in (int, float)
+            or not math.isfinite(detection_budget_seconds)
+            or not 0 <= detection_budget_seconds <= CLEANUP_BUDGET_SECONDS
+        ):
+            raise ValueError("detection budget must be finite and between 0 and 60 seconds")
         try:
+            if detection_budget_seconds:
+                lease = self._owned(principal, session_id)
+                self._expected_run(lease, browser_run_id)
+                now = self._now()
+                self._leases.tighten_cleanup_deadline(
+                    *self._binding(lease),
+                    now + CLEANUP_BUDGET_SECONDS - detection_budget_seconds,
+                    now,
+                )
             return self.close(principal, session_id, browser_run_id)
         except DomainError:
             self.reap_expired()

@@ -15,6 +15,7 @@ from .logging import setup_logging
 if TYPE_CHECKING:
     from foxprofile_ext.application import ProtectedApplication
     from foxprofile_ext.auth import AuthService
+    from foxprofile_ext.manual.factory import ManualGateway
     from foxprofile_ext.run_contracts import RunCoordinator
 
 
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
 class _ExtensionServices:
     auth_service: AuthService
     protected_application: ProtectedApplication
+    manual_gateway_factory: Callable[[], ManualGateway]
 
 
 class _PrincipalScopedAdapter:
@@ -112,6 +114,9 @@ class Container:
         # service must be built exactly once or they would hold separate state.
         self.__lock = threading.RLock()
         if self.__extension_enabled:
+            from foxprofile_ext.compatibility import require_compatible_hooks
+
+            require_compatible_hooks()
             # Build identity, catalog, and recovery hooks before serving requests.
             self._get("ext", self._build_extension_services)
 
@@ -187,6 +192,11 @@ class Container:
         """Shared profile-policy facade for HTTP and direct application callers."""
         return self._extension_services.protected_application
 
+    @property
+    def manual_gateway(self) -> ManualGateway:
+        """Build temporary manual access only when its first request arrives."""
+        return self._get("manual", self._extension_services.manual_gateway_factory)
+
     def profile_manager_adapter(self):
         services = self._extension_services
         return _PrincipalScopedAdapter(
@@ -224,6 +234,9 @@ class Container:
     def shutdown(self, *, timeout: float = 30.0) -> None:
         """Stop owned browser children through their configured lifecycle owner."""
         if self.__extension_enabled:
+            manual = self.__instances.get("manual")
+            if manual is not None:
+                manual.shutdown()
             shutdown = getattr(self.__run_coordinator, "shutdown", None)
             if callable(shutdown):
                 shutdown(timeout=timeout)
@@ -301,4 +314,12 @@ class Container:
             settings=SettingsDAO(database),
             transfers=transfers,
         )
-        return _ExtensionServices(auth_service, protected_application)
+
+        def manual_gateway_factory() -> ManualGateway:
+            from foxprofile_ext.manual.factory import build_manual_gateway
+
+            return build_manual_gateway(
+                database, catalog, auth_service, protected_application, self.__run_coordinator
+            )
+
+        return _ExtensionServices(auth_service, protected_application, manual_gateway_factory)

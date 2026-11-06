@@ -311,6 +311,55 @@ def test_watchdog_armed_before_first_heartbeat_and_expiry_caps_sliding_bound(env
     assert entry["cancelled"]
 
 
+def test_transport_detection_counts_toward_cleanup_and_reconnect_cannot_extend(env):
+    manual = env.service.create(env.alice, "profile-a")
+    env.backend.keep_alive = True
+    # Loss starts at 100; transport spends its full 20-second detection budget.
+    env.now[0] = 120
+    with pytest.raises(DomainError) as caught:
+        env.service.disconnect(
+            env.alice, manual.session_id, manual.browser_run_id, detection_budget_seconds=20
+        )
+    assert caught.value.code is ErrorCode.RUNTIME_RECOVERING
+    assert env.leases.current().cleanup_deadline == 160
+    assert env.backend.sessions[manual.session_id]["cleanup_deadline"] == 160
+    env.now[0] = 161
+    error(
+        ErrorCode.MANUAL_SESSION_CLOSED,
+        env.service.reconnect,
+        env.alice,
+        manual.session_id,
+        manual.browser_run_id,
+    )
+    assert env.leases.current().cleanup_deadline == 160
+    error(ErrorCode.MANUAL_SESSION_BUSY, env.service.create, env.bob, "profile-b")
+
+
+@pytest.mark.parametrize("budget", [-1, 61, float("inf"), float("nan"), True, "20"])
+def test_invalid_internal_detection_budget_has_no_effect(env, budget):
+    manual = env.service.create(env.alice, "profile-a")
+    before = env.leases.current()
+    with pytest.raises(ValueError, match="detection budget"):
+        env.service.disconnect(
+            env.alice, manual.session_id, manual.browser_run_id, detection_budget_seconds=budget
+        )
+    assert env.leases.current() == before
+
+
+def test_detection_budget_does_not_authorize_foreign_or_stale_disconnect(env):
+    manual = env.service.create(env.alice, "profile-a")
+    before = env.leases.current()
+    for actor, run in (
+        (env.alice2, manual.browser_run_id),
+        (env.bob, manual.browser_run_id),
+        (env.alice, "stale-run"),
+    ):
+        with pytest.raises(DomainError):
+            env.service.disconnect(actor, manual.session_id, run, detection_budget_seconds=20)
+        assert env.leases.current() == before
+    assert not any(event[0] == "stop" for event in env.backend.events)
+
+
 @pytest.mark.parametrize("revoke", ["logout", "disabled", "grant", "password"])
 def test_passive_reaper_and_stream_hook_revoke_current_authority_only(env, revoke):
     manual = env.service.create(env.alice, "profile-a")

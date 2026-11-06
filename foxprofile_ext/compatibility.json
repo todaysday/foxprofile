@@ -1,0 +1,3981 @@
+{
+  "format_version": 1,
+  "upstream": {
+    "commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+    "version": "2.4.0"
+  },
+  "candidate": {
+    "commit": "46d0a33783b9b9475ec5a670a2ac239fe8eeb67f",
+    "status": "uncommitted-draft",
+    "note": "Current HEAD plus working-tree implementation; release owner must lock final commit after validation."
+  },
+  "schema": {
+    "version": 5,
+    "catalog_id": "immutable UUID hex; locally persisted; excluded from portable archives"
+  },
+  "offline_evidence": {
+    "status": "PASS; focused offline scope only",
+    "commands": [
+      {
+        "command": "python -m pytest -q tests/test_ext_compatibility_gate.py",
+        "result": "26 passed"
+      },
+      {
+        "command": "python -m pytest -q tests/test_ext_compatibility_gate.py tests/test_ext_compatibility.py tests/test_ext_runtime_hooks.py tests/test_ext_access.py",
+        "result": "90 passed, 1 skipped; executed before final two gate regressions and process/protocol inventory tightening; final 26 gate cases rerun afterward"
+      },
+      {
+        "command": "python tools/check_extension_compatibility.py",
+        "result": "PASS: 74 route/method entries, 69 hooks, 38 launch callsites"
+      },
+      {
+        "command": "python tools/check_extension_compatibility.py --rehearse",
+        "result": "PASS: disposable copy rejects unclassified route, missing admission hook, runtime adapter signature drift, and new browser factory; restored candidate passes; no branch/worktree/live mutation"
+      },
+      {
+        "command": "python -m ruff check foxprofile_ext/compatibility.py tests/test_ext_compatibility_gate.py tools/check_extension_compatibility.py",
+        "result": "PASS"
+      },
+      {
+        "command": "python -m ruff format --check foxprofile_ext/compatibility.py tests/test_ext_compatibility_gate.py tools/check_extension_compatibility.py",
+        "result": "PASS"
+      }
+    ],
+    "artifact_sha256": {
+      "foxprofile_ext/compatibility.py": "8932b2793e6794eab9fc58a21d88689209f4277773a2ffd945a6d63209be372c",
+      "tests/test_ext_compatibility_gate.py": "87d446fbe02753de8875697a70b09fedaffc6299ab53eccb705a55d01e336cad",
+      "tools/check_extension_compatibility.py": "e4ff5ef99a001481741c0c82b44e4a35b7d73ad1a76af87391ad2cbaa7e17b76"
+    },
+    "limits": "No additional real upstream candidate selected. Live browser/native two-host acceptance remains NOT RUN. AST checks enforce finite adapter contracts; focused behavioral security tests remain required."
+  },
+  "live_evidence": {
+    "status": "NOT RUN",
+    "owner": "separate deployment agent; both target architectures"
+  },
+  "hooks": [
+    {
+      "file": "src/core/container.py",
+      "symbol": "Container.__init__",
+      "purpose": "Protected activation validates compatibility before composing services; legacy activation skips extension imports.",
+      "contract": "Protected activation validates compatibility before composing services; legacy activation skips extension imports.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_protected_startup_rejects_missing_hook_before_services",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "run_coordinator",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "None",
+            "annotation": "RunCoordinator | None"
+          }
+        ],
+        "returns": "None"
+      },
+      "required_calls": [
+        {
+          "callee": "require_compatible_hooks"
+        },
+        {
+          "callee": "self._get"
+        }
+      ],
+      "call_order": [
+        "require_compatible_hooks",
+        "self._get"
+      ]
+    },
+    {
+      "file": "src/core/container.py",
+      "symbol": "Container._build_extension_services",
+      "purpose": "Recover catalog and build one shared protected application and runtime coordinator.",
+      "contract": "Recover catalog and build one shared protected application and runtime coordinator.",
+      "covering_test": "tests/test_ext_access.py::test_enabled_container_recovers_before_serving_and_blocks_raw_services",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          }
+        ],
+        "returns": "_ExtensionServices"
+      },
+      "required_calls": [
+        {
+          "callee": "catalog.recover"
+        },
+        {
+          "callee": "build_run_coordinator"
+        },
+        {
+          "callee": "ProtectedApplication"
+        }
+      ],
+      "call_order": [
+        "catalog.recover",
+        "ProtectedApplication"
+      ]
+    },
+    {
+      "file": "src/core/container.py",
+      "symbol": "_PrincipalScopedAdapter.__getattr__",
+      "purpose": "Direct upstream service access requires a current scoped principal; profile results are filtered.",
+      "contract": "Direct upstream service access requires a current scoped principal; profile results are filtered.",
+      "covering_test": "tests/test_ext_access.py::test_missing_actor_denied_at_direct_facade_boundary",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "name",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          }
+        ],
+        "returns": null
+      },
+      "required_calls": [
+        {
+          "callee": "current_principal"
+        },
+        {
+          "callee": "self.__application.current_principal"
+        }
+      ]
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.current_principal",
+      "purpose": "Refresh and reject absent/revoked authority at direct-service boundary.",
+      "contract": "Refresh and reject absent/revoked authority at direct-service boundary.",
+      "covering_test": "tests/test_ext_access.py::test_missing_actor_denied_at_direct_facade_boundary",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          }
+        ],
+        "returns": "PrincipalDTO"
+      },
+      "required_calls": [
+        {
+          "callee": "self._auth.validate_principal"
+        }
+      ]
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.perform_profile",
+      "purpose": "Authorize a current profile before executing a principal-scoped upstream effect.",
+      "contract": "Authorize a current profile before executing a principal-scoped upstream effect.",
+      "covering_test": "tests/test_ext_access.py::test_perform_profile_scopes_and_resets_principal_after_success_or_error",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          },
+          {
+            "name": "identifier",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "effect",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "Callable[[Profile], _T]"
+          }
+        ],
+        "returns": "_T"
+      },
+      "required_calls": [
+        {
+          "callee": "self.current_principal"
+        },
+        {
+          "callee": "self._resolve_profile_locked"
+        },
+        {
+          "callee": "principal_scope"
+        },
+        {
+          "callee": "effect"
+        }
+      ],
+      "call_order": [
+        "self.current_principal",
+        "self._resolve_profile_locked",
+        "effect"
+      ]
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.start_profiles",
+      "purpose": "Resolve complete authorized batch before passing actor and profiles to admission.",
+      "contract": "Resolve complete authorized batch before passing actor and profiles to admission.",
+      "covering_test": "tests/test_ext_access.py::test_mixed_batch_is_denied_before_coordinator_and_success_deduplicates",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          },
+          {
+            "name": "names_or_ids",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "Sequence[str]"
+          },
+          {
+            "name": "wait",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "False",
+            "annotation": "bool"
+          },
+          {
+            "name": "timeout",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "30",
+            "annotation": "float"
+          }
+        ],
+        "returns": "tuple[RunLaunchResult, ...]"
+      },
+      "required_calls": [
+        {
+          "callee": "self.current_principal"
+        },
+        {
+          "callee": "self._resolve_profiles_locked"
+        },
+        {
+          "callee": "reserve_and_start",
+          "arguments": [
+            "actor",
+            "refs"
+          ],
+          "keywords": [
+            "wait",
+            "timeout"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "src/api/app.py",
+      "symbol": "create_app",
+      "purpose": "Protected routers include personal/service principal and CSRF dependencies; manual HTTP/WS shares same application.",
+      "contract": "Protected routers include personal/service principal and CSRF dependencies; manual HTTP/WS shares same application.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "container",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "Container"
+          },
+          {
+            "name": "self_url",
+            "kind": "positional_or_keyword",
+            "required": false,
+            "default": "None",
+            "annotation": "str | None"
+          }
+        ],
+        "returns": "FastAPI"
+      },
+      "required_calls": [
+        {
+          "callee": "extension_enabled"
+        },
+        {
+          "callee": "mcp_http.build"
+        },
+        {
+          "callee": "app.include_router"
+        }
+      ]
+    },
+    {
+      "file": "src/api/dependencies.py",
+      "symbol": "get_request_principal",
+      "purpose": "Resolve live personal sessions or explicit service bearer before protected effects.",
+      "contract": "Resolve live personal sessions or explicit service bearer before protected effects.",
+      "covering_test": "tests/test_ext_api_auth.py::test_service_principal_is_distinct_and_cannot_use_personal_admin_routes",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "request",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "Request"
+          }
+        ],
+        "returns": "PrincipalDTO"
+      },
+      "required_calls": [
+        {
+          "callee": "container.auth_service.resolve_session"
+        },
+        {
+          "callee": "protected.current_principal"
+        }
+      ]
+    },
+    {
+      "file": "src/api/dependencies.py",
+      "symbol": "perform_profile",
+      "purpose": "All per-profile route effects pass through shared authorization facade.",
+      "contract": "All per-profile route effects pass through shared authorization facade.",
+      "covering_test": "tests/test_ext_api_access.py::test_screenshot_and_control_recheck_revoked_profile_assignment",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "request",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "Request"
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO"
+          },
+          {
+            "name": "identifier",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "effect",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          }
+        ],
+        "returns": null
+      },
+      "required_calls": [
+        {
+          "callee": "request.app.state.container.protected_application.perform_profile"
+        }
+      ]
+    },
+    {
+      "file": "src/api/mcp_http.py",
+      "symbol": "build",
+      "purpose": "Protected MCP requires a distinct machine credential.",
+      "contract": "Protected MCP requires a distinct machine credential.",
+      "covering_test": "tests/test_ext_api_auth.py::test_personal_cookie_and_unset_service_key_never_authorize_mcp",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self_url",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "token",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "require_service",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "False",
+            "annotation": "bool"
+          }
+        ],
+        "returns": "tuple[Route, contextlib.AbstractAsyncContextManager]"
+      },
+      "required_calls": [
+        {
+          "callee": "secrets.compare_digest"
+        },
+        {
+          "callee": "manager.handle_request"
+        }
+      ]
+    },
+    {
+      "file": "src/models/profile.py",
+      "symbol": "Profile.to_dict",
+      "purpose": "Local serialization preserves immutable profile identity.",
+      "contract": "Local serialization preserves immutable profile identity.",
+      "covering_test": "tests/test_ext_compatibility.py::test_local_profile_serializer_keeps_known_fields_and_ignores_unknowns",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          }
+        ],
+        "returns": "dict"
+      },
+      "required_calls": [
+        {
+          "callee": "asdict"
+        }
+      ]
+    },
+    {
+      "file": "src/models/profile.py",
+      "symbol": "Profile.to_portable_dict",
+      "purpose": "Portable archives omit installation-local profile identity.",
+      "contract": "Portable archives omit installation-local profile identity.",
+      "covering_test": "tests/test_ext_compatibility.py::test_local_profile_serializer_keeps_known_fields_and_ignores_unknowns",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          }
+        ],
+        "returns": "dict"
+      },
+      "required_calls": [
+        {
+          "callee": "asdict"
+        },
+        {
+          "callee": "data.pop"
+        }
+      ]
+    },
+    {
+      "file": "src/services/profile/manager.py",
+      "symbol": "ProfileManager._load_profiles",
+      "purpose": "Strict catalog reload preserves stored IDs; missing IDs receive local migration IDs.",
+      "contract": "Strict catalog reload preserves stored IDs; missing IDs receive local migration IDs.",
+      "covering_test": "tests/test_ext_compatibility.py::test_local_profile_serializer_keeps_known_fields_and_ignores_unknowns",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "strict",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "False",
+            "annotation": "bool"
+          }
+        ],
+        "returns": "None"
+      },
+      "required_calls": [
+        {
+          "callee": "Profile"
+        },
+        {
+          "callee": "uuid.uuid4"
+        }
+      ]
+    },
+    {
+      "file": "src/services/browser/launcher.py",
+      "symbol": "BrowserLauncher.start_thread",
+      "purpose": "Protected launches require admitted profile/run identities and delegate to runtime adapter.",
+      "contract": "Protected launches require admitted profile/run identities and delegate to runtime adapter.",
+      "covering_test": "tests/test_ext_runtime_hooks.py::test_protected_launch_without_adapter_or_admitted_ids_never_spawns",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "profile",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "Profile"
+          },
+          {
+            "name": "log_callback",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "Callable[[str], None]"
+          },
+          {
+            "name": "on_start",
+            "kind": "positional_or_keyword",
+            "required": false,
+            "default": "None",
+            "annotation": "Callable[[], None] | None"
+          },
+          {
+            "name": "on_ready",
+            "kind": "positional_or_keyword",
+            "required": false,
+            "default": "None",
+            "annotation": "Callable[[], None] | None"
+          },
+          {
+            "name": "on_stop",
+            "kind": "positional_or_keyword",
+            "required": false,
+            "default": "None",
+            "annotation": "Callable[[], None] | None"
+          },
+          {
+            "name": "run_id",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "None",
+            "annotation": "str | None"
+          },
+          {
+            "name": "profile_id",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "None",
+            "annotation": "str | None"
+          }
+        ],
+        "returns": "bool"
+      },
+      "required_calls": [
+        {
+          "callee": "self._protected_mode"
+        },
+        {
+          "callee": "self._runtime_adapter.spawn_browser",
+          "arguments": [
+            "profile",
+            "profile_id",
+            "run_id"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "src/services/browser/launcher.py",
+      "symbol": "BrowserLauncher.exclusive",
+      "purpose": "Stopped-profile helpers share adapter and profile exclusivity.",
+      "contract": "Stopped-profile helpers share adapter and profile exclusivity.",
+      "covering_test": "tests/test_ext_runtime_hooks.py::test_protected_cookie_helper_requires_principal_and_exclusive_context",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "profile_name",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          }
+        ],
+        "returns": "Iterator[None]"
+      },
+      "required_calls": [
+        {
+          "callee": "self._protected_mode"
+        },
+        {
+          "callee": "runtime_tool_context"
+        }
+      ]
+    },
+    {
+      "file": "src/services/browser/launcher.py",
+      "symbol": "BrowserLauncher._monitor_process",
+      "purpose": "Private CONTROL/RUNTIME metadata is consumed before readiness and never logged.",
+      "contract": "Private CONTROL/RUNTIME metadata is consumed before readiness and never logged.",
+      "covering_test": "tests/test_ext_runtime_hooks.py::test_private_runtime_and_control_lines_are_not_logged",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "proc",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "subprocess.Popen"
+          },
+          {
+            "name": "name",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "log_callback",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "Callable[[str], None]"
+          },
+          {
+            "name": "on_ready",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "Callable[[], None] | None"
+          },
+          {
+            "name": "notify_stopped",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "Callable[[], None]"
+          },
+          {
+            "name": "result",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "_LaunchResult"
+          },
+          {
+            "name": "run_binding",
+            "kind": "positional_or_keyword",
+            "required": false,
+            "default": "None",
+            "annotation": "tuple[str, str] | None"
+          }
+        ],
+        "returns": "None"
+      },
+      "required_calls": [
+        {
+          "callee": "self._stop_exact_run"
+        },
+        {
+          "callee": "result.settle"
+        }
+      ],
+      "required_literals": [
+        "CONTROL:",
+        "RUNTIME:",
+        "BROWSER_STARTED",
+        "BROWSER_CLOSED",
+        "LAUNCH_CANCELLED"
+      ]
+    },
+    {
+      "file": "src/services/browser/process.py",
+      "symbol": "spawn_browser",
+      "purpose": "Raw subprocess spawn rejects protected mode.",
+      "contract": "Raw subprocess spawn rejects protected mode.",
+      "covering_test": "tests/test_ext_runtime_hooks.py::test_direct_spawn_cannot_bypass_protected_admission",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "profile",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "Profile"
+          }
+        ],
+        "returns": "subprocess.Popen"
+      },
+      "required_calls": [
+        {
+          "callee": "extension_enabled"
+        },
+        {
+          "callee": "RuntimeError"
+        },
+        {
+          "callee": "subprocess.Popen"
+        }
+      ]
+    },
+    {
+      "file": "src/services/browser/cookies.py",
+      "symbol": "_call_tool",
+      "purpose": "Protected helpers require scoped principal and shared admitted runtime helper.",
+      "contract": "Protected helpers require scoped principal and shared admitted runtime helper.",
+      "covering_test": "tests/test_ext_runtime_hooks.py::test_protected_cookie_helper_requires_principal_and_exclusive_context",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "action",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "profile_name",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "os_type",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "stdin",
+            "kind": "positional_or_keyword",
+            "required": false,
+            "default": "''",
+            "annotation": "str"
+          },
+          {
+            "name": "engine",
+            "kind": "positional_or_keyword",
+            "required": false,
+            "default": "'camoufox'",
+            "annotation": "str"
+          }
+        ],
+        "returns": "dict"
+      },
+      "required_calls": [
+        {
+          "callee": "extension_enabled"
+        },
+        {
+          "callee": "current_principal"
+        },
+        {
+          "callee": "run_helper"
+        }
+      ]
+    },
+    {
+      "file": "foxprofile_ext/runtime/coordinator.py",
+      "symbol": "RuntimeCoordinator.reserve_and_start",
+      "purpose": "Authorize whole batch, reserve shared capacity, then launch with exact admitted IDs.",
+      "contract": "Authorize whole batch, reserve shared capacity, then launch with exact admitted IDs.",
+      "covering_test": "tests/test_ext_runtime.py::test_batch_preflight_forbidden_or_full_starts_nothing",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO"
+          },
+          {
+            "name": "profiles",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "Sequence[ProfileRefDTO]"
+          },
+          {
+            "name": "wait",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "False",
+            "annotation": "bool"
+          },
+          {
+            "name": "timeout",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "30",
+            "annotation": "float"
+          }
+        ],
+        "returns": "tuple[RunLaunchResult, ...]"
+      },
+      "required_calls": [
+        {
+          "callee": "self.authorize"
+        },
+        {
+          "callee": "self.capacity.reserve",
+          "arguments": [
+            "current_actor",
+            "refs",
+            "self.host_id"
+          ]
+        },
+        {
+          "callee": "self.launcher.start_thread",
+          "keywords": [
+            "run_id",
+            "profile_id"
+          ],
+          "keyword_values": {
+            "run_id": "ref.run_id",
+            "profile_id": "ref.profile_id"
+          }
+        }
+      ],
+      "call_order": [
+        "self.authorize",
+        "self.capacity.reserve",
+        "self.launcher.start_thread"
+      ]
+    },
+    {
+      "file": "foxprofile_ext/runtime/processes.py",
+      "symbol": "RuntimeSupervisor._spawn",
+      "purpose": "Verify durable reservation before launching supervisor with allowlisted environment.",
+      "contract": "Verify durable reservation before launching supervisor with allowlisted environment.",
+      "covering_test": "tests/test_ext_supervisor.py::test_parent_stdout_loss_retains_browser_and_restart_adopts_private_control",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "profile",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "Profile"
+          },
+          {
+            "name": "profile_id",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "run_id",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "command",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "list[str]"
+          },
+          {
+            "name": "helper_stdin",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "None",
+            "annotation": "str | None"
+          }
+        ],
+        "returns": "subprocess.Popen[str]"
+      },
+      "required_calls": [
+        {
+          "callee": "self.ledger.get"
+        },
+        {
+          "callee": "build_confined_environment"
+        },
+        {
+          "callee": "subprocess.Popen"
+        }
+      ]
+    },
+    {
+      "file": "foxprofile_ext/runtime/processes.py",
+      "symbol": "RuntimeSupervisor.run_helper",
+      "purpose": "Authorize and reserve stopped-profile helper before any browser creation.",
+      "contract": "Authorize and reserve stopped-profile helper before any browser creation.",
+      "covering_test": "tests/test_ext_runtime.py::test_helper_no_context_full_capacity_and_parameter_mismatch_spawn_nothing",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "action",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "profile_name",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "os_type",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "engine",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "stdin",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "timeout",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "float"
+          }
+        ],
+        "returns": "object"
+      },
+      "required_calls": [
+        {
+          "callee": "current_principal"
+        },
+        {
+          "callee": "self.authorize"
+        },
+        {
+          "callee": "self.capacity.reserve"
+        },
+        {
+          "callee": "self._spawn"
+        }
+      ],
+      "call_order": [
+        "self.authorize",
+        "self.capacity.reserve",
+        "self._spawn"
+      ]
+    },
+    {
+      "file": "foxprofile_ext/runtime/supervisor.py",
+      "symbol": "supervise",
+      "purpose": "Durable supervisor claim and confinement precede subprocess; runtime/control metadata are validated.",
+      "contract": "Durable supervisor claim and confinement precede subprocess; runtime/control metadata are validated.",
+      "covering_test": "tests/test_ext_supervisor.py::test_durable_claim_precedes_controlled_child_effect_and_private_input",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "config_stream",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "TextIO"
+          },
+          {
+            "name": "output",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "TextIO"
+          }
+        ],
+        "returns": "int"
+      },
+      "required_calls": [
+        {
+          "callee": "registry.register_supervisor"
+        },
+        {
+          "callee": "build_confined_command"
+        },
+        {
+          "callee": "subprocess.Popen"
+        },
+        {
+          "callee": "registry.publish_boundary"
+        },
+        {
+          "callee": "registry.publish_runtime_details"
+        },
+        {
+          "callee": "registry.publish_control"
+        },
+        {
+          "callee": "ledger.release_after_exit"
+        },
+        {
+          "callee": "_runtime_liveness"
+        }
+      ],
+      "call_order": [
+        "registry.register_supervisor",
+        "build_confined_command",
+        "subprocess.Popen",
+        "registry.publish_boundary"
+      ],
+      "required_literals": [
+        "BOUNDARY:",
+        "RUNTIME:",
+        "CONTROL:",
+        "BROWSER_STARTED"
+      ]
+    },
+    {
+      "file": "foxprofile_ext/runtime/confinement.py",
+      "symbol": "build_confined_command",
+      "purpose": "Validate exact runtime/profile mounts, structured command and sanitized environment before bubblewrap.",
+      "contract": "Validate exact runtime/profile mounts, structured command and sanitized environment before bubblewrap.",
+      "covering_test": "tests/test_ext_confinement.py::test_bubblewrap_missing_fails_closed_without_fallback",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "spec",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "ConfinementSpec"
+          },
+          {
+            "name": "command",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "Sequence[str]"
+          },
+          {
+            "name": "settings",
+            "kind": "positional_or_keyword",
+            "required": false,
+            "default": "None",
+            "annotation": "Mapping[str, str] | None"
+          }
+        ],
+        "returns": "tuple[list[str], dict[str, str]]"
+      },
+      "required_calls": [
+        {
+          "callee": "_validate_spec"
+        },
+        {
+          "callee": "_validate_command"
+        },
+        {
+          "callee": "build_confined_environment"
+        },
+        {
+          "callee": "_bubblewrap"
+        }
+      ]
+    },
+    {
+      "file": "foxprofile_ext/runtime_factory.py",
+      "symbol": "build_run_coordinator",
+      "purpose": "One shared capacity/coordinator/supervisor performs recovery and current authorization.",
+      "contract": "One shared capacity/coordinator/supervisor performs recovery and current authorization.",
+      "covering_test": "tests/test_ext_runtime.py::test_batch_preflight_forbidden_or_full_starts_nothing",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "database",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "ExtensionDatabase"
+          },
+          {
+            "name": "catalog",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "ProfileCatalog"
+          },
+          {
+            "name": "auth_service",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "AuthService"
+          },
+          {
+            "name": "assignments",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "AssignmentDAO"
+          },
+          {
+            "name": "ledger",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "CapacityLedger"
+          }
+        ],
+        "returns": "RuntimeCoordinator"
+      },
+      "required_calls": [
+        {
+          "callee": "auth_service.validate_principal"
+        },
+        {
+          "callee": "require_profile_access"
+        },
+        {
+          "callee": "runtime.recover"
+        },
+        {
+          "callee": "RuntimeCoordinator"
+        }
+      ]
+    },
+    {
+      "file": "src/services/browser/runner.py",
+      "symbol": "run_browser",
+      "purpose": "One virtual display and private runtime metadata precede CONTROL and ready.",
+      "contract": "One virtual display and private runtime metadata precede CONTROL and ready.",
+      "covering_test": "tests/test_ext_runtime_hooks.py::test_runner_private_metadata_precedes_control_and_ready_with_one_display",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "profile_name",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "proxy_str",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "os_type",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "timezone",
+            "kind": "positional_or_keyword",
+            "required": false,
+            "default": "''",
+            "annotation": "str"
+          },
+          {
+            "name": "locale",
+            "kind": "positional_or_keyword",
+            "required": false,
+            "default": "''",
+            "annotation": "str"
+          }
+        ],
+        "returns": "int"
+      },
+      "required_calls": [
+        {
+          "callee": "AsyncCamoufox"
+        },
+        {
+          "callee": "_emit_runtime_metadata"
+        },
+        {
+          "callee": "control.serve"
+        },
+        {
+          "callee": "_safe_print"
+        }
+      ],
+      "required_literals": [
+        "CONTROL:",
+        "BROWSER_STARTED",
+        "BROWSER_CLOSED"
+      ]
+    },
+    {
+      "file": "chrome_engine/runner.py",
+      "symbol": "run_browser",
+      "purpose": "Chrome retains same admitted runner/control protocol and persistent context.",
+      "contract": "Chrome retains same admitted runner/control protocol and persistent context.",
+      "covering_test": "tests/test_ext_runtime_hooks.py::test_chrome_uses_trusted_executable_without_cache_download",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "profile_name",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "proxy_str",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "os_type",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "timezone",
+            "kind": "positional_or_keyword",
+            "required": false,
+            "default": "''",
+            "annotation": "str"
+          },
+          {
+            "name": "locale",
+            "kind": "positional_or_keyword",
+            "required": false,
+            "default": "''",
+            "annotation": "str"
+          }
+        ],
+        "returns": "int"
+      },
+      "required_calls": [
+        {
+          "callee": "engine.start"
+        },
+        {
+          "callee": "_emit_runtime_metadata"
+        },
+        {
+          "callee": "control.serve"
+        },
+        {
+          "callee": "engine.stop"
+        }
+      ],
+      "required_literals": [
+        "CONTROL:",
+        "BROWSER_STARTED",
+        "BROWSER_CLOSED"
+      ]
+    },
+    {
+      "file": "src/services/browser/cookie_tool.py",
+      "symbol": "_run",
+      "purpose": "Stopped-profile browser helper remains in admitted confined child.",
+      "contract": "Stopped-profile browser helper remains in admitted confined child.",
+      "covering_test": "tests/test_ext_runtime_hooks.py::test_helper_virtual_runtime_uses_one_owned_display_and_keeps_payload_private",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "action",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "profile_name",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "os_type",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "payload",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "list"
+          },
+          {
+            "name": "engine",
+            "kind": "positional_or_keyword",
+            "required": false,
+            "default": "'camoufox'",
+            "annotation": "str"
+          }
+        ],
+        "returns": "dict"
+      },
+      "required_calls": [
+        {
+          "callee": "_open"
+        }
+      ]
+    },
+    {
+      "file": "foxprofile_ext/manual/http.py",
+      "symbol": "session_websocket",
+      "purpose": "WebSocket checks exact origin, current principal and owner run before binary bridge.",
+      "contract": "WebSocket checks exact origin, current principal and owner run before binary bridge.",
+      "covering_test": "tests/test_ext_manual_http.py::test_websocket_foreign_service_query_denials_do_not_close",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "websocket",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "WebSocket"
+          },
+          {
+            "name": "session_id",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          }
+        ],
+        "returns": "None"
+      },
+      "required_calls": [
+        {
+          "callee": "_websocket_origin"
+        },
+        {
+          "callee": "gateway.claim_stream"
+        },
+        {
+          "callee": "_bridge"
+        }
+      ]
+    },
+    {
+      "file": "foxprofile_ext/manual/http.py",
+      "symbol": "_websocket_principal",
+      "purpose": "WS revalidates personal session and never accepts service credentials.",
+      "contract": "WS revalidates personal session and never accepts service credentials.",
+      "covering_test": "tests/test_ext_manual_http.py::test_websocket_missing_cookie_cannot_use_locator",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "connection",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "HTTPConnection"
+          }
+        ],
+        "returns": "PrincipalDTO"
+      },
+      "required_calls": [
+        {
+          "callee": "container.auth_service.resolve_session"
+        },
+        {
+          "callee": "container.protected_application.current_principal"
+        },
+        {
+          "callee": "require_personal"
+        }
+      ]
+    },
+    {
+      "file": "foxprofile_ext/runtime/contracts.py",
+      "symbol": "BrowserRuntimeAdapter.spawn_browser",
+      "purpose": "Finite admitted runtime adapter descriptor; profile/run identity and helper authority cannot be dropped.",
+      "contract": "Parameter kind, requiredness and annotation remain explicitly reviewed.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_adapter_signature_drift_is_specific",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "profile",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "Profile"
+          },
+          {
+            "name": "profile_id",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "run_id",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          }
+        ],
+        "returns": "object"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/runtime/contracts.py",
+      "symbol": "BrowserRuntimeAdapter.request_stop",
+      "purpose": "Finite admitted runtime adapter descriptor; profile/run identity and helper authority cannot be dropped.",
+      "contract": "Parameter kind, requiredness and annotation remain explicitly reviewed.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_adapter_signature_drift_is_specific",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "profile_id",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "run_id",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "timeout",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "float"
+          }
+        ],
+        "returns": "bool"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/runtime/contracts.py",
+      "symbol": "BrowserRuntimeAdapter.control",
+      "purpose": "Finite admitted runtime adapter descriptor; profile/run identity and helper authority cannot be dropped.",
+      "contract": "Parameter kind, requiredness and annotation remain explicitly reviewed.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_adapter_signature_drift_is_specific",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "profile_id",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "run_id",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "action",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "params",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "dict[str, object] | None"
+          },
+          {
+            "name": "timeout",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "float"
+          }
+        ],
+        "returns": "object"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/runtime/contracts.py",
+      "symbol": "BrowserRuntimeAdapter.shutdown",
+      "purpose": "Finite admitted runtime adapter descriptor; profile/run identity and helper authority cannot be dropped.",
+      "contract": "Parameter kind, requiredness and annotation remain explicitly reviewed.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_adapter_signature_drift_is_specific",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "timeout",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "float"
+          }
+        ],
+        "returns": "None"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/runtime/contracts.py",
+      "symbol": "BrowserRuntimeAdapter.run_helper",
+      "purpose": "Finite admitted runtime adapter descriptor; profile/run identity and helper authority cannot be dropped.",
+      "contract": "Parameter kind, requiredness and annotation remain explicitly reviewed.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_adapter_signature_drift_is_specific",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "action",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "profile_name",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "os_type",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "engine",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "stdin",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "timeout",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "float"
+          }
+        ],
+        "returns": "object"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.admin_settings",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          }
+        ],
+        "returns": "CapacitySnapshotDTO"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.update_admin_settings",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          },
+          {
+            "name": "max_concurrent_profiles",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "int"
+          }
+        ],
+        "returns": "CapacitySnapshotDTO"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.export_service_archive",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          },
+          {
+            "name": "identifier",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "export_dir",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str | None"
+          },
+          {
+            "name": "include_data",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "True",
+            "annotation": "bool"
+          }
+        ],
+        "returns": "str"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.import_service_archive",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          },
+          {
+            "name": "zip_path",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "overwrite",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "False",
+            "annotation": "bool"
+          }
+        ],
+        "returns": "Profile"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.import_profile_archive",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          },
+          {
+            "name": "upload",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "BinaryIO"
+          },
+          {
+            "name": "target_profile_id",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "None",
+            "annotation": "str | None"
+          }
+        ],
+        "returns": "Profile"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.export_profile_archive",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          },
+          {
+            "name": "profile_id",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "include_data",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "True",
+            "annotation": "bool"
+          }
+        ],
+        "returns": "str"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.download_profile_archive",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          },
+          {
+            "name": "download_id",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "profile_id",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          }
+        ],
+        "returns": "Iterator[BinaryIO]"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.list_profiles",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          }
+        ],
+        "returns": "tuple[VisibleProfileDTO, ...]"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.profile_count",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          }
+        ],
+        "returns": "int"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.resolve_profile",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          },
+          {
+            "name": "name_or_id",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          }
+        ],
+        "returns": "ProfileRefDTO"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.perform_authenticated",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          },
+          {
+            "name": "effect",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "Callable[[], _T]"
+          }
+        ],
+        "returns": "_T"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.create_profile",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          },
+          {
+            "name": "name",
+            "kind": "keyword_only",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "proxy",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "''",
+            "annotation": "str"
+          },
+          {
+            "name": "os_type",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "None",
+            "annotation": "str | None"
+          },
+          {
+            "name": "timezone",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "None",
+            "annotation": "str | None"
+          },
+          {
+            "name": "locale",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "None",
+            "annotation": "str | None"
+          },
+          {
+            "name": "engine",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "'camoufox'",
+            "annotation": "str"
+          }
+        ],
+        "returns": "Profile"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.update_profile",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          },
+          {
+            "name": "identifier",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "fields",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "Mapping[str, object]"
+          }
+        ],
+        "returns": "Profile"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.delete_profile",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          },
+          {
+            "name": "identifier",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          }
+        ],
+        "returns": "None"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.delete_profiles",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          },
+          {
+            "name": "identifiers",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "Sequence[str]"
+          }
+        ],
+        "returns": "tuple[DeleteProfileDTO, ...]"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.assignments_for_user",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          },
+          {
+            "name": "user_id",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          }
+        ],
+        "returns": "tuple[str, ...]"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.replace_assignments",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          },
+          {
+            "name": "user_id",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "profile_ids",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "Sequence[str]"
+          }
+        ],
+        "returns": "tuple[str, ...]"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.running_profiles",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          }
+        ],
+        "returns": "tuple[RunningProfileDTO, ...]"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.running_count",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          }
+        ],
+        "returns": "int"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.start_profile",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          },
+          {
+            "name": "name_or_id",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "wait",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "False",
+            "annotation": "bool"
+          },
+          {
+            "name": "timeout",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "30",
+            "annotation": "float"
+          }
+        ],
+        "returns": "RunLaunchResult"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.run_status",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          },
+          {
+            "name": "identifier",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          }
+        ],
+        "returns": "RunStatusResult | None"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.stop_run",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          },
+          {
+            "name": "identifier",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "timeout",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "30",
+            "annotation": "float"
+          }
+        ],
+        "returns": "bool"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.stop_runs",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          },
+          {
+            "name": "identifiers",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "Sequence[str]"
+          },
+          {
+            "name": "timeout",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "30",
+            "annotation": "float"
+          }
+        ],
+        "returns": "tuple[StopProfileDTO, ...]"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.control_run",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          },
+          {
+            "name": "identifier",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "action",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "params",
+            "kind": "positional_or_keyword",
+            "required": false,
+            "default": "None",
+            "annotation": "dict[str, object] | None"
+          }
+        ],
+        "returns": "object"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "src/core/container.py",
+      "symbol": "Container.event_bus",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          }
+        ],
+        "returns": "EventBus"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "src/core/container.py",
+      "symbol": "Container.profile_manager",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          }
+        ],
+        "returns": "IProfileManager"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "src/core/container.py",
+      "symbol": "Container.browser_launcher",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          }
+        ],
+        "returns": "IBrowserLauncher"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "src/core/container.py",
+      "symbol": "Container.proxy_service",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          }
+        ],
+        "returns": "IProxyService"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "src/core/container.py",
+      "symbol": "Container.auth_service",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          }
+        ],
+        "returns": "AuthService"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "src/core/container.py",
+      "symbol": "Container.protected_application",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          }
+        ],
+        "returns": "ProtectedApplication"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "src/core/container.py",
+      "symbol": "Container.manual_gateway",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          }
+        ],
+        "returns": "ManualGateway"
+      },
+      "required_calls": []
+    },
+    {
+      "file": "src/core/container.py",
+      "symbol": "Container.profile_manager_adapter",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          }
+        ],
+        "returns": null
+      },
+      "required_calls": []
+    },
+    {
+      "file": "src/core/container.py",
+      "symbol": "Container.browser_launcher_adapter",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          }
+        ],
+        "returns": null
+      },
+      "required_calls": []
+    },
+    {
+      "file": "src/core/container.py",
+      "symbol": "Container.proxy_service_adapter",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          }
+        ],
+        "returns": null
+      },
+      "required_calls": []
+    },
+    {
+      "file": "src/core/container.py",
+      "symbol": "Container.shutdown",
+      "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
+      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "timeout",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "30.0",
+            "annotation": "float"
+          }
+        ],
+        "returns": "None"
+      },
+      "required_calls": []
+    }
+  ],
+  "routes": [
+    {
+      "key": "HTTP DELETE /api/v1/browser/{name}/page/tabs/{index}",
+      "endpoint": "src.api.routes.page.tab_close",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP DELETE /api/v1/ext/manual-sessions/{session_id}",
+      "endpoint": "foxprofile_ext.manual.http.close_session",
+      "dependencies": [
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP DELETE /api/v1/profiles/{name}",
+      "endpoint": "src.api.routes.profiles.delete_profile",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_event_bus",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP DELETE /api/v1/profiles/{name}/fingerprint",
+      "endpoint": "src.api.routes.profiles.reset_fingerprint",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP DELETE /mcp",
+      "endpoint": "src.api.mcp_http.build.<locals>.Endpoint",
+      "dependencies": [],
+      "classification": "protected-service",
+      "purpose": "Service bearer enforced inside ASGI endpoint.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /",
+      "endpoint": "src.api.app.create_app.<locals>.panel",
+      "dependencies": [],
+      "classification": "public",
+      "purpose": "Public panel/login/schema/health/static assets; no profile or runtime data.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /api/v1/browser",
+      "endpoint": "src.api.routes.browser.list_running",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /api/v1/browser/{name}/page/screenshot",
+      "endpoint": "src.api.routes.page.screenshot",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /api/v1/browser/{name}/page/snapshot",
+      "endpoint": "src.api.routes.page.snapshot",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /api/v1/browser/{name}/page/tabs",
+      "endpoint": "src.api.routes.page.tabs",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /api/v1/browser/{name}/page/text",
+      "endpoint": "src.api.routes.page.text",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /api/v1/browser/{name}/status",
+      "endpoint": "src.api.routes.browser.browser_status",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /api/v1/ext/admin/settings",
+      "endpoint": "src.api.routes.ext_auth.settings",
+      "dependencies": [
+        "src.api.dependencies.get_request_principal"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /api/v1/ext/admin/users",
+      "endpoint": "src.api.routes.ext_auth.list_users",
+      "dependencies": [
+        "src.api.dependencies.get_request_principal"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /api/v1/ext/admin/users/{user_id}/profile-assignments",
+      "endpoint": "src.api.routes.ext_auth.get_profile_assignments",
+      "dependencies": [
+        "src.api.dependencies.get_request_principal"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /api/v1/ext/auth/me",
+      "endpoint": "src.api.routes.ext_auth.current_user",
+      "dependencies": [
+        "src.api.dependencies.get_request_principal"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /api/v1/ext/downloads/{download_id}",
+      "endpoint": "src.api.routes.ext_transfer.download_profile",
+      "dependencies": [
+        "src.api.dependencies.get_request_principal"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /api/v1/ext/manual-sessions/{session_id}",
+      "endpoint": "foxprofile_ext.manual.http.session_status",
+      "dependencies": [
+        "src.api.dependencies.get_request_principal"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /api/v1/health",
+      "endpoint": "src.api.app.create_app.<locals>.health_check",
+      "dependencies": [],
+      "classification": "public",
+      "purpose": "Public panel/login/schema/health/static assets; no profile or runtime data.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /api/v1/info",
+      "endpoint": "src.api.app.create_app.<locals>.info",
+      "dependencies": [],
+      "classification": "public",
+      "purpose": "Public panel/login/schema/health/static assets; no profile or runtime data.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /api/v1/mcp/setup",
+      "endpoint": "src.api.routes.mcp_setup.setup",
+      "dependencies": [
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /api/v1/profiles",
+      "endpoint": "src.api.routes.profiles.list_profiles",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /api/v1/profiles/{name}",
+      "endpoint": "src.api.routes.profiles.get_profile",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /api/v1/profiles/{name}/cookies",
+      "endpoint": "src.api.routes.profiles.export_cookies",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /api/v1/profiles/{name}/data-dir",
+      "endpoint": "src.api.routes.profiles.get_data_dir",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /api/v1/profiles/{name}/fingerprint",
+      "endpoint": "src.api.routes.profiles.get_fingerprint",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /api/v1/profiles/{name}/ip-check",
+      "endpoint": "src.api.routes.profiles.check_profile_ip",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /assets/fonts/{name}",
+      "endpoint": "src.api.app.create_app.<locals>.font",
+      "dependencies": [],
+      "classification": "public",
+      "purpose": "Public panel/login/schema/health/static assets; no profile or runtime data.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /docs",
+      "endpoint": "fastapi.applications.FastAPI.setup.<locals>.swagger_ui_html",
+      "dependencies": [],
+      "classification": "public",
+      "purpose": "Public panel/login/schema/health/static assets; no profile or runtime data.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /docs/oauth2-redirect",
+      "endpoint": "fastapi.applications.FastAPI.setup.<locals>.swagger_ui_redirect",
+      "dependencies": [],
+      "classification": "public",
+      "purpose": "Public panel/login/schema/health/static assets; no profile or runtime data.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /mcp",
+      "endpoint": "src.api.mcp_http.build.<locals>.Endpoint",
+      "dependencies": [],
+      "classification": "protected-service",
+      "purpose": "Service bearer enforced inside ASGI endpoint.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /openapi.json",
+      "endpoint": "fastapi.applications.FastAPI.setup.<locals>.openapi",
+      "dependencies": [],
+      "classification": "public",
+      "purpose": "Public panel/login/schema/health/static assets; no profile or runtime data.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /redoc",
+      "endpoint": "fastapi.applications.FastAPI.setup.<locals>.redoc_html",
+      "dependencies": [],
+      "classification": "public",
+      "purpose": "Public panel/login/schema/health/static assets; no profile or runtime data.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP HEAD /docs",
+      "endpoint": "fastapi.applications.FastAPI.setup.<locals>.swagger_ui_html",
+      "dependencies": [],
+      "classification": "public",
+      "purpose": "Public panel/login/schema/health/static assets; no profile or runtime data.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP HEAD /docs/oauth2-redirect",
+      "endpoint": "fastapi.applications.FastAPI.setup.<locals>.swagger_ui_redirect",
+      "dependencies": [],
+      "classification": "public",
+      "purpose": "Public panel/login/schema/health/static assets; no profile or runtime data.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP HEAD /mcp",
+      "endpoint": "src.api.mcp_http.build.<locals>.Endpoint",
+      "dependencies": [],
+      "classification": "protected-service",
+      "purpose": "Service bearer enforced inside ASGI endpoint.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP HEAD /openapi.json",
+      "endpoint": "fastapi.applications.FastAPI.setup.<locals>.openapi",
+      "dependencies": [],
+      "classification": "public",
+      "purpose": "Public panel/login/schema/health/static assets; no profile or runtime data.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP HEAD /redoc",
+      "endpoint": "fastapi.applications.FastAPI.setup.<locals>.redoc_html",
+      "dependencies": [],
+      "classification": "public",
+      "purpose": "Public panel/login/schema/health/static assets; no profile or runtime data.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP PATCH /api/v1/ext/admin/settings",
+      "endpoint": "src.api.routes.ext_auth.update_settings",
+      "dependencies": [
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP PATCH /api/v1/ext/admin/users/{user_id}",
+      "endpoint": "src.api.routes.ext_auth.update_user",
+      "dependencies": [
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP PATCH /api/v1/profiles/{name}",
+      "endpoint": "src.api.routes.profiles.update_profile",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_event_bus",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/browser/{name}/launch",
+      "endpoint": "src.api.routes.browser.launch_browser",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_event_bus",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/browser/{name}/page/back",
+      "endpoint": "src.api.routes.page.back",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/browser/{name}/page/click",
+      "endpoint": "src.api.routes.page.click",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/browser/{name}/page/click-at",
+      "endpoint": "src.api.routes.page.click_at",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/browser/{name}/page/evaluate",
+      "endpoint": "src.api.routes.page.evaluate",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/browser/{name}/page/keyboard",
+      "endpoint": "src.api.routes.page.keyboard_type",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/browser/{name}/page/navigate",
+      "endpoint": "src.api.routes.page.navigate",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/browser/{name}/page/press",
+      "endpoint": "src.api.routes.page.press",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/browser/{name}/page/tabs",
+      "endpoint": "src.api.routes.page.tab_new",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/browser/{name}/page/tabs/{index}/select",
+      "endpoint": "src.api.routes.page.tab_select",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/browser/{name}/page/type",
+      "endpoint": "src.api.routes.page.type_text",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/browser/{name}/page/wait",
+      "endpoint": "src.api.routes.page.wait_for",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/browser/{name}/stop",
+      "endpoint": "src.api.routes.browser.stop_browser",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_event_bus",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/ext/admin/users",
+      "endpoint": "src.api.routes.ext_auth.create_user",
+      "dependencies": [
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/ext/admin/users/{user_id}/reset-password",
+      "endpoint": "src.api.routes.ext_auth.reset_password",
+      "dependencies": [
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/ext/auth/login",
+      "endpoint": "src.api.routes.ext_auth.login",
+      "dependencies": [],
+      "classification": "public",
+      "purpose": "Public panel/login/schema/health/static assets; no profile or runtime data.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/ext/auth/logout",
+      "endpoint": "src.api.routes.ext_auth.logout",
+      "dependencies": [
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/ext/browser/start-batch",
+      "endpoint": "src.api.routes.ext_browser.start_batch",
+      "dependencies": [
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/ext/browser/stop-batch",
+      "endpoint": "src.api.routes.ext_browser.stop_batch",
+      "dependencies": [
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/ext/profiles/delete-batch",
+      "endpoint": "src.api.routes.ext_auth.delete_profiles_batch",
+      "dependencies": [
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/ext/profiles/import",
+      "endpoint": "src.api.routes.ext_transfer.import_profile",
+      "dependencies": [
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/ext/profiles/{profile_id}/export",
+      "endpoint": "src.api.routes.ext_transfer.export_profile",
+      "dependencies": [
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/ext/profiles/{profile_id}/manual-sessions",
+      "endpoint": "foxprofile_ext.manual.http.open_session",
+      "dependencies": [
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/profiles",
+      "endpoint": "src.api.routes.profiles.create_profile",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_event_bus",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/profiles/import",
+      "endpoint": "src.api.routes.profiles.import_profile",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_event_bus",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/profiles/{name}/cookies",
+      "endpoint": "src.api.routes.profiles.import_cookies",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_browser_launcher",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/profiles/{name}/export",
+      "endpoint": "src.api.routes.profiles.export_profile",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_profile_manager",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/proxy/check",
+      "endpoint": "src.api.routes.proxy.check_proxy",
+      "dependencies": [
+        "src.api.dependencies._container",
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_proxy_service",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /api/v1/proxy/geo-check",
+      "endpoint": "src.api.routes.proxy.geo_check",
+      "dependencies": [
+        "src.api.dependencies.get_optional_principal",
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP POST /mcp",
+      "endpoint": "src.api.mcp_http.build.<locals>.Endpoint",
+      "dependencies": [],
+      "classification": "protected-service",
+      "purpose": "Service bearer enforced inside ASGI endpoint.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP PUT /api/v1/ext/admin/users/{user_id}/profile-assignments",
+      "endpoint": "src.api.routes.ext_auth.replace_profile_assignments",
+      "dependencies": [
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected",
+      "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "MOUNT * /assets/ext",
+      "endpoint": "starlette.staticfiles.StaticFiles",
+      "dependencies": [],
+      "classification": "public",
+      "purpose": "Public panel/login/schema/health/static assets; no profile or runtime data.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "WEBSOCKET * /api/v1/ext/manual-sessions/{session_id}/ws",
+      "endpoint": "foxprofile_ext.manual.http.session_websocket",
+      "dependencies": [],
+      "classification": "protected-personal-websocket",
+      "purpose": "Live personal owner session, exact Origin, current run; AST hook and gateway integration tests.",
+      "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    }
+  ],
+  "source_routes": [
+    "foxprofile_ext/manual/http.py:close_session:router.delete('/manual-sessions/{session_id}', dependencies=[Depends(require_cookie_csrf)])",
+    "foxprofile_ext/manual/http.py:open_session:router.post('/profiles/{profile_id}/manual-sessions', dependencies=[Depends(require_cookie_csrf)])",
+    "foxprofile_ext/manual/http.py:session_status:router.get('/manual-sessions/{session_id}')",
+    "foxprofile_ext/manual/http.py:session_websocket:router.websocket('/manual-sessions/{session_id}/ws')",
+    "src/api/app.py:create_app.font:app.get('/assets/fonts/{name}', include_in_schema=False)",
+    "src/api/app.py:create_app.health_check:app.get(f'{API_PREFIX}/health', response_model=SuccessResponse, tags=['health'])",
+    "src/api/app.py:create_app.info:app.get(f'{API_PREFIX}/info', tags=['health'])",
+    "src/api/app.py:create_app.panel:app.get('/', include_in_schema=False)",
+    "src/api/routes/browser.py:browser_status:router.get('/{name}/status', response_model=BrowserStatusResponse, responses={404: {'model': ErrorResponse}})",
+    "src/api/routes/browser.py:launch_browser:router.post('/{name}/launch', response_model=LaunchResponse, responses={404: {'model': ErrorResponse}, 409: {'model': ErrorResponse}, 502: {'model': LaunchResponse}})",
+    "src/api/routes/browser.py:list_running:router.get('', response_model=RunningBrowsersResponse)",
+    "src/api/routes/browser.py:stop_browser:router.post('/{name}/stop', response_model=SuccessResponse, responses={404: {'model': ErrorResponse}, 409: {'model': ErrorResponse}})",
+    "src/api/routes/ext_auth.py:create_user:router.post('/admin/users', status_code=201, dependencies=[Depends(require_cookie_csrf)])",
+    "src/api/routes/ext_auth.py:current_user:router.get('/auth/me')",
+    "src/api/routes/ext_auth.py:delete_profiles_batch:router.post('/profiles/delete-batch', dependencies=[Depends(require_cookie_csrf)])",
+    "src/api/routes/ext_auth.py:get_profile_assignments:router.get('/admin/users/{user_id}/profile-assignments')",
+    "src/api/routes/ext_auth.py:list_users:router.get('/admin/users')",
+    "src/api/routes/ext_auth.py:login:router.post('/auth/login')",
+    "src/api/routes/ext_auth.py:logout:router.post('/auth/logout', dependencies=[Depends(require_cookie_csrf)])",
+    "src/api/routes/ext_auth.py:replace_profile_assignments:router.put('/admin/users/{user_id}/profile-assignments', dependencies=[Depends(require_cookie_csrf)])",
+    "src/api/routes/ext_auth.py:reset_password:router.post('/admin/users/{user_id}/reset-password', dependencies=[Depends(require_cookie_csrf)])",
+    "src/api/routes/ext_auth.py:settings:router.get('/admin/settings')",
+    "src/api/routes/ext_auth.py:update_settings:router.patch('/admin/settings', dependencies=[Depends(require_cookie_csrf)])",
+    "src/api/routes/ext_auth.py:update_user:router.patch('/admin/users/{user_id}', dependencies=[Depends(require_cookie_csrf)])",
+    "src/api/routes/ext_browser.py:start_batch:router.post('/start-batch', dependencies=[Depends(require_cookie_csrf)])",
+    "src/api/routes/ext_browser.py:stop_batch:router.post('/stop-batch', dependencies=[Depends(require_cookie_csrf)])",
+    "src/api/routes/ext_transfer.py:download_profile:router.get('/downloads/{download_id}')",
+    "src/api/routes/ext_transfer.py:export_profile:router.post('/profiles/{profile_id}/export', dependencies=[Depends(require_cookie_csrf)])",
+    "src/api/routes/ext_transfer.py:import_profile:router.post('/profiles/import', status_code=201, dependencies=[Depends(require_cookie_csrf)])",
+    "src/api/routes/mcp_setup.py:setup:router.get('/setup')",
+    "src/api/routes/page.py:back:router.post('/back')",
+    "src/api/routes/page.py:click:router.post('/click')",
+    "src/api/routes/page.py:click_at:router.post('/click-at')",
+    "src/api/routes/page.py:evaluate:router.post('/evaluate')",
+    "src/api/routes/page.py:keyboard_type:router.post('/keyboard')",
+    "src/api/routes/page.py:navigate:router.post('/navigate')",
+    "src/api/routes/page.py:press:router.post('/press')",
+    "src/api/routes/page.py:screenshot:router.get('/screenshot', responses={200: {'content': {'image/png': {}}}})",
+    "src/api/routes/page.py:snapshot:router.get('/snapshot')",
+    "src/api/routes/page.py:tab_close:router.delete('/tabs/{index}')",
+    "src/api/routes/page.py:tab_new:router.post('/tabs')",
+    "src/api/routes/page.py:tab_select:router.post('/tabs/{index}/select')",
+    "src/api/routes/page.py:tabs:router.get('/tabs')",
+    "src/api/routes/page.py:text:router.get('/text')",
+    "src/api/routes/page.py:type_text:router.post('/type')",
+    "src/api/routes/page.py:wait_for:router.post('/wait')",
+    "src/api/routes/profiles.py:check_profile_ip:router.get('/{name}/ip-check', response_model=GeoCheckResponse, responses={404: {'model': ErrorResponse}})",
+    "src/api/routes/profiles.py:create_profile:router.post('', response_model=ProfileResponse, status_code=201, responses={400: {'model': ErrorResponse}, 409: {'model': ErrorResponse}})",
+    "src/api/routes/profiles.py:delete_profile:router.delete('/{name}', response_model=SuccessResponse, responses={404: {'model': ErrorResponse}, 409: {'model': ErrorResponse}})",
+    "src/api/routes/profiles.py:export_cookies:router.get('/{name}/cookies', response_class=PlainTextResponse, responses={200: {'content': {'text/plain': {}, 'application/json': {}}}, 400: {'model': ErrorResponse}, 404: {'model': ErrorResponse}, 409: {'model': ErrorResponse}})",
+    "src/api/routes/profiles.py:export_profile:router.post('/{name}/export', response_model=ExportResponse, responses={404: {'model': ErrorResponse}})",
+    "src/api/routes/profiles.py:get_data_dir:router.get('/{name}/data-dir', response_model=DataDirResponse, responses={404: {'model': ErrorResponse}})",
+    "src/api/routes/profiles.py:get_fingerprint:router.get('/{name}/fingerprint', response_model=FingerprintResponse, responses={404: {'model': ErrorResponse}})",
+    "src/api/routes/profiles.py:get_profile:router.get('/{name}', response_model=ProfileResponse, responses={404: {'model': ErrorResponse}})",
+    "src/api/routes/profiles.py:import_cookies:router.post('/{name}/cookies', response_model=CookieImportResponse, responses={404: {'model': ErrorResponse}, 409: {'model': ErrorResponse}})",
+    "src/api/routes/profiles.py:import_profile:router.post('/import', response_model=ImportResponse, responses={400: {'model': ErrorResponse}})",
+    "src/api/routes/profiles.py:list_profiles:router.get('', response_model=ProfileListResponse)",
+    "src/api/routes/profiles.py:reset_fingerprint:router.delete('/{name}/fingerprint', response_model=SuccessResponse, responses={404: {'model': ErrorResponse}, 409: {'model': ErrorResponse}})",
+    "src/api/routes/profiles.py:update_profile:router.patch('/{name}', response_model=ProfileResponse, responses={400: {'model': ErrorResponse}, 404: {'model': ErrorResponse}})",
+    "src/api/routes/proxy.py:check_proxy:router.post('/check', response_model=ProxyCheckResponse)",
+    "src/api/routes/proxy.py:geo_check:router.post('/geo-check', response_model=GeoCheckResponse)"
+  ],
+  "launch_calls": [
+    "chrome_engine/__main__.py:_engine:engine.ChromeEngine",
+    "chrome_engine/__main__.py:main:asyncio.run",
+    "chrome_engine/__main__.py:main:asyncio.run",
+    "chrome_engine/engine.py:ChromeEngine._start:self._playwright.chromium.launch_persistent_context",
+    "chrome_engine/fetch.py:_extract_dmg:subprocess.run",
+    "chrome_engine/fetch.py:_extract_dmg:subprocess.run",
+    "chrome_engine/release.py:_under_rosetta:subprocess.run",
+    "chrome_engine/runner.py:_async_main:run_browser",
+    "chrome_engine/runner.py:main:asyncio.run",
+    "chrome_engine/runner.py:run_browser:chrome_engine.engine.ChromeEngine",
+    "foxprofile_ext/application.py:ProtectedApplication._coordinated_profile_call:call",
+    "foxprofile_ext/application.py:ProtectedApplication.start_profiles:reserve_and_start",
+    "foxprofile_ext/manual/backend.py:PrivateVNCBackend.start:subprocess.Popen",
+    "foxprofile_ext/manual/helper.py:_release:subprocess.run",
+    "foxprofile_ext/manual/helper.py:_spawn_gated:os.execvpe",
+    "foxprofile_ext/manual/helper.py:_spawn_gated:os.fork",
+    "foxprofile_ext/runtime/child_gate.py:main:os.execv",
+    "foxprofile_ext/runtime/confinement.py:probe_confinement:subprocess.run",
+    "foxprofile_ext/runtime/coordinator.py:RuntimeCoordinator.reserve_and_start:self.launcher.start_thread",
+    "foxprofile_ext/runtime/processes.py:RuntimeSupervisor._spawn:subprocess.Popen",
+    "foxprofile_ext/runtime/processes.py:RuntimeSupervisor.run_helper:src.services.browser.process.helper_command",
+    "foxprofile_ext/runtime/processes.py:RuntimeSupervisor.spawn_browser:src.services.browser.process.runner_command",
+    "foxprofile_ext/runtime/supervisor.py:supervise:subprocess.Popen",
+    "src/api/routes/browser.py:launch_browser:bl.start_thread",
+    "src/services/browser/cookie_tool.py:_open:camoufox.async_api.AsyncCamoufox",
+    "src/services/browser/cookie_tool.py:_open:chrome_engine.ChromeEngine",
+    "src/services/browser/cookie_tool.py:main:asyncio.run",
+    "src/services/browser/cookies.py:_call_tool:run_helper",
+    "src/services/browser/cookies.py:_call_tool:subprocess.run",
+    "src/services/browser/launcher.py:BrowserLauncher.start_thread:process.spawn_browser",
+    "src/services/browser/launcher.py:BrowserLauncher.start_thread:self._runtime_adapter.spawn_browser",
+    "src/services/browser/process.py:spawn_browser:runner_command",
+    "src/services/browser/process.py:spawn_browser:subprocess.Popen",
+    "src/services/browser/runner.py:<module>:asyncio.run",
+    "src/services/browser/runner.py:_PrivateVirtualDisplay.authorize:subprocess.run",
+    "src/services/browser/runner.py:_async_main:run_browser",
+    "src/services/browser/runner.py:run_browser:camoufox.async_api.AsyncCamoufox",
+    "src/ui/actions/browser.py:launch_or_stop:bl.start_thread"
+  ],
+  "service_methods": [
+    "foxprofile_ext/application.py:ProtectedApplication.admin_settings",
+    "foxprofile_ext/application.py:ProtectedApplication.assignments_for_user",
+    "foxprofile_ext/application.py:ProtectedApplication.control_run",
+    "foxprofile_ext/application.py:ProtectedApplication.create_profile",
+    "foxprofile_ext/application.py:ProtectedApplication.current_principal",
+    "foxprofile_ext/application.py:ProtectedApplication.delete_profile",
+    "foxprofile_ext/application.py:ProtectedApplication.delete_profiles",
+    "foxprofile_ext/application.py:ProtectedApplication.download_profile_archive",
+    "foxprofile_ext/application.py:ProtectedApplication.export_profile_archive",
+    "foxprofile_ext/application.py:ProtectedApplication.export_service_archive",
+    "foxprofile_ext/application.py:ProtectedApplication.import_profile_archive",
+    "foxprofile_ext/application.py:ProtectedApplication.import_service_archive",
+    "foxprofile_ext/application.py:ProtectedApplication.list_profiles",
+    "foxprofile_ext/application.py:ProtectedApplication.perform_authenticated",
+    "foxprofile_ext/application.py:ProtectedApplication.perform_profile",
+    "foxprofile_ext/application.py:ProtectedApplication.profile_count",
+    "foxprofile_ext/application.py:ProtectedApplication.replace_assignments",
+    "foxprofile_ext/application.py:ProtectedApplication.resolve_profile",
+    "foxprofile_ext/application.py:ProtectedApplication.run_status",
+    "foxprofile_ext/application.py:ProtectedApplication.running_count",
+    "foxprofile_ext/application.py:ProtectedApplication.running_profiles",
+    "foxprofile_ext/application.py:ProtectedApplication.start_profile",
+    "foxprofile_ext/application.py:ProtectedApplication.start_profiles",
+    "foxprofile_ext/application.py:ProtectedApplication.stop_run",
+    "foxprofile_ext/application.py:ProtectedApplication.stop_runs",
+    "foxprofile_ext/application.py:ProtectedApplication.update_admin_settings",
+    "foxprofile_ext/application.py:ProtectedApplication.update_profile",
+    "foxprofile_ext/runtime/contracts.py:BrowserRuntimeAdapter.control",
+    "foxprofile_ext/runtime/contracts.py:BrowserRuntimeAdapter.request_stop",
+    "foxprofile_ext/runtime/contracts.py:BrowserRuntimeAdapter.run_helper",
+    "foxprofile_ext/runtime/contracts.py:BrowserRuntimeAdapter.shutdown",
+    "foxprofile_ext/runtime/contracts.py:BrowserRuntimeAdapter.spawn_browser",
+    "src/core/container.py:Container.auth_service",
+    "src/core/container.py:Container.browser_launcher",
+    "src/core/container.py:Container.browser_launcher_adapter",
+    "src/core/container.py:Container.event_bus",
+    "src/core/container.py:Container.manual_gateway",
+    "src/core/container.py:Container.profile_manager",
+    "src/core/container.py:Container.profile_manager_adapter",
+    "src/core/container.py:Container.protected_application",
+    "src/core/container.py:Container.proxy_service",
+    "src/core/container.py:Container.proxy_service_adapter",
+    "src/core/container.py:Container.shutdown"
+  ],
+  "runtime": {
+    "python": "3.12.14",
+    "libraries": {
+      "camoufox": "0.5.9",
+      "playwright": "1.62.0",
+      "fastapi": "0.162.0",
+      "starlette": "1.10.0",
+      "argon2-cffi": "25.1.0",
+      "websockets": "17.4"
+    },
+    "camoufox_browser": "NOT RUN; no live browser version claimed",
+    "novnc": "63107bd06d9e1f6136ff21aeda8cd62cbf0d433e",
+    "vnc_adapter": "x11vnc; NOT INSTALLED in offline environment; native host acceptance NOT RUN",
+    "confinement": "Linux bubblewrap 0.12.0 in offline environment; live two-host validation NOT RUN"
+  },
+  "deployment": {
+    "topology": "Single host, shared SQLite ledger and catalog lock across API worker processes; exact run supervisor owns child group.",
+    "engines": "Camoufox manual access; Chrome management/capacity supported, manual access explicitly unsupported.",
+    "offline_host": "Linux/x86_64",
+    "live_hosts": {
+      "linux_arm64": "NOT RUN",
+      "linux_x86_64": "NOT RUN"
+    }
+  }
+}

@@ -191,3 +191,7 @@ e2e-output/
 .impeccable/questions/
 .impeccable/mocks/
 .DS_Store
+
+# Required, unmodified noVNC runtime dependencies.
+!foxprofile_ext/assets/novnc/vendor/pako/lib/
+!foxprofile_ext/assets/novnc/vendor/pako/lib/**

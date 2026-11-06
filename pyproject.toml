@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "foxprofile"
 version = "2.4.0"
@@ -14,6 +18,31 @@ keywords = ["anti-detect", "browser-profiles", "camoufox", "fingerprint", "proxy
 Homepage = "https://github.com/chienbm98/foxprofile"
 Issues = "https://github.com/chienbm98/foxprofile/issues"
 Changelog = "https://github.com/chienbm98/foxprofile/blob/main/CHANGELOG.md"
+
+[tool.setuptools]
+py-modules = ["foxprofile_mcp"]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src", "src.*", "chrome_engine", "chrome_engine.*", "foxprofile_ext", "foxprofile_ext.*"]
+exclude = ["*.tests", "*.tests.*", "*.e2e", "*.e2e.*", "src.assets*", "src.web*", "foxprofile_ext.assets*"]
+
+[tool.setuptools.package-data]
+src = ["web/*.html", "assets/*.png", "assets/*.ico", "assets/fonts/*.ttf", "assets/fonts/OFL-*.txt"]
+foxprofile_ext = [
+    "compatibility.json",
+    "assets/acceptance-input.html",
+    "assets/panel*.js",
+    "assets/panel*.css",
+    "assets/novnc/**/*.js",
+    "assets/novnc/AUTHORS",
+    "assets/novnc/LICENSE.txt",
+    "assets/novnc/provenance.json",
+    "assets/novnc/docs/LICENSE.*",
+    "assets/novnc/vendor/pako/LICENSE",
+    "assets/novnc/vendor/pako/README.md",
+]
 
 [tool.ruff]
 line-length = 100

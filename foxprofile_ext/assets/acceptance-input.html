@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FoxProfile controlled input fixture</title>
+<style>
+body {font: 18px system-ui; margin: 24px; background: #f5f7fa; color: #132333}
+button, input {font: inherit; padding: 12px} section {margin: 20px 0; padding: 16px; border: 2px solid #567}
+#drag-source {display: inline-block; padding: 24px; background: #ceecff; cursor: grab}
+#drop-target {display: inline-block; min-width: 240px; padding: 30px; border: 3px dashed #567}
+#scroll-box {height: 180px; overflow: auto; border: 2px solid #567} #scroll-content {height: 800px; padding: 16px}
+pre {white-space: pre-wrap; overflow-wrap: anywhere} #page-bottom {margin-top: 700px}
+</style>
+<h1>Controlled input fixture / Trang kiểm tra thao tác</h1>
+<p>Offline page. No agents, CAPTCHA, external requests or automatic judgments. Trang ngoại tuyến, không gọi dịch vụ ngoài.</p>
+<section><label>Type / Nhập: <input id="text-input" autocomplete="off" placeholder="Type fixture text"></label>
+<button id="ordinary-click">Ordinary click / Nhấp</button> <output id="click-count">0</output>
+<button id="next-click">Next ordinary click after Back / Nhấp sau khi quay lại</button> <output id="next-click-count">0</output></section>
+<section><div id="drag-source" draggable="true">Drag this / Kéo</div> <div id="drop-target">Drop here / Thả ở đây</div> <output id="drop-count">0</output></section>
+<section><div id="scroll-box"><div id="scroll-content">Scroll inside this box / Cuộn trong khung<div style="padding-top:650px">Inner bottom / Cuối khung</div></div></div><output id="scroll-position">0</output></section>
+<section><h2>Geometry / Kích thước</h2><pre id="geometry"></pre><h2>Held input / Phím và nút đang giữ</h2><pre id="held-input"></pre><h2>Recent events / Sự kiện gần đây</h2><pre id="events"></pre></section>
+<div id="page-bottom">Page bottom / Cuối trang</div>
+<script>
+'use strict';
+const state = {keys: [], buttons: 0, clicks: 0, nextClicks: 0, drops: 0, scrollTop: 0, events: []};
+window.acceptanceState = state;
+const keys = new Set();
+function record(kind, detail = '') {
+  state.events.push(`${kind} ${detail}`.trim()); state.events = state.events.slice(-20);
+  document.querySelector('#events').textContent = state.events.join('\n');
+}
+function held() {state.keys = [...keys].sort(); document.querySelector('#held-input').textContent = JSON.stringify({keys: state.keys, buttons: state.buttons});}
+function geometry() {
+  state.geometry = {innerWidth, innerHeight, outerWidth, outerHeight, windowX: screenX, windowY: screenY, screenWidth: screen.width, screenHeight: screen.height, availWidth: screen.availWidth, availHeight: screen.availHeight, devicePixelRatio, scrollX, scrollY};
+  document.querySelector('#geometry').textContent = JSON.stringify(state.geometry, null, 2);
+}
+addEventListener('keydown', event => {keys.add(event.code); held(); record('keydown', event.code);}, true);
+addEventListener('keyup', event => {keys.delete(event.code); held(); record('keyup', event.code);}, true);
+for (const kind of ['mousedown', 'mouseup', 'mousemove']) addEventListener(kind, event => {state.buttons = event.buttons; held(); if (kind !== 'mousemove') record(kind, `${event.button}/${event.buttons}`);}, true);
+addEventListener('blur', () => record('blur (held state retained for inspection)'));
+addEventListener('resize', geometry); addEventListener('scroll', geometry);
+document.querySelector('#ordinary-click').onclick = () => {document.querySelector('#click-count').textContent = ++state.clicks; record('ordinary-click');};
+document.querySelector('#next-click').onclick = event => {document.querySelector('#next-click-count').textContent = ++state.nextClicks; state.nextClickModifiers = {ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey, meta: event.metaKey, buttons: event.buttons}; record('next-click', `keys=${state.keys.join(',')} modifiers=${JSON.stringify(state.nextClickModifiers)}`);};
+document.querySelector('#text-input').oninput = event => {state.text = event.target.value; record('input');};
+document.querySelector('#drag-source').ondragstart = event => {event.dataTransfer.setData('text/plain', 'foxprofile-controlled-drag'); record('dragstart');};
+document.querySelector('#drop-target').ondragover = event => event.preventDefault();
+document.querySelector('#drop-target').ondrop = event => {event.preventDefault(); if (event.dataTransfer.getData('text/plain') === 'foxprofile-controlled-drag') document.querySelector('#drop-count').textContent = ++state.drops; record('drop');};
+document.querySelector('#scroll-box').onscroll = event => {state.scrollTop = event.target.scrollTop; document.querySelector('#scroll-position').textContent = state.scrollTop;};
+held(); geometry(); record('ready');
+</script></html>

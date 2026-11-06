@@ -1,0 +1,5 @@
+include requirements.txt requirements-extension.txt
+prune tests
+prune chrome_engine/tests
+prune chrome_engine/e2e
+global-exclude __pycache__ *.py[cod]

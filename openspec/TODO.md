@@ -9,7 +9,7 @@
 - [ ] Verify CI installs extension test dependencies and distinguishes Linux process/native tests from portable legacy/domain tests on the existing OS matrix.
 - [x] Close the maintenance review findings: exclusive temporary files preserve the catalog and external bytes; descriptor-validated locking rejects planted links before chmod. Independent targeted review verified 113 passing tests within the trusted service-owned directory boundary.
 - [x] Pin personal web/Flet actions, modals, Viewer and selection to immutable profile IDs. Explicit ID locators never fall back to names; canonical batch fields accept IDs only. Rename, deletion and UUID-as-name replacement regressions passed.
-- [ ] Deliver packaged staging account/profile fixtures, a controlled native-input page and explicit-target API smoke commands for the deployment agent; distinguish this harness from actual live acceptance.
+- [x] Deliver packaged staging account/profile fixtures, a controlled native-input page and explicit-target API smoke commands. Fifteen fixture/real-local-HTTP checks passed; actual target/browser acceptance remains NOT RUN.
 - [x] Verify the private VNC backend with real Xvfb/x11vnc, including private RFB transport, helper watchdog, held-input release and browser-preserving cleanup; actual browser and live-host acceptance remain open.
 
 ## Review follow-ups

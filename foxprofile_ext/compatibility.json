@@ -55,7 +55,7 @@
     "limits": "No additional upstream candidate selected. Twenty-four actual Chromium-engine cases are blocked by host sandbox prerequisites and are not part of the passing non-browser suite. Bounded real x86 staging completed; full source acceptance and native renderer proof remain incomplete. ARM64 follows x86-64."
   },
   "live_evidence": {
-    "status": "INCOMPLETE; bounded x86 browser/manual/isolation/capacity/resource checks executed; ARM64 pending",
+    "status": "INCOMPLETE; bounded real x86 and ARM browser/control/noVNC/Back checks executed; complete source matrices, renderer proof, remaining ARM resource/persistence and production rollout open",
     "owner": "separate deployment agent; both target architectures"
   },
   "hooks": [
@@ -4320,18 +4320,18 @@
       "argon2-cffi": "25.1.0",
       "websockets": "17.4"
     },
-    "camoufox_browser": "x86 stage: 156.0.1-beta.36 build 72637885; actual ready/navigation/manual/stop checked; ARM64 pending",
+    "camoufox_browser": "x86:156.0.1-beta.36 build72637885; ARM:158.0.1-beta.41. Actual bounded ready/navigation/manual/stop checked on both, with exact independently retained binary/archive hashes. Full source acceptance incomplete.",
     "novnc": "63107bd06d9e1f6136ff21aeda8cd62cbf0d433e",
-    "vnc_adapter": "x86 stage: independently identified x11vnc 0.9.16-10, SHA-256 4954921ae9c4e2bf7061603eb6a2d52c2292a0973eb2da5d6f48a9bd49570ffc; bounded native input/Back checked, full N/X matrix incomplete. Earlier offline 0.9.17-1 fixture is historical, not an identical-version requirement. ARM64 pending.",
-    "confinement": "x86 stage bubblewrap 0.9.0; trusted resolver bind is private to its mount namespace, prepared GeoIP is read-only and dynamic XDG cache private; earlier offline bubblewrap 0.12.0 receipt is historical. Full two-host validation incomplete."
+    "vnc_adapter": "Independently identified targets: x86 x11vnc0.9.16-10 SHA2564954921ae9c4e2bf7061603eb6a2d52c2292a0973eb2da5d6f48a9bd49570ffc; ARM x11vnc0.9.17 SHA2561851418d77b91a6e7eba3aa4b0ac0ad74cf7cb425dc18715447e81c981bcf092. Actual input/Back checked; full N/X matrix incomplete. Earlier offline fixture is historical, not an identical-version requirement.",
+    "confinement": "x86 stage bubblewrap0.9.0: private resolver mount, read-only GeoIP and private dynamic cache; browser used host UID0. Dedicated non-root user/PID namespace preflight was blocked by host policy, without a privileged helper or policy change. ARM uses a dedicated stable UID and private read-only native-library view. Full native boundary acceptance incomplete; earlier offline fixture is historical."
   },
   "deployment": {
     "topology": "Single host, one lifecycle manager and one ASGI worker per installation; shared SQLite admission does not supply cross-worker gateway/backend IPC; exact run supervisor owns child group.",
     "engines": "Camoufox manual access; Chrome management/capacity supported, manual access explicitly unsupported.",
     "offline_host": "Linux/x86_64",
     "live_hosts": {
-      "linux_arm64": "NOT RUN",
-      "linux_x86_64": "PARTIAL: actual browser control, noVNC input/Back, A/B isolation, capacity-ten denial and short 1/5/10 samples executed; native renderer and complete source acceptance unresolved"
+      "linux_arm64": "PARTIAL: Python3.12.14, compatible Camoufox158.0.1-beta.41, dedicated stable staging UID and private read-only native-library view; real ready/control/noVNC input/Back/stop checked. Selected external HTTPS proxy/WebRTC path passed; full source/resource/renderer/persistence acceptance incomplete; untouched host production prerequisites not accepted.",
+      "linux_x86_64": "PARTIAL: fork access/CRUD subchecks, noVNC input/Back/disconnect/replay denials, service-restart settings/grant persistence and capacity-ten denial observed. Earlier host-UID0 staging does not establish dedicated-service identity isolation; non-root Bubblewrap namespace preflight blocked by host policy. Full fork acceptance incomplete; generic upstream rechecks excluded from current review."
     }
   },
   "release_inputs": {

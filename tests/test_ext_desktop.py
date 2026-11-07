@@ -214,6 +214,47 @@ def test_mixed_authority_bulk_start_has_no_effects(desktop):
     assert access["coordinator"].calls[0][1][0].profile_id == mine.profile_id
 
 
+def test_bulk_delete_skips_running_profiles_in_desktop_confirmation(desktop):
+    from foxprofile_ext.dto import ProcessIdentity
+
+    instance, page, access = desktop
+    login(instance, page)
+    binding = instance.personal.session.binding
+    binding.pm.add_profile("Profile C", "", "linux")
+    profiles = {profile.name: profile for profile in binding.pm.list_profiles()}
+    running = profiles["Profile C"]
+    stopped = profiles["Profile A"]
+    run = access["ledger"].reserve([running.profile_id], "test-host").newly_reserved[0]
+    access["ledger"].claim(run, "test-host", ProcessIdentity(12345, 1))
+    assert access["ledger"].mark_running(run)
+    instance._refresh_profiles()
+
+    def select(name):
+        row = next(
+            row
+            for row in instance.refs.profile_list_area.controls
+            if name in [control.value for control in controls(row) if isinstance(control, ft.Text)]
+        )
+        checkbox = next(control for control in controls(row) if isinstance(control, ft.Checkbox))
+        checkbox.value = True
+        checkbox.on_change(None)
+
+    select(stopped.name)
+    select(running.name)
+    assert instance.state.selected_names() == {stopped.profile_id, running.profile_id}
+
+    instance.h.on_bulk_delete()
+    dialog = page.dialogs[-1]
+    dialog_text = [control.value for control in controls(dialog) if isinstance(control, ft.Text)]
+    assert get_string("confirm_bulk_delete", count=1) in dialog_text
+    assert get_string("bulk_skip_running", count=1) in dialog_text[0]
+    dialog.actions[-1].on_click(None)
+
+    remaining = {profile.profile_id for profile in access["catalog"].list_profiles()}
+    assert stopped.profile_id not in remaining
+    assert running.profile_id in remaining
+
+
 def test_old_profile_id_cannot_read_replacement_fingerprint(desktop, monkeypatch):
     from src.services.browser import fingerprint
 
@@ -337,6 +378,108 @@ def test_starting_and_stopping_stamps_keep_stop_available(desktop):
         c.value for c in controls(row) if isinstance(c, ft.Text)
     ]
     assert not button(row, get_string("stop")).disabled
+
+
+def test_recovery_lifecycle_state_refreshes_card_with_unchanged_run_status(desktop, monkeypatch):
+    import asyncio
+
+    import src.ui.app as app_module
+    from foxprofile_ext.dto import ProcessIdentity
+    from foxprofile_ext.storage.capacity import ProcessLiveness
+
+    instance, page, access = desktop
+    login(instance, page)
+    binding = instance.personal.session.binding
+    profile = instance.pm.list_profiles()[0]
+    run = access["ledger"].reserve([profile.profile_id], "test-host").newly_reserved[0]
+    access["ledger"].claim(run, "test-host", ProcessIdentity(12345, 1))
+    assert access["ledger"].mark_running(run)
+    instance._refresh_profiles()
+    before = instance.personal.run_snapshot()
+    assert (profile.profile_id, "running") in before
+    raw_status = binding.bl.running_profiles()[0].state
+
+    recovery = access["ledger"].recover(lambda *_: ProcessLiveness.UNKNOWN)
+    assert recovery.uncertain == 1
+    assert binding.bl.running_profiles()[0].state == raw_status
+    instance.state._last_running_snapshot = before
+
+    async def stop_loop(_):
+        instance.page = None
+
+    monkeypatch.setattr(app_module.asyncio, "sleep", stop_loop)
+    asyncio.run(instance._ui_reconcile_loop())
+    instance.page = page
+
+    after = instance.personal.run_snapshot()
+    row = instance.refs.profile_list_area.controls[0]
+    texts = [control.value for control in controls(row) if isinstance(control, ft.Text)]
+    assert after != before
+    assert (profile.profile_id, "recovering") in after
+    assert get_string("personal_state_recovering").upper() in texts
+
+
+def test_external_run_clears_failed_profile_id(desktop, monkeypatch):
+    from foxprofile_ext.dto import ProcessIdentity
+    from foxprofile_ext.run_contracts import RunLaunchResult
+    from foxprofile_ext.storage.capacity import ProcessLiveness
+
+    instance, page, access = desktop
+    login(instance, page)
+    binding = instance.personal.session.binding
+    profile = instance.pm.list_profiles()[0]
+
+    monkeypatch.setattr(
+        access["coordinator"],
+        "reserve_and_start",
+        lambda _principal, profiles, **_kwargs: tuple(
+            RunLaunchResult(p.profile_id, p.name, "failed-run", "failed") for p in profiles
+        ),
+    )
+    instance.h.on_launch(profile.profile_id)
+    assert instance.state.failed == {profile.profile_id}
+
+    monkeypatch.setattr(
+        access["coordinator"],
+        "reserve_and_start",
+        lambda _principal, profiles, **_kwargs: tuple(
+            RunLaunchResult(p.profile_id, p.name, "external-run", "running") for p in profiles
+        ),
+    )
+    access["app"].start_profiles(binding.actor(), (profile.profile_id,))
+    run = access["ledger"].reserve([profile.profile_id], "test-host").newly_reserved[0]
+    process = ProcessIdentity(12345, 1)
+    access["ledger"].claim(run, "test-host", process)
+    assert access["ledger"].mark_running(run)
+    instance._refresh_profiles()
+    assert instance.state.failed == set()
+
+    access["app"].stop_run(binding.actor(), profile.profile_id)
+    assert access["ledger"].mark_stopping(run)
+    assert access["ledger"].release_after_exit(run, process, lambda *_: ProcessLiveness.DEAD)
+    instance._refresh_profiles()
+    assert instance.state.failed == set()
+
+
+def test_desktop_refresh_uses_one_authorized_profile_snapshot(desktop, monkeypatch):
+    instance, page, _ = desktop
+    login(instance, page)
+    binding = instance.personal.session.binding
+    binding.pm.add_profile("Profile C", "", "linux")
+    binding.pm.add_profile("Profile D", "", "linux")
+    original = binding.application.list_profiles
+    calls = 0
+
+    def list_profiles(principal):
+        nonlocal calls
+        calls += 1
+        return original(principal)
+
+    monkeypatch.setattr(binding.application, "list_profiles", list_profiles)
+    instance._refresh_profiles()
+
+    assert calls == 1
+    assert len(instance.refs.profile_list_area.controls) == 3
 
 
 def test_legacy_desktop_import_does_not_require_optional_auth_dependency(tmp_path):
@@ -594,7 +737,7 @@ def test_mixed_authority_bulk_stop_delete_have_no_effects(desktop):
     instance.h.on_bulk_stop()
     assert access["coordinator"].effect_calls == []
     instance.h.on_bulk_delete()
-    page.dialogs[-1].actions[-1].on_click(None)
+    assert not page.dialogs
     assert {p.profile_id for p in access["catalog"].list_profiles()} == {
         p.profile_id for p in profiles
     }

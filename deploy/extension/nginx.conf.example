@@ -15,7 +15,7 @@ server {
     server_name foxprofile.example.com;
     ssl_certificate /etc/ssl/foxprofile-extension/fullchain.pem;
     ssl_certificate_key /etc/ssl/foxprofile-extension/privkey.pem;
-    client_max_body_size 20m;
+    client_max_body_size 0;
 
     location / {
         proxy_pass http://127.0.0.1:8000;

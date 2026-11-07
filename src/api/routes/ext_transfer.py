@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import tempfile
 
-from anyio import from_thread
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
@@ -90,7 +89,7 @@ def export_profile(
 
 
 class _ArchiveResponse(Response):
-    """Keep authorization, source file, and lock on one worker through delivery."""
+    """Stream staged archive without holding catalog locks across ASGI sends."""
 
     media_type = "application/zip"
 
@@ -102,27 +101,56 @@ class _ArchiveResponse(Response):
         self.profile_id = profile_id
 
     async def __call__(self, scope, receive, send) -> None:
-        try:
-            await run_in_threadpool(self._send_archive, send)
-        except DomainError as error:
-            response = domain_http_error(error)
-            await JSONResponse({"detail": response.detail}, status_code=response.status_code)(
-                scope, receive, send
-            )
-
-    def _send_archive(self, send) -> None:
-        with self.application.download_profile_archive(
+        stream = self.application.download_profile_archive(
             self.principal, self.download_id, self.profile_id
-        ) as source:
-            headers = [(b"content-type", b"application/zip"), (b"cache-control", b"no-store")]
-            from_thread.run(
-                send, {"type": "http.response.start", "status": 200, "headers": headers}
-            )
-            while chunk := source.read(64 * 1024):
-                from_thread.run(
-                    send, {"type": "http.response.body", "body": chunk, "more_body": True}
+        )
+        source = None
+        response_started = False
+        try:
+            source = await run_in_threadpool(stream.__enter__)
+            while chunk := await run_in_threadpool(source.read, 64 * 1024):
+                await run_in_threadpool(
+                    self.application.authorize_archive_delivery,
+                    self.principal,
+                    self.profile_id,
                 )
-            from_thread.run(send, {"type": "http.response.body", "body": b"", "more_body": False})
+                if not response_started:
+                    await send(
+                        {
+                            "type": "http.response.start",
+                            "status": 200,
+                            "headers": [
+                                (b"content-type", b"application/zip"),
+                                (b"cache-control", b"no-store"),
+                            ],
+                        }
+                    )
+                    response_started = True
+                await send({"type": "http.response.body", "body": chunk, "more_body": True})
+            if not response_started:
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 200,
+                        "headers": [
+                            (b"content-type", b"application/zip"),
+                            (b"cache-control", b"no-store"),
+                        ],
+                    }
+                )
+                response_started = True
+            await send({"type": "http.response.body", "body": b"", "more_body": False})
+        except DomainError as error:
+            if response_started:
+                await send({"type": "http.response.body", "body": b"", "more_body": False})
+            else:
+                response = domain_http_error(error)
+                await JSONResponse({"detail": response.detail}, status_code=response.status_code)(
+                    scope, receive, send
+                )
+        finally:
+            if source is not None:
+                await run_in_threadpool(stream.__exit__, None, None, None)
 
 
 @router.get("/downloads/{download_id}")

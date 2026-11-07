@@ -1,5 +1,6 @@
 """Small cross-process lock for local catalog mutations."""
 
+import errno
 import os
 import stat
 import threading
@@ -86,17 +87,19 @@ def catalog_lock(path: str | Path, *, timeout: float | None = None) -> Iterator[
                     lock_file.write(b"0")
                     lock_file.flush()
                 lock_file.seek(0)
-                if deadline is None:
-                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
-                else:
-                    while True:
-                        try:
-                            msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
-                            break
-                        except OSError:
-                            if time.monotonic() >= deadline:
-                                raise TimeoutError("catalog lock is busy") from None
-                            time.sleep(min(0.05, max(0, deadline - time.monotonic())))
+                while True:
+                    try:
+                        msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+                        break
+                    except OSError as exc:
+                        if exc.errno != errno.EACCES:
+                            raise
+                        if deadline is not None and time.monotonic() >= deadline:
+                            raise TimeoutError("catalog lock is busy") from None
+                        delay = 0.05
+                        if deadline is not None:
+                            delay = min(delay, max(0, deadline - time.monotonic()))
+                        time.sleep(delay)
             else:
                 import fcntl
 

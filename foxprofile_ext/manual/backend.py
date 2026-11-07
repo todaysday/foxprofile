@@ -39,6 +39,7 @@ class _Session:
     process: subprocess.Popen | None = None
     helper: ProcessIdentity | None = None
     cancelled: bool = False
+    start_complete: bool = False
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -231,6 +232,9 @@ class PrivateVNCBackend:
                 entry.helper = process_identity(entry.process.pid)
                 if entry.helper is None:
                     raise VNCBackendUnavailable("VNC supervisor identity is unavailable")
+                threading.Thread(
+                    target=self._watch_session, args=(session_id, entry), daemon=True
+                ).start()
                 self._send(
                     entry,
                     {
@@ -277,6 +281,9 @@ class PrivateVNCBackend:
         finally:
             native.close()
             child_control.close()
+            with entry.lock:
+                entry.start_complete = True
+            self._retire_if_dead(session_id, entry)
 
     @staticmethod
     def _send(entry: _Session, payload: dict) -> None:
@@ -350,6 +357,7 @@ class PrivateVNCBackend:
             if entry.process is not None:
                 with contextlib.suppress(subprocess.TimeoutExpired):
                     entry.process.wait(timeout=max(0, min(2, cleanup_deadline - time.time())))
+            self._retire_if_dead(session_id, entry)
             return
         # A recovered adapter can request its exact supervisor's cleanup. Never
         # kill a numeric PID alone or equate its disappearance with tree exit.
@@ -399,3 +407,43 @@ class PrivateVNCBackend:
         if entry is not None and entry.process is None and entry.cancelled:
             return HelperLiveness.DEAD
         return HelperLiveness.UNKNOWN
+
+    def _retire_if_dead(self, session_id: str, entry: _Session) -> None:
+        with entry.lock:
+            if not entry.start_complete:
+                return
+            helper = entry.helper
+            process = entry.process
+            no_helper = entry.process is None and entry.cancelled
+        if process is not None and process.poll() is None:
+            return
+        if no_helper:
+            try:
+                self._write_empty_receipt(session_id)
+            except OSError:
+                return
+        if self.probe(session_id, self.host_id, helper) is not HelperLiveness.DEAD:
+            return
+        with self._lock:
+            if self._sessions.get(session_id) is entry:
+                self._sessions.pop(session_id, None)
+
+    def _watch_session(self, session_id: str, entry: _Session) -> None:
+        process = entry.process
+        if process is None:
+            return
+        try:
+            process.wait()
+        except Exception:
+            return
+        self._retire_if_dead(session_id, entry)
+
+    def _write_empty_receipt(self, session_id: str) -> None:
+        path = self._receipt_path(session_id)
+        temporary = path.with_suffix(".new")
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump({"host_id": self.host_id, "supervisor": None, "phase": "dead"}, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)

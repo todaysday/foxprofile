@@ -6,6 +6,8 @@ This is the canonical implementation evidence and handoff record. [tasks.md](../
 
 ## Release identity and integrity
 
+The release and distribution rows below describe the earlier implementation checkpoint. Subsequent fork-review corrections supersede that source; the review receipt in root `completion.review` identifies the revised candidate and its executed checks. Earlier artifact hashes and test counts must not be attributed to the revised source. No live acceptance or archive is established by this code review.
+
 | Input | Observed identity / release status |
 | --- | --- |
 | Audited upstream | `530b993ff3a7d211aaa0904fba0817b77c75d4c9`, FoxProfile 2.4.0; actual installed host revision unknown. |

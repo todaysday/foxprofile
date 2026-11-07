@@ -160,8 +160,31 @@ def _calls(node: ast.AST) -> list[ast.Call]:
     return result
 
 
+def _parse_source(
+    root: Path, relative: str, trees: dict[str, ast.Module | OSError | SyntaxError]
+) -> ast.Module:
+    if relative not in trees:
+        try:
+            trees[relative] = ast.parse(
+                (root / relative).read_text(encoding="utf-8"), filename=relative
+            )
+        except (OSError, SyntaxError) as error:
+            trees[relative] = error
+            raise
+    tree = trees[relative]
+    if isinstance(tree, (OSError, SyntaxError)):
+        raise tree
+    return tree
+
+
 def source_inventory(root: Path = ROOT) -> dict[str, list[str]]:
     """Inventory production source, including routes not mounted in today's app."""
+    return _source_inventory(root, {})
+
+
+def _source_inventory(
+    root: Path, trees: dict[str, ast.Module | OSError | SyntaxError]
+) -> dict[str, list[str]]:
     routes, launches, services = [], [], []
     for package in PACKAGES:
         for path in sorted((root / package).rglob("*.py")):
@@ -170,7 +193,7 @@ def source_inventory(root: Path = ROOT) -> dict[str, list[str]]:
                 path.relative_to(root).parts
             ) or relative == "foxprofile_ext/compatibility.py":
                 continue
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=relative)
+            tree = _parse_source(root, relative, trees)
             functions = _functions(tree)
             for symbol, node in functions.items():
                 if isinstance(node, ast.ClassDef):
@@ -300,17 +323,16 @@ def check_source_contracts(root: Path = ROOT) -> list[str]:
     register = load_register(root)
     problems = []
     trees = {}
+    functions = {}
     for hook in register["hooks"]:
         relative, symbol = hook["file"], hook["symbol"]
         key = f"{relative}:{symbol}"
-        if relative not in trees:
+        if relative not in functions:
             try:
-                trees[relative] = _functions(
-                    ast.parse((root / relative).read_text(encoding="utf-8"))
-                )
+                functions[relative] = _functions(_parse_source(root, relative, trees))
             except (OSError, SyntaxError):
-                trees[relative] = {}
-        node = trees[relative].get(symbol)
+                functions[relative] = {}
+        node = functions[relative].get(symbol)
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             problems.append(f"missing hook: {key}")
             continue
@@ -351,7 +373,7 @@ def check_source_contracts(root: Path = ROOT) -> list[str]:
             != sorted(names.index(name) for name in ordered if name in names)
         ):
             problems.append(f"security call order drift: {key}")
-    actual = source_inventory(root)
+    actual = _source_inventory(root, trees)
     for category, entries in actual.items():
         expected, found = Counter(register[category]), Counter(entries)
         for entry in sorted((found - expected).elements()):

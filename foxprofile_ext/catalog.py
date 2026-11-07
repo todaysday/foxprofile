@@ -7,6 +7,7 @@ from pathlib import Path
 
 from src.models.profile import Profile
 from src.services.profile.manager import ProfileManager
+from src.services.profile.transfer import read_profile_meta
 
 from .locking import catalog_lock
 from .storage.dao import (
@@ -137,6 +138,8 @@ class ProfileCatalog:
         target_profile_id: str | None = None,
         new_profile_id: str | None = None,
     ) -> Profile:
+        if read_profile_meta(archive_path) is None:
+            raise CatalogOperationError("profile archive metadata is invalid")
         with catalog_lock(self.lock_path):
             self.manager.reload_profiles()
             target = self._by_id(target_profile_id) if target_profile_id else None

@@ -128,6 +128,17 @@ def test_an_old_session_ending_keeps_the_newer_launch(bl, monkeypatch):
     assert bl.spawned == ["p", "p"]
 
 
+def test_wait_for_launch_rejects_a_replacement_generation(bl):
+    old = launcher_mod._LaunchResult("run-old")
+    old.settle(True)
+    current = launcher_mod._LaunchResult("run-new")
+    current.settle(True)
+    bl._launch_results["p"] = current
+
+    assert bl.wait_for_launch("p", 0, "run-old") == (False, "launch superseded")
+    assert bl.wait_for_launch("p", 0, "run-new") == (True, None)
+
+
 def test_api_launch_answers_409_when_the_browser_appeared_meanwhile(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
 

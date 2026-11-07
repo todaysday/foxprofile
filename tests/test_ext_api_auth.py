@@ -181,6 +181,15 @@ def test_service_principal_is_distinct_and_cannot_use_personal_admin_routes(api)
     assert result["user"]["role"] == "admin"
 
 
+def test_empty_service_key_does_not_fall_back_to_personal_cookie(api):
+    client, _, _, _ = api
+    _login(client)
+
+    response = client.get("/api/v1/ext/auth/me", headers={"X-API-Key": ""})
+
+    assert response.status_code == 401
+
+
 def test_public_allowlist_and_protected_routes(api):
     client, _, _, _ = api
 

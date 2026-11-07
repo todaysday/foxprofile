@@ -6,8 +6,8 @@
   },
   "candidate": {
     "commit": "e959a26e11c9e10a241754096a46c28ee1f295f7",
-    "status": "locked",
-    "note": "Immutable runtime-source checkpoint. Exact packaged-release revision, full verification evidence and artifact digests are published in the external handoff after release-input metadata is committed, avoiding a self-referential commit hash."
+    "status": "uncommitted-draft",
+    "note": "Fork review fixes supersede the prior runtime-source checkpoint named here. This draft is not an accepted release. The exact reviewed commit and executed verification results are recorded in completion.review and the implementation handoff after commit."
   },
   "schema": {
     "version": 5,
@@ -916,21 +916,19 @@
           ]
         },
         {
-          "callee": "self.launcher.start_thread",
-          "keywords": [
-            "run_id",
-            "profile_id"
-          ],
-          "keyword_values": {
-            "run_id": "ref.run_id",
-            "profile_id": "ref.profile_id"
-          }
+          "callee": "self._prepare_and_start",
+          "arguments": [
+            "principal",
+            "current_profiles[ref.profile_id]",
+            "ref",
+            "profile_names[ref.profile_id]"
+          ]
         }
       ],
       "call_order": [
         "self.authorize",
         "self.capacity.reserve",
-        "self.launcher.start_thread"
+        "self._prepare_and_start"
       ]
     },
     {
@@ -2917,6 +2915,357 @@
         "returns": "None"
       },
       "required_calls": []
+    },
+    {
+      "file": "foxprofile_ext/runtime/coordinator.py",
+      "symbol": "RuntimeCoordinator._prepare_and_start",
+      "purpose": "Prepare outside the catalog lock, then revalidate the exact admitted profile, grant and reservation before starting that generation.",
+      "contract": "Prepare outside the catalog lock, then revalidate the exact admitted profile, grant and reservation before starting that generation.",
+      "covering_test": "tests/test_ext_runtime.py::test_preparation_revalidates_exact_reservation_and_profile_grant",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO"
+          },
+          {
+            "name": "profile",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "Profile"
+          },
+          {
+            "name": "ref",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "BrowserRunRefDTO"
+          },
+          {
+            "name": "expected_name",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          }
+        ],
+        "returns": "None"
+      },
+      "required_calls": [
+        {
+          "callee": "self.runtime.prepare_browser",
+          "arguments": [
+            "profile",
+            "ref.profile_id",
+            "ref.run_id"
+          ]
+        },
+        {
+          "callee": "self.profile_by_id",
+          "arguments": [
+            "ref.profile_id"
+          ]
+        },
+        {
+          "callee": "self.authorize",
+          "arguments": [
+            "principal",
+            "current_ref"
+          ]
+        },
+        {
+          "callee": "self.ledger.get",
+          "arguments": [
+            "ref"
+          ]
+        },
+        {
+          "callee": "self.launcher.start_thread",
+          "keywords": [
+            "run_id",
+            "profile_id"
+          ],
+          "keyword_values": {
+            "run_id": "ref.run_id",
+            "profile_id": "ref.profile_id"
+          }
+        },
+        {
+          "callee": "self.runtime.discard_prepared",
+          "arguments": [
+            "ref"
+          ]
+        }
+      ],
+      "call_order": [
+        "self.runtime.prepare_browser",
+        "self.profile_by_id",
+        "self.authorize",
+        "self.ledger.get",
+        "self.launcher.start_thread"
+      ]
+    },
+    {
+      "file": "foxprofile_ext/runtime/processes.py",
+      "symbol": "RuntimeSupervisor.prepare_browser",
+      "purpose": "Prepare only a current host-owned reserved generation and retain ownership across shutdown.",
+      "contract": "Prepare only a current host-owned reserved generation and retain ownership across shutdown.",
+      "covering_test": "tests/test_ext_runtime.py::test_shutdown_cancels_paused_preparation_before_replacement_can_spawn",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "profile",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "Profile"
+          },
+          {
+            "name": "profile_id",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "run_id",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          }
+        ],
+        "returns": "None"
+      },
+      "required_calls": [
+        {
+          "callee": "self._require_reserved",
+          "arguments": [
+            "ref"
+          ]
+        },
+        {
+          "callee": "self.prepare_launch",
+          "arguments": [
+            "profile"
+          ]
+        },
+        {
+          "callee": "self._prepared_runs.add",
+          "arguments": [
+            "ref"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "foxprofile_ext/runtime/processes.py",
+      "symbol": "RuntimeSupervisor.discard_prepared",
+      "purpose": "Retire preparation state without forgetting a live or unresolved generation.",
+      "contract": "Retire preparation state without forgetting a live or unresolved generation.",
+      "covering_test": "tests/test_ext_runtime.py::test_preparation_failure_releases_admitted_run_without_spawn",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "ref",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "BrowserRunRefDTO"
+          }
+        ],
+        "returns": "None"
+      },
+      "required_calls": [
+        {
+          "callee": "self._prepared_runs.discard",
+          "arguments": [
+            "ref"
+          ]
+        },
+        {
+          "callee": "self._forget_terminal_run",
+          "arguments": [
+            "ref"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "foxprofile_ext/runtime/processes.py",
+      "symbol": "RuntimeSupervisor._require_reserved",
+      "purpose": "Resolve the exact durable reservation before preparation or process creation.",
+      "contract": "Resolve the exact durable reservation before preparation or process creation.",
+      "covering_test": "tests/test_ext_runtime.py::test_preparation_revalidates_exact_reservation_and_profile_grant",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "ref",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "BrowserRunRefDTO"
+          }
+        ],
+        "returns": "None"
+      },
+      "required_calls": [
+        {
+          "callee": "self.ledger.get",
+          "arguments": [
+            "ref"
+          ]
+        }
+      ],
+      "required_literals": [
+        "reserved browser run is unavailable"
+      ]
+    },
+    {
+      "file": "src/services/browser/launcher.py",
+      "symbol": "BrowserLauncher.wait_for_launch",
+      "purpose": "Protected readiness waits reject a replacement run generation.",
+      "contract": "Protected readiness waits reject a replacement run generation.",
+      "covering_test": "tests/test_launcher.py::test_wait_for_launch_rejects_a_replacement_generation",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "profile_name",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "timeout",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "float"
+          },
+          {
+            "name": "run_id",
+            "kind": "positional_or_keyword",
+            "required": false,
+            "default": "None",
+            "annotation": "str | None"
+          }
+        ],
+        "returns": "tuple[bool, str | None]"
+      },
+      "required_calls": [
+        {
+          "callee": "self._launch_results.get",
+          "arguments": [
+            "profile_name"
+          ]
+        },
+        {
+          "callee": "result.settled.wait",
+          "arguments": [
+            "timeout"
+          ]
+        }
+      ],
+      "required_literals": [
+        "launch superseded"
+      ]
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.authorize_archive_delivery",
+      "purpose": "Recheck live personal-session authority and exact immutable profile access before each archive chunk.",
+      "contract": "Recheck live personal-session authority and exact immutable profile access before each archive chunk.",
+      "covering_test": "tests/test_ext_api_access.py::test_archive_stream_rechecks_revocation_without_holding_catalog_lock",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          },
+          {
+            "name": "profile_id",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          }
+        ],
+        "returns": "None"
+      },
+      "required_calls": [
+        {
+          "callee": "self.current_principal",
+          "arguments": [
+            "principal"
+          ]
+        },
+        {
+          "callee": "require_personal"
+        },
+        {
+          "callee": "self._ref_by_id_locked",
+          "arguments": [
+            "actor",
+            "profile_id"
+          ]
+        }
+      ]
     }
   ],
   "routes": [
@@ -3890,7 +4239,7 @@
     "foxprofile_ext/manual/helper.py:_spawn_gated:os.fork",
     "foxprofile_ext/runtime/child_gate.py:main:os.execv",
     "foxprofile_ext/runtime/confinement.py:probe_confinement:subprocess.run",
-    "foxprofile_ext/runtime/coordinator.py:RuntimeCoordinator.reserve_and_start:self.launcher.start_thread",
+    "foxprofile_ext/runtime/coordinator.py:RuntimeCoordinator._prepare_and_start:self.launcher.start_thread",
     "foxprofile_ext/runtime/processes.py:RuntimeSupervisor._spawn:subprocess.Popen",
     "foxprofile_ext/runtime/processes.py:RuntimeSupervisor.run_helper:src.services.browser.process.helper_command",
     "foxprofile_ext/runtime/processes.py:RuntimeSupervisor.spawn_browser:src.services.browser.process.runner_command",
@@ -3914,6 +4263,7 @@
   "service_methods": [
     "foxprofile_ext/application.py:ProtectedApplication.admin_settings",
     "foxprofile_ext/application.py:ProtectedApplication.assignments_for_user",
+    "foxprofile_ext/application.py:ProtectedApplication.authorize_archive_delivery",
     "foxprofile_ext/application.py:ProtectedApplication.control_run",
     "foxprofile_ext/application.py:ProtectedApplication.create_profile",
     "foxprofile_ext/application.py:ProtectedApplication.current_principal",

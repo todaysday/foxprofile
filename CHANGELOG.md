@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### Fixed / Sửa
+- Corrected protected launch readiness, cancellation and cleanup, archive validation and streaming, desktop state refresh and bulk deletion, MCP profile defaults, Windows catalog-lock waiting and acceptance-session cleanup. / Sửa readiness, cancellation và cleanup khi launch được bảo vệ, validation và streaming archive, refresh trạng thái và xóa hàng loạt trên desktop, mặc định profile MCP, chờ catalog lock trên Windows và cleanup session kiểm thử.
+
 ### Added / Thêm
 - Optional protected multi-user mode: personal accounts and revocable sessions, stable local profile identities and assignments, managed transfers, shared durable capacity admission and confined process lifecycle. / Chế độ multi-user tùy chọn với tài khoản cá nhân, session có thể thu hồi, profile ID và assignment ổn định, managed transfer, capacity admission dùng chung và process lifecycle được cách ly.
 - Temporary noVNC in the existing Viewer for supported Linux Camoufox virtual runs; Back preserves the browser and restores ordinary controls. One manual session per installation, no agent messages or Pause/Resume. / noVNC tạm thời trong Viewer hiện tại cho Camoufox virtual run trên Linux; Quay lại giữ browser và khôi phục điều khiển thường. Mỗi installation một manual session, không gửi thông điệp agent hay thêm Pause/Resume.

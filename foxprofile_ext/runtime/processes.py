@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -79,12 +81,41 @@ class RuntimeSupervisor:
         self.prepare_launch = prepare_launch
         self._handles: dict[str, subprocess.Popen[str]] = {}
         self._owned_runs: dict[str, BrowserRunRefDTO] = {}
+        self._prepared_runs: set[BrowserRunRefDTO] = set()
         self._lock = threading.RLock()
         self._closed = False
 
     def spawn_browser(self, profile: Profile, profile_id: str, run_id: str) -> object:
         """Return a Popen-compatible supervisor handle for BrowserLauncher."""
         return self._spawn(profile, profile_id, run_id, runner_command(profile))
+
+    def prepare_browser(self, profile: Profile, profile_id: str, run_id: str) -> None:
+        """Prepare one admitted browser launch before the catalog lock is reacquired."""
+        if not profile_id or profile.profile_id != profile_id or not run_id:
+            raise ValueError("profile and reserved run identity must match")
+        ref = BrowserRunRefDTO(profile_id, run_id)
+        self._require_reserved(ref)
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("Runtime lifecycle manager has shut down")
+            self._owned_runs[run_id] = ref
+        try:
+            if self.prepare_launch is not None:
+                self.prepare_launch(profile)
+            self._require_reserved(ref)
+            with self._lock:
+                if self._closed:
+                    raise RuntimeError("Runtime lifecycle manager has shut down")
+                self._prepared_runs.add(ref)
+        except BaseException:
+            self.ledger.cancel_unclaimed(ref)
+            self._forget_terminal_run(ref)
+            raise
+
+    def discard_prepared(self, ref: BrowserRunRefDTO) -> None:
+        with self._lock:
+            self._prepared_runs.discard(ref)
+        self._forget_terminal_run(ref)
 
     def _spawn(
         self,
@@ -120,72 +151,110 @@ class RuntimeSupervisor:
                 raise RuntimeError("Runtime lifecycle manager has shut down")
             # Shutdown must also cancel admitted runs still preparing to spawn.
             self._owned_runs[run_id] = ref
-        if helper_stdin is None and self.prepare_launch is not None:
-            self.prepare_launch(profile)
-        temp_root = self.data_dir / ".foxprofile-runtime"
-        if temp_root.is_symlink():
-            raise RuntimeError("private runtime directory is unavailable")
-        temp_root.mkdir(mode=0o700, parents=True, exist_ok=True)
-        temp_root.chmod(0o700)
-        private_tmp = temp_root / run_id
-        if private_tmp.is_symlink():
-            raise RuntimeError("private runtime directory is unavailable")
-        private_tmp.mkdir(mode=0o700, exist_ok=True)
-        private_tmp.chmod(0o700)
-        settings = {
-            **self.settings,
-            "FOXPROFILE_HEADLESS": "virtual",
-            "FOXPROFILE_DATA_DIR": "/profile",
-        }
-        config = {
-            "database_path": str(self.database.path),
-            "host_id": self.host_id,
-            "profile_id": profile_id,
-            "run_id": run_id,
-            "profile_path": str(profile_path),
-            "private_tmp_path": str(private_tmp),
-            "code_root": str(self.code_root),
-            "runtime_paths": self.runtime_paths,
-            "settings": settings,
-            "command": command,
-            "helper_stdin": helper_stdin,
-            "engine": profile.engine,
-        }
-        with self._lock:
-            if self._closed:
-                raise RuntimeError("Runtime lifecycle manager has shut down")
-            process = subprocess.Popen(
-                [sys.executable, "-m", "foxprofile_ext.runtime.supervisor"],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                bufsize=1,
-                cwd=self.code_root,
-                env={**build_confined_environment(settings), "PYTHONPATH": str(self.code_root)},
-                start_new_session=True,
-            )
-            assert process.stdin is not None
-            try:
+            prepared = helper_stdin is None and ref in self._prepared_runs
+            self._prepared_runs.discard(ref)
+        process = None
+        try:
+            if helper_stdin is None and self.prepare_launch is not None and not prepared:
+                self.prepare_launch(profile)
+            self._require_open_and_reserved(ref)
+            temp_root = self.data_dir / ".foxprofile-runtime"
+            if temp_root.is_symlink():
+                raise RuntimeError("private runtime directory is unavailable")
+            temp_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+            temp_root.chmod(0o700)
+            private_tmp = temp_root / run_id
+            if private_tmp.is_symlink():
+                raise RuntimeError("private runtime directory is unavailable")
+            private_tmp.mkdir(mode=0o700, exist_ok=True)
+            private_tmp.chmod(0o700)
+            settings = {
+                **self.settings,
+                "FOXPROFILE_HEADLESS": "virtual",
+                "FOXPROFILE_DATA_DIR": "/profile",
+            }
+            config = {
+                "database_path": str(self.database.path),
+                "host_id": self.host_id,
+                "profile_id": profile_id,
+                "run_id": run_id,
+                "profile_path": str(profile_path),
+                "private_tmp_path": str(private_tmp),
+                "code_root": str(self.code_root),
+                "runtime_paths": self.runtime_paths,
+                "settings": settings,
+                "command": command,
+                "helper_stdin": helper_stdin,
+                "engine": profile.engine,
+            }
+            with self._lock:
+                if self._closed:
+                    raise RuntimeError("Runtime lifecycle manager has shut down")
+                process = subprocess.Popen(
+                    [sys.executable, "-m", "foxprofile_ext.runtime.supervisor"],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    bufsize=1,
+                    cwd=self.code_root,
+                    env={
+                        **build_confined_environment(settings),
+                        "PYTHONPATH": str(self.code_root),
+                    },
+                    start_new_session=True,
+                )
+                assert process.stdin is not None
                 process.stdin.write(json.dumps(config, separators=(",", ":")))
                 process.stdin.close()
                 process.stdin = None
-            except BaseException:
+                self._handles[run_id] = process
+            watcher = threading.Thread(target=self._watch, args=(ref, process), daemon=True)
+            watcher.start()
+            return process
+        except BaseException:
+            if process is None:
+                self.ledger.cancel_unclaimed(ref)
+                self._forget_terminal_run(ref)
+            else:
+                self._stop_without_watcher(process)
+                if process.poll() is not None:
+                    self._watch(ref, process)
+            raise
+
+    def _require_reserved(self, ref: BrowserRunRefDTO) -> None:
+        run = self.ledger.get(ref)
+        if run is None or run.host_id != self.host_id or run.status is not RunStatus.RESERVED:
+            raise RuntimeError("reserved browser run is unavailable")
+
+    def _require_open_and_reserved(self, ref: BrowserRunRefDTO) -> None:
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("Runtime lifecycle manager has shut down")
+        self._require_reserved(ref)
+
+    def _stop_without_watcher(self, process: subprocess.Popen[str]) -> None:
+        if process.poll() is None:
+            with contextlib.suppress(OSError):
                 process.terminate()
+            try:
                 process.wait(timeout=5)
-                raise
-            self._handles[run_id] = process
-        threading.Thread(target=self._watch, args=(ref, process), daemon=True).start()
-        return process
+            except subprocess.TimeoutExpired:
+                return
 
     def request_stop(self, profile_id: str, run_id: str, timeout: float) -> bool:
         if type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout < 0:
             return False
         ref = BrowserRunRefDTO(profile_id, run_id)
         run = self.ledger.get(ref)
-        if run is None or run.status not in {
+        if run is None or run.host_id != self.host_id:
+            return False
+        if run.status in {RunStatus.CANCELLED, RunStatus.CLOSED}:
+            self._forget_terminal_run(ref)
+            return True
+        if run.status not in {
             RunStatus.STARTING,
             RunStatus.RUNNING,
             RunStatus.STOPPING,
@@ -215,20 +284,50 @@ class RuntimeSupervisor:
             except ProcessLookupError:
                 pass
         deadline = time.monotonic() + min(float(timeout), 30.0)
+        interval = 0.05
         while time.monotonic() < deadline:
             current = self.ledger.get(ref)
             if current is not None and current.status is RunStatus.CLOSED:
+                self._forget_terminal_run(ref)
                 return True
             liveness = self._probe_run(self.host_id, supervisor)
             if liveness is ProcessLiveness.DEAD:
                 released = self.ledger.release_after_exit(ref, supervisor, self._probe_run)
                 current = self.ledger.get(ref)
-                return released or (current is not None and current.status is RunStatus.CLOSED)
+                stopped = released or (current is not None and current.status is RunStatus.CLOSED)
+                if stopped:
+                    self._forget_terminal_run(ref)
+                return stopped
             if liveness is ProcessLiveness.UNKNOWN:
                 return False
-            time.sleep(0.05)
+            time.sleep(min(interval, max(0.0, deadline - time.monotonic())))
+            interval = min(interval * 2, 0.8)
         current = self.ledger.get(ref)
-        return current is not None and current.status is RunStatus.CLOSED
+        stopped = current is not None and current.status is RunStatus.CLOSED
+        if stopped:
+            self._forget_terminal_run(ref)
+        return stopped
+
+    def _forget_terminal_run(self, ref: BrowserRunRefDTO) -> None:
+        run = self.ledger.get(ref)
+        if run is None or run.status not in {RunStatus.CANCELLED, RunStatus.CLOSED}:
+            return
+        with self._lock:
+            if self._owned_runs.get(ref.run_id) == ref:
+                self._owned_runs.pop(ref.run_id, None)
+            self._prepared_runs.discard(ref)
+        root = self.data_dir / ".foxprofile-runtime"
+        private_tmp = root / ref.run_id
+        try:
+            if (
+                not root.is_symlink()
+                and not private_tmp.is_symlink()
+                and private_tmp.resolve().parent == root.resolve()
+                and private_tmp.is_dir()
+            ):
+                shutil.rmtree(private_tmp)
+        except OSError:
+            pass
 
     def control(
         self,
@@ -358,6 +457,7 @@ class RuntimeSupervisor:
             if run is None or run.host_id != self.host_id:
                 continue
             if run.status is RunStatus.RESERVED and self.ledger.cancel_unclaimed(ref):
+                self._forget_terminal_run(ref)
                 continue
             remaining = max(0.0, deadline - time.monotonic())
             self.request_stop(ref.profile_id, ref.run_id, remaining)
@@ -440,17 +540,18 @@ class RuntimeSupervisor:
         if run is None:
             return
         if run.status in {RunStatus.CLOSED, RunStatus.CANCELLED}:
-            with self._lock:
-                self._owned_runs.pop(ref.run_id, None)
+            self._forget_terminal_run(ref)
             return
         if run.status is RunStatus.RESERVED:
             self.ledger.cancel_unclaimed(ref)
+            self._forget_terminal_run(ref)
             return
         if (
             run.process is not None
             and self._probe_run(run.host_id, run.process) is ProcessLiveness.DEAD
         ):
             self.ledger.release_after_exit(ref, run.process, self._probe_run)
+            self._forget_terminal_run(ref)
 
 
 def _signal_group(identity: ProcessIdentity, signum: int) -> bool:

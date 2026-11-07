@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import io
 import json
 import os
 import tempfile
+import threading
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -496,6 +498,31 @@ def _profile_zip(name, extra=None):
     return output.getvalue()
 
 
+def test_invalid_proxy_archive_cannot_register_or_start(real_api):
+    client, container, _, _, _ = real_api
+    auth = _login(client, "alice")
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipped:
+        zipped.writestr(
+            "profile.json", json.dumps({"name": "Invalid proxy", "proxy": "not-a-proxy"})
+        )
+        zipped.writestr("data/Cookies", "must not extract")
+
+    response = client.post(
+        "/api/v1/ext/profiles/import",
+        content=archive.getvalue(),
+        headers={**_mutation_headers(auth["csrf_token"]), "Content-Type": "application/zip"},
+    )
+
+    assert response.status_code == 422
+    actor = container.auth_service.login("alice", PASSWORD).principal
+    assert "Invalid proxy" not in {
+        item.name for item in container.protected_application.list_profiles(actor)
+    }
+    with pytest.raises(DomainError):
+        container.protected_application.start_profile(actor, "Invalid proxy")
+
+
 def test_real_managed_import_export_download_is_scoped_and_one_use(real_api):
     client, container, database, _, foreign = real_api
     auth = _login(client, "alice")
@@ -577,6 +604,108 @@ def test_real_download_rechecks_revocation_and_session_liveness(real_api):
     assert client.get(url).status_code == 404
     SessionDAO(database).revoke_user("alice-id")
     assert client.get(url).status_code == 401
+
+
+@pytest.mark.parametrize("revocation", ["grant", "session"])
+def test_archive_stream_rechecks_revocation_without_holding_catalog_lock(real_api, revocation):
+    from src.api.routes.ext_transfer import _ArchiveResponse
+
+    _, container, database, own, _ = real_api
+    actor = container.auth_service.login("alice", PASSWORD).principal
+    profile_data = container.protected_application._catalog.manager.data_dir / own.name
+    profile_data.mkdir(parents=True, exist_ok=True)
+    (profile_data / "stream-data.bin").write_bytes(os.urandom(192 * 1024))
+    download_id = container.protected_application.export_profile_archive(actor, own.profile_id)
+    staged = database.path.parent / ".foxprofile-transfers" / f"{download_id}.zip"
+    response = _ArchiveResponse(container.protected_application, actor, download_id, own.profile_id)
+    body_blocked = threading.Event()
+    release_body = threading.Event()
+    messages = []
+
+    async def send(message):
+        messages.append(message)
+        if (
+            message["type"] == "http.response.body"
+            and message["body"]
+            and not body_blocked.is_set()
+        ):
+            body_blocked.set()
+            assert await asyncio.to_thread(release_body.wait, 5)
+
+    async def receive():
+        return {"type": "http.disconnect"}
+
+    async def stream_and_revoke():
+        task = asyncio.create_task(
+            response(
+                {"type": "http", "method": "GET", "path": "/downloads"},
+                receive,
+                send,
+            )
+        )
+        assert await asyncio.to_thread(body_blocked.wait, 5)
+        created = await asyncio.wait_for(
+            asyncio.to_thread(
+                container.protected_application.create_profile,
+                actor,
+                name="Catalog remains available",
+            ),
+            5,
+        )
+        assert created.name == "Catalog remains available"
+        if revocation == "grant":
+            AssignmentDAO(database).revoke("alice-id", own.profile_id)
+        else:
+            SessionDAO(database).revoke_user("alice-id")
+        release_body.set()
+        await task
+
+    asyncio.run(stream_and_revoke())
+
+    body_chunks = [
+        item["body"] for item in messages if item["type"] == "http.response.body" and item["body"]
+    ]
+    assert len(body_chunks) == 1
+    assert messages[-1] == {"type": "http.response.body", "body": b"", "more_body": False}
+    assert not staged.exists()
+
+
+def test_archive_stream_disconnect_cleans_one_use_staging_file(real_api):
+    from src.api.routes.ext_transfer import _ArchiveResponse
+
+    _, container, database, own, _ = real_api
+    actor = container.auth_service.login("alice", PASSWORD).principal
+    profile_data = container.protected_application._catalog.manager.data_dir / own.name
+    profile_data.mkdir(parents=True, exist_ok=True)
+    (profile_data / "stream-data.bin").write_bytes(os.urandom(192 * 1024))
+    download_id = container.protected_application.export_profile_archive(actor, own.profile_id)
+    staged = database.path.parent / ".foxprofile-transfers" / f"{download_id}.zip"
+    response = _ArchiveResponse(container.protected_application, actor, download_id, own.profile_id)
+
+    async def send(message):
+        if message["type"] == "http.response.body" and message["body"]:
+            raise OSError("client disconnected")
+
+    async def receive():
+        return {"type": "http.disconnect"}
+
+    with pytest.raises(OSError, match="client disconnected"):
+        asyncio.run(
+            response(
+                {"type": "http", "method": "GET", "path": "/downloads"},
+                receive,
+                send,
+            )
+        )
+
+    assert not staged.exists()
+    with (
+        pytest.raises(DomainError),
+        container.protected_application.download_profile_archive(
+            actor, download_id, own.profile_id
+        ),
+    ):
+        pass
 
 
 def test_real_managed_archive_and_legacy_path_inputs_fail_before_effects(real_api):
@@ -808,6 +937,30 @@ def test_service_archive_paths_fail_closed_before_file_or_catalog_effects(
     }
     assert list(root.glob("*.zip")) == [root / "link.zip"]
     assert list(outside.iterdir()) == [source]
+
+
+def test_service_export_storage_error_is_not_mapped_to_forbidden(real_api, monkeypatch, tmp_path):
+    from foxprofile_ext import application as application_module
+
+    client, _, _, own, _ = real_api
+    root = tmp_path / "transfers"
+    root.mkdir()
+    monkeypatch.setenv("FOXPROFILE_EXT_SERVICE_TRANSFER_ROOTS", str(root))
+
+    def export_without_space(*_args, **_kwargs):
+        raise OSError(errno.ENOSPC, "disk full")
+
+    monkeypatch.setattr(application_module, "export_to_zip", export_without_space)
+    client_without_server_exceptions = TestClient(
+        client.app, base_url=ORIGIN, raise_server_exceptions=False
+    )
+    response = client_without_server_exceptions.post(
+        f"/api/v1/profiles/{own.profile_id}/export",
+        json={},
+        headers={"Authorization": f"Bearer {SERVICE_TOKEN}"},
+    )
+
+    assert response.status_code == 500
 
 
 def test_personal_admin_and_user_cannot_use_service_archive_paths(real_api, monkeypatch, tmp_path):

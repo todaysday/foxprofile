@@ -10,11 +10,13 @@ import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import unquote
 
 import httpx
 import pytest
 import uvicorn
 
+import foxprofile_ext.acceptance as acceptance_module
 from foxprofile_ext.acceptance import (
     SmokeFailure,
     _staging_origin,
@@ -34,6 +36,99 @@ SECRETS = {
     "b_password": "example-b-only",
     "service_token": "example-disposable-service-token-for-tests",
 }
+
+
+def _fake_smoke_http(monkeypatch, manifest, logout_statuses):
+    original_client = httpx.Client
+    sessions = {}
+    csrf_tokens = {}
+    logout_calls = []
+
+    def handler(request):
+        path = request.url.path
+        if path == "/api/v1/ext/auth/login":
+            username = json.loads(request.content)["username"]
+            token = f"session-{username}"
+            csrf = f"csrf-{username}"
+            sessions[token] = username
+            csrf_tokens[token] = csrf
+            return httpx.Response(
+                200,
+                json={
+                    "csrf_token": csrf,
+                    "user": {
+                        "user_id": manifest["users"][username],
+                        "role": "admin" if username == "admin0" else "user",
+                    },
+                },
+                headers={"set-cookie": f"foxprofile_session={token}; Path=/"},
+                request=request,
+            )
+        if path == "/api/v1/ext/auth/logout":
+            token = request.headers["cookie"].split("=", 1)[1]
+            username = sessions[token]
+            logout_calls.append(username)
+            if request.headers.get("x-csrf-token") != csrf_tokens[token]:
+                return httpx.Response(403, request=request)
+            outcome = logout_statuses.get(username, 204)
+            if isinstance(outcome, Exception):
+                raise outcome
+            if 200 <= outcome < 300:
+                sessions.pop(token)
+            return httpx.Response(outcome, request=request)
+
+        token = request.headers.get("cookie", "").split("=", 1)[-1]
+        username = sessions.get(token)
+        if path == "/api/v1/profiles":
+            if request.headers.get("authorization") == f"Bearer {SECRETS['service_token']}":
+                items = list(manifest["profiles"].values())
+            elif request.headers.get("authorization"):
+                return httpx.Response(401, request=request)
+            elif username == "admin0":
+                items = list(manifest["profiles"].values())
+            elif username in ("A", "B"):
+                items = [manifest["profiles"]["P" + username]]
+            else:
+                return httpx.Response(401, request=request)
+            return httpx.Response(200, json={"profiles": items}, request=request)
+        if path.startswith("/api/v1/profiles/"):
+            identifier = unquote(path.rsplit("/", 1)[-1])
+            profile_id = identifier.removeprefix("id:")
+            item = next(
+                (
+                    item
+                    for item in manifest["profiles"].values()
+                    if item["profile_id"] == profile_id
+                ),
+                None,
+            )
+            allowed = username == "admin0" or (
+                username in ("A", "B")
+                and profile_id == manifest["profiles"]["P" + username]["profile_id"]
+            )
+            return (
+                httpx.Response(200, json=item, request=request)
+                if item and allowed
+                else httpx.Response(404, request=request)
+            )
+        if path == "/api/v1/ext/admin/settings":
+            if username == "admin0":
+                return httpx.Response(
+                    200, json={"max_concurrent_profiles": manifest["capacity"]}, request=request
+                )
+            return httpx.Response(403, request=request)
+        if path == "/api/v1/ext/auth/me":
+            return httpx.Response(404, request=request)
+        if path == "/api/v1/ext/admin/users":
+            return httpx.Response(403, request=request)
+        return httpx.Response(404, request=request)
+
+    def client(*args, **kwargs):
+        kwargs["transport"] = httpx.MockTransport(handler)
+        return original_client(*args, **kwargs)
+
+    monkeypatch.setattr(acceptance_module.httpx, "Client", client)
+    return logout_calls, sessions
 
 
 def _prepare(destination: Path, secret_file: Path):
@@ -215,6 +310,33 @@ def test_smoke_over_real_http_uses_real_disposable_application(real_http_app, pr
         assert connection.execute("SELECT COUNT(*) FROM sessions").fetchone()[0] == 0
         assert connection.execute("SELECT COUNT(*) FROM browser_runs").fetchone()[0] == 0
     assert len(json.loads((prepared[0] / "profiles.json").read_text())) == 11
+
+
+def test_smoke_reports_logout_status_after_all_checks_and_attempts_every_logout(
+    prepared, monkeypatch
+):
+    manifest = prepared[2]
+    calls, sessions = _fake_smoke_http(monkeypatch, manifest, {"admin0": 503, "A": 503, "B": 503})
+
+    with pytest.raises(SmokeFailure, match="logout cleanup.*HTTP 503"):
+        smoke(manifest, manifest["fixture_id"], "http://127.0.0.1:8000", SECRETS)
+
+    assert calls == ["admin0", "A", "B"]
+    assert len(sessions) == 3
+
+
+def test_smoke_attempts_remaining_logouts_and_preserves_smoke_failure(prepared, monkeypatch):
+    manifest = json.loads(json.dumps(prepared[2]))
+    manifest["users"]["admin0"] = "wrong-target-user"
+    calls, sessions = _fake_smoke_http(
+        monkeypatch, prepared[2], {"admin0": httpx.ConnectError("offline")}
+    )
+
+    with pytest.raises(SmokeFailure, match="target user identity"):
+        smoke(manifest, manifest["fixture_id"], "http://127.0.0.1:8000", SECRETS)
+
+    assert calls == ["admin0"]
+    assert len(sessions) == 1
 
 
 def test_smoke_wrong_fixture_fails_before_http(prepared):

@@ -336,23 +336,25 @@ def _verified_namespace(browser: ProcessIdentity, namespace: str) -> bool:
         return False
     if namespace == os.readlink("/proc/self/ns/pid"):
         return False
-    descendants = {browser.pid}
     try:
         entries = tuple(Path("/proc").iterdir())
-        for _ in range(8):
-            previous = len(descendants)
-            for entry in entries:
-                if not entry.name.isdigit():
-                    continue
-                try:
-                    stat = (entry / "stat").read_text(encoding="ascii")
-                    fields = stat[stat.rfind(")") + 2 :].split()
-                    if int(fields[1]) in descendants:
-                        descendants.add(int(entry.name))
-                except (OSError, ValueError, IndexError):
-                    continue
-            if len(descendants) == previous:
-                break
+        children: dict[int, list[int]] = {}
+        for entry in entries:
+            if not entry.name.isdigit():
+                continue
+            try:
+                stat = (entry / "stat").read_text(encoding="ascii")
+                fields = stat[stat.rfind(")") + 2 :].split()
+                children.setdefault(int(fields[1]), []).append(int(entry.name))
+            except (OSError, ValueError, IndexError):
+                continue
+        descendants = {browser.pid}
+        pending = [browser.pid]
+        while pending:
+            for child in children.get(pending.pop(), ()):
+                if child not in descendants:
+                    descendants.add(child)
+                    pending.append(child)
         return any(_namespace_of(pid) == namespace for pid in descendants)
     except OSError:
         return False

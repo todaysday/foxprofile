@@ -209,14 +209,16 @@ class App:
     def _filter_tests(self) -> dict:
         return {
             "all": lambda p: True,
-            "running": lambda p: self.bl.is_running(self._profile_key(p)),
+            "running": lambda p: (
+                p.is_running if self.personal else self.bl.is_running(self._profile_key(p))
+            ),
             "proxy": lambda p: bool(p.proxy),
             "direct": lambda p: not p.proxy,
             "chrome": lambda p: p.engine == "chrome",
         }
 
-    def _get_page_profiles(self) -> tuple[list, list, int]:
-        all_profiles = self.pm.list_profiles()
+    def _get_page_profiles(self, profiles=None) -> tuple[list, list, int]:
+        all_profiles = self.pm.list_profiles() if profiles is None else profiles
         test = self._filter_tests().get(self.filter, lambda p: True)
         all_profiles = [p for p in all_profiles if test(p)]
         if q := self.state.search_query:
@@ -228,26 +230,33 @@ class App:
         start = (self.state.current_page - 1) * ITEMS_PER_PAGE
         return all_profiles, all_profiles[start : start + ITEMS_PER_PAGE], total
 
-    def _refresh_profiles(self) -> None:
+    def _refresh_profiles(self, profile_snapshot=None) -> None:
         r = self.refs
         assert r is not None
-        self._update_stats()
+        profile_snapshot = self.pm.list_profiles() if profile_snapshot is None else profile_snapshot
+        if self.personal:
+            running_profiles = [p for p in profile_snapshot if p.is_running]
+            running = {p.name for p in running_profiles}
+            running_keys = {p.profile_id for p in running_profiles}
+        else:
+            running = self.bl.running_profile_names()
+            running_keys = running
+        self._update_stats(profile_snapshot, len(running))
         self._flush_log()
-        all_profiles, page_profiles, total_pages = self._get_page_profiles()
+        all_profiles, page_profiles, total_pages = self._get_page_profiles(profile_snapshot)
 
-        all_names = {self._profile_key(p) for p in self.pm.list_profiles()}
+        all_names = {self._profile_key(p) for p in profile_snapshot}
         for stale in self.state.selected_names() - all_names:
             self.state.toggle_selection(stale)
 
-        running = self.bl.running_profile_names()
         # A failure mark lasts until the profile runs again or is gone.
-        self.state.failed.intersection_update(all_names - running)
+        self.state.failed.intersection_update(all_names - running_keys)
         for name in running - set(self._live_since):
             self._live_since[name] = time.strftime("%H:%M")
         for name in set(self._live_since) - running:
             del self._live_since[name]
 
-        everything = self.pm.list_profiles()
+        everything = profile_snapshot
         tests = self._filter_tests()
         self._filter_column.controls = build_filter_buttons(
             self.filter,
@@ -275,17 +284,17 @@ class App:
                 build_profile_card(
                     p,
                     self.state.is_loading(self._profile_key(p)),
-                    self.bl.is_running(self._profile_key(p)),
+                    p.is_running if self.personal else self.bl.is_running(self._profile_key(p)),
                     self._row_callback(self.h.on_launch, p),
                     self._row_callback(self.h.on_edit, p),
                     self._row_callback(self.h.on_delete, p),
                     is_selected=self.state.is_selected(self._profile_key(p)),
                     on_select=self._row_callback(self.h.on_toggle_select, p),
                     on_cookies=self._row_callback(self.h.on_cookies, p),
-                    device=self._device_label(self._profile_key(p)),
+                    device=self._device_label(self._profile_key(p), p if self.personal else None),
                     since=self._live_since.get(p.name, ""),
                     failed=self._profile_key(p) in self.state.failed,
-                    runtime_state=self.personal.run_state(p.profile_id) if self.personal else None,
+                    runtime_state=p.state if self.personal else None,
                 )
                 for p in page_profiles
             ]
@@ -305,7 +314,7 @@ class App:
                 "clear": self.h.on_clear_selection,
             },
         )
-        self._set_subtitle(r.content_subtitle)
+        self._set_subtitle(r.content_subtitle, len(profile_snapshot), len(running))
         r.page_label.value = get_string(
             "page_of",
             current=self.state.current_page,
@@ -315,13 +324,13 @@ class App:
         r.next_btn.disabled = self.state.current_page >= total_pages
         self._safe_update()
 
-    def _device_label(self, name: str) -> str:
+    def _device_label(self, name: str, profile=None) -> str:
         info = (
-            self.personal.session.binding.fingerprint(name)
+            profile.fingerprint
             if self.personal
             else fingerprint.summary(os.path.join(DATA_DIR, name))
         )
-        if not info:
+        if not info or (self.personal and not info["exists"]):
             return ""
         cpu = f"{info['hardware_concurrency']} CPU"
         return f"{info['screen']} · {cpu}" if info.get("screen") else cpu
@@ -363,32 +372,33 @@ class App:
         self.state.current_page += delta
         self._refresh_profiles()
 
-    def _set_subtitle(self, text: ft.Text) -> None:
+    def _set_subtitle(self, text: ft.Text, profile_count: int, running_count: int) -> None:
         """ "10 profile · 2 đang chạy", the running count in stamp violet."""
-        c, r = len(self.pm.profiles), self.bl.running_count()
-        head = get_string("profiles_configured", count=c) + " · "
+        head = get_string("profiles_configured", count=profile_count) + " · "
         text.value = None
         text.spans = (
             [
                 ft.TextSpan(head),
-                ft.TextSpan(str(r), ft.TextStyle(color=COLORS["live"], font_family=FONT_SEMIBOLD)),
+                ft.TextSpan(
+                    str(running_count),
+                    ft.TextStyle(color=COLORS["live"], font_family=FONT_SEMIBOLD),
+                ),
                 ft.TextSpan(" " + get_string("profiles_running_suffix")),
             ]
-            if r
+            if running_count
             else [ft.TextSpan(head + get_string("profiles_none_running"))]
         )
 
-    def _update_stats(self) -> None:
+    def _update_stats(self, profiles, running_count: int) -> None:
         r = self.refs
         if r:
-            cnt = self.bl.running_count()
             r.stats_text.value = get_string(
                 "total_profiles",
-                count=len(self.pm.profiles),
+                count=len(profiles),
             )
             r.running_text.value = (
-                get_string("browsers_running", count=cnt)
-                if cnt
+                get_string("browsers_running", count=running_count)
+                if running_count
                 else get_string("no_active_sessions")
             )
 
@@ -418,11 +428,12 @@ class App:
     async def _ui_reconcile_loop(self) -> None:
         while self.page:
             try:
-                if self.personal and not self.personal.reconcile():
+                profiles = self.personal.reconcile_snapshot() if self.personal else None
+                if self.personal and profiles is None:
                     await asyncio.sleep(0.12)
                     continue
                 running_now = (
-                    self.personal.run_snapshot()
+                    self.personal.run_snapshot(profiles)
                     if self.personal
                     else self.bl.running_profile_names()
                 )
@@ -430,7 +441,7 @@ class App:
                 if changed:
                     self.state._last_running_snapshot = running_now
                 if changed or self.state.consume_refresh():
-                    self._refresh_profiles()
+                    self._refresh_profiles(profiles)
             except Exception as e:
                 logger.error("Error in UI reconcile loop: %s", e)
             await asyncio.sleep(0.12)

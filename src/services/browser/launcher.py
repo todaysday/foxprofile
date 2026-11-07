@@ -33,7 +33,8 @@ _NOISY_PREFIXES = (
 class _LaunchResult:
     """Outcome of one launch, settled once the browser is ready or has failed."""
 
-    def __init__(self) -> None:
+    def __init__(self, run_id: str | None = None) -> None:
+        self.run_id = run_id
         self.settled = threading.Event()
         self.ok = False
         self.error: str | None = None
@@ -99,7 +100,9 @@ class BrowserLauncher:
             with self._lock:
                 self._busy.discard(profile_name)
 
-    def wait_for_launch(self, profile_name: str, timeout: float) -> tuple[bool, str | None]:
+    def wait_for_launch(
+        self, profile_name: str, timeout: float, run_id: str | None = None
+    ) -> tuple[bool, str | None]:
         """Block until the latest launch of a profile is ready or has failed.
 
         Returns (ok, error). A launch still pending after `timeout` reports
@@ -109,6 +112,8 @@ class BrowserLauncher:
             result = self._launch_results.get(profile_name)
         if result is None:
             return False, "No launch in progress"
+        if run_id is not None and result.run_id != run_id:
+            return False, "launch superseded"
         if not result.settled.wait(timeout):
             return False, "timeout"
         return result.ok, result.error
@@ -162,7 +167,7 @@ class BrowserLauncher:
 
         stop_event = threading.Event()
         notify_lock = threading.Lock()
-        result = _LaunchResult()
+        result = _LaunchResult(run_id)
 
         def notify_stopped() -> None:
             with notify_lock:
@@ -235,11 +240,22 @@ class BrowserLauncher:
                     logger.exception("Error starting browser for %s: %s", profile.name, e)
                     error = str(e)
                 result.settle(False, error)
-                with self._lock:
-                    self._busy.discard(profile.name)
-                log_callback(get_string("error_starting", error=error))
-                if on_stop:
-                    on_stop()
+                stopped = False
+                if protected:
+                    try:
+                        assert self._runtime_adapter is not None
+                        assert profile_id is not None and run_id is not None
+                        stopped = self._runtime_adapter.request_stop(profile_id, run_id, 1.0)
+                    except Exception:
+                        stopped = False
+                if stopped:
+                    notify_stopped()
+                else:
+                    with self._lock:
+                        self._busy.discard(profile.name)
+                    log_callback(get_string("error_starting", error=error))
+                    if on_stop:
+                        on_stop()
         finally:
             # Never keep the reservation when a callback raised before the
             # process was registered; the profile would stay busy for good.

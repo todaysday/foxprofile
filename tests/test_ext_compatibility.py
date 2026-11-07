@@ -6,7 +6,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from fastapi import Depends, FastAPI, Response
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.testclient import TestClient
 
 from foxprofile_ext import create_extension_composition
@@ -74,9 +74,10 @@ def test_existing_browser_route_keeps_launcher_service_call_shape():
             self.count += 1
 
     response = Response()
+    request = Request({"type": "http", "app": FastAPI()})
     events = Events()
     result = launch_browser(
-        "example", response, wait=False, pm=Profiles(), bl=Launcher(), bus=events
+        "example", response, request, wait=False, pm=Profiles(), bl=Launcher(), bus=events
     )
 
     assert response.status_code == 202

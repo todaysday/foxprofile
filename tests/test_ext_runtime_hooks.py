@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import types
 from pathlib import Path
 
@@ -158,6 +159,51 @@ def test_protected_stop_is_bound_to_exact_run_and_stale_exit_keeps_replacement(
     assert launcher._run_bindings["p"] == ("id-p", "run-2")
     assert launcher.is_running("p")
     launcher._active_sessions.clear()
+
+
+@pytest.mark.parametrize("thread_start_failure", [1, 2])
+@pytest.mark.parametrize("confirmed_stop", [False, True])
+def test_protected_launch_thread_failure_stops_exact_run_before_cleanup(
+    monkeypatch, thread_start_failure, confirmed_stop
+):
+    monkeypatch.setenv("FOXPROFILE_EXT_ENABLED", "true")
+    adapter = FakeAdapter(FakeProc())
+    stop_calls = []
+    adapter.request_stop = lambda profile_id, run_id, timeout: (
+        stop_calls.append((profile_id, run_id, timeout)) or confirmed_stop
+    )
+    launcher = BrowserLauncher(adapter)
+    stopped = []
+    start = threading.Thread.start
+    attempts = 0
+
+    def fail_one_start(thread):
+        nonlocal attempts
+        attempts += 1
+        if attempts == thread_start_failure:
+            raise RuntimeError("controlled thread start failure")
+        return start(thread)
+
+    monkeypatch.setattr(threading.Thread, "start", fail_one_start)
+    assert launcher.start_thread(
+        Profile(name="p"),
+        lambda _message: None,
+        on_stop=lambda: stopped.append(True),
+        profile_id="id-p",
+        run_id="run-p",
+    )
+
+    assert stop_calls == [("id-p", "run-p", 1.0)]
+    assert stopped == [True]
+    if confirmed_stop:
+        assert not launcher.is_running("p")
+        assert "p" not in launcher._run_bindings
+    else:
+        assert launcher.is_running("p")
+        assert launcher._run_bindings["p"] == ("id-p", "run-p")
+    launcher._active_sessions.clear()
+    launcher._run_bindings.clear()
+    launcher._stop_notifiers.clear()
 
 
 def test_private_runtime_and_control_lines_are_not_logged(monkeypatch):

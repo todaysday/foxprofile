@@ -133,7 +133,7 @@ async def get_profile(name: str) -> dict:
 @mcp.tool()
 async def create_profile(
     name: str,
-    os_type: Literal["windows", "macos", "linux"] = "windows",
+    os_type: Literal["windows", "macos", "linux"] | None = None,
     proxy: str | None = None,
     timezone: str | None = None,
     locale: str | None = None,
@@ -143,18 +143,16 @@ async def create_profile(
     (http, https, socks4, socks5). timezone (IANA, e.g. Asia/Ho_Chi_Minh) and locale (e.g. vi-VN)
     default to following the proxy's IP. engine: camoufox (Firefox, default) or chrome
     (Chromium, fingerprint-chromium); it cannot be changed later."""
-    return await _arequest(
-        "POST",
-        "/profiles",
-        {
-            "name": name,
-            "os_type": os_type,
-            "proxy": proxy,
-            "timezone": timezone,
-            "locale": locale,
-            "engine": engine,
-        },
-    )
+    payload = {
+        "name": name,
+        "proxy": proxy,
+        "timezone": timezone,
+        "locale": locale,
+        "engine": engine,
+    }
+    if os_type is not None:
+        payload["os_type"] = os_type
+    return await _arequest("POST", "/profiles", payload)
 
 
 @mcp.tool()

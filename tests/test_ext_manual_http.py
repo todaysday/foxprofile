@@ -785,10 +785,9 @@ def test_native_rfb_handshake_through_authenticated_websocket(gateway_api, nativ
     descriptor = replace(native.runtime, run=env.descriptors[env.profile_a.profile_id].run)
     env.descriptors[env.profile_a.profile_id] = descriptor
     monkeypatch.setenv("FOXPROFILE_X11VNC_EXECUTABLE", native.binaries["x11vnc"])
-    # Explicit Debian amd64 0.9.17-1 developer binary, never an inferred production pin.
     monkeypatch.setenv(
         "FOXPROFILE_X11VNC_SHA256",
-        "249bdc17e09fd96ea73ca7fbec2d8f3cd9ff411d0bbfb634d99431548fb77132",
+        hashlib.sha256(Path(native.binaries["x11vnc"]).read_bytes()).hexdigest(),
     )
     libraries = tuple(
         Path(value) for value in os.getenv("FOXPROFILE_NATIVE_LIBRARY_PATH", "").split(":") if value

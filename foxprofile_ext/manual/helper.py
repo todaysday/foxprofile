@@ -22,7 +22,8 @@ import time
 from pathlib import Path
 
 from ..dto import ProcessIdentity
-from ..runtime.registry import current_host_id, process_identity
+from ..runtime.registry import current_host_id, probe_process, process_identity
+from ..storage.capacity import ProcessLiveness
 
 _stopping = False
 
@@ -54,7 +55,8 @@ def _signal_child(identity: list[int], number: int) -> None:
 
 def _runtime_alive(config: dict) -> bool:
     return config["host_id"] == current_host_id() and all(
-        _alive(identity) for identity in config["runtime_processes"]
+        probe_process(config["host_id"], ProcessIdentity(*identity)) is ProcessLiveness.LIVE
+        for identity in config["runtime_processes"]
     )
 
 

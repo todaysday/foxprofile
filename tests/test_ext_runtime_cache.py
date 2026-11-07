@@ -245,10 +245,19 @@ def test_parent_preparation_runs_after_admission_before_spawn_and_skips_cookie_h
         with pytest.raises(OSError, match="controlled spawn stop"):
             runtime.spawn_browser(profile, profile.profile_id, ref.run_id)
         assert prepared == [profile.profile_id]
+        assert runtime.ledger.get(ref).status.value == "cancelled"
+        assert not (data / ".foxprofile-runtime" / ref.run_id).exists()
         prepared.clear()
+        helper_ref = runtime.ledger.reserve((profile.profile_id,), runtime.host_id).newly_reserved[
+            0
+        ]
         with pytest.raises(OSError, match="controlled spawn stop"):
             runtime._spawn(
-                profile, profile.profile_id, ref.run_id, [sys.executable], helper_stdin="[]"
+                profile,
+                profile.profile_id,
+                helper_ref.run_id,
+                [sys.executable],
+                helper_stdin="[]",
             )
         assert prepared == []
 
@@ -256,8 +265,11 @@ def test_parent_preparation_runs_after_admission_before_spawn_and_skips_cookie_h
             raise RuntimeError("GeoIP preparation failed")
 
         runtime.prepare_launch = failed_preparation
+        failed_ref = runtime.ledger.reserve((profile.profile_id,), runtime.host_id).newly_reserved[
+            0
+        ]
         with pytest.raises(RuntimeError, match="GeoIP preparation failed"):
-            runtime.spawn_browser(profile, profile.profile_id, ref.run_id)
+            runtime.spawn_browser(profile, profile.profile_id, failed_ref.run_id)
         assert len(spawned) == 2
     finally:
         runtime.shutdown(0)

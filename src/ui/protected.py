@@ -184,14 +184,15 @@ class PersonalDesktop:
             self.clear()
 
     def reconcile(self):
+        return self.reconcile_snapshot() is not None
+
+    def reconcile_snapshot(self):
         binding = self.session.binding
         if binding is None:
-            return False
+            return None
         try:
-            binding.actor()
-            ids = frozenset(
-                p.profile_id for p in binding.application.list_profiles(binding.actor())
-            )
+            profiles = binding.application.list_profiles(binding.actor())
+            ids = frozenset(p.profile_id for p in profiles)
             if ids != self._visible_ids:
                 self._visible_ids = ids
                 # Revocation drops cached logs and any still-open private profile dialog.
@@ -199,23 +200,25 @@ class PersonalDesktop:
                 self.app.h = PersonalHandlers(self, binding)
                 self.close_dialogs()
                 self.app._build_ui()
-            return True
+            return profiles
         except DomainError:
             self.clear()
-            return False
+            return None
 
     def run_state(self, profile_id):
         return next(
             (
                 p.state
-                for p in self.session.binding.bl.running_profiles()
+                for p in self.session.binding.pm.list_profiles()
                 if p.profile_id == profile_id
             ),
             "closed",
         )
 
-    def run_snapshot(self):
-        return {(p.profile_id, p.state) for p in self.session.binding.bl.running_profiles()}
+    def run_snapshot(self, profiles=None):
+        if profiles is None:
+            profiles = self.session.binding.pm.list_profiles()
+        return {(p.profile_id, p.state) for p in profiles if p.is_running}
 
     def is_admin(self):
         return self.session.binding.actor().role is Role.ADMIN
@@ -557,27 +560,43 @@ class PersonalHandlers(AppHandlers):
             self.perform(lambda: self.report_results(self.binding.bl.stop_profiles(identifiers)))
 
     def on_bulk_delete(self):
-        identifiers = sorted(self._state.selected_names())
+        identifiers = tuple(sorted(self._state.selected_names()))
         if not identifiers:
             return
 
-        def confirm():
-            self.perform(
-                lambda: self.report_results(
-                    self.binding.application.delete_profiles(
-                        self.binding.actor(), tuple(f"id:{value}" for value in identifiers)
+        def effect():
+            profiles = self.binding.application.list_profiles(self.binding.actor())
+            by_id = {profile.profile_id: profile for profile in profiles}
+            if any(identifier not in by_id for identifier in identifiers):
+                raise DomainError(ErrorCode.FORBIDDEN_OR_NOT_FOUND)
+            targets = tuple(
+                identifier for identifier in identifiers if not by_id[identifier].is_running
+            )
+            skipped = sum(by_id[identifier].is_running for identifier in identifiers)
+            if not targets:
+                if skipped:
+                    self.log(get_string("bulk_skip_running", count=skipped))
+                return
+
+            def confirm():
+                self.perform(
+                    lambda: self.report_results(
+                        self.binding.application.delete_profiles(
+                            self.binding.actor(), tuple(f"id:{value}" for value in targets)
+                        )
                     )
                 )
-            )
 
-        def effect():
             authorize = self.desktop.private_authorizer(self.binding)
+            body = get_string("cannot_undo")
+            if skipped:
+                body += "\n" + get_string("bulk_skip_running", count=skipped)
             open_confirm_dialog(
                 self._get_page(),
                 "",
                 confirm,
-                title=get_string("confirm_bulk_delete", count=len(identifiers)),
-                body=get_string("cannot_undo"),
+                title=get_string("confirm_bulk_delete", count=len(targets)),
+                body=body,
                 is_current=lambda: authorized(authorize),
             )
 

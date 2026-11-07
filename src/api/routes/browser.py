@@ -92,7 +92,7 @@ def browser_status(
 def launch_browser(
     name: str,
     response: Response,
-    request: Request = None,
+    request: Request,
     wait: bool = Query(
         True,
         description=(
@@ -107,8 +107,6 @@ def launch_browser(
     principal: PrincipalDTO | None = Depends(get_optional_principal),
 ) -> LaunchResponse:
     if isinstance(principal, PrincipalDTO):
-        if request is None:
-            raise HTTPException(status_code=503, detail="Protected request context unavailable")
         try:
             result = request.app.state.container.protected_application.start_profile(
                 principal, name, wait=wait, timeout=LAUNCH_WAIT_TIMEOUT

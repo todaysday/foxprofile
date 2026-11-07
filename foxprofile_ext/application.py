@@ -108,21 +108,22 @@ def _service_transfer_path(supplied: str | None, *, directory: bool) -> Iterator
         raise PermissionError("Confined service archive paths are unavailable on this platform")
     descriptor = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY)
     try:
-        for index, component in enumerate(path.parts[1:]):
-            flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
-            if directory or index < len(path.parts) - 2:
-                flags |= os.O_DIRECTORY
-            next_descriptor = os.open(component, flags, dir_fd=descriptor)
-            os.close(descriptor)
-            descriptor = next_descriptor
-        mode = os.fstat(descriptor).st_mode
-        if not (stat.S_ISDIR(mode) if directory else stat.S_ISREG(mode)):
-            raise PermissionError("Service archive path has an unsupported file type")
+        try:
+            for index, component in enumerate(path.parts[1:]):
+                flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+                if directory or index < len(path.parts) - 2:
+                    flags |= os.O_DIRECTORY
+                next_descriptor = os.open(component, flags, dir_fd=descriptor)
+                os.close(descriptor)
+                descriptor = next_descriptor
+            mode = os.fstat(descriptor).st_mode
+            if not (stat.S_ISDIR(mode) if directory else stat.S_ISREG(mode)):
+                raise PermissionError("Service archive path has an unsupported file type")
+        except OSError:
+            raise PermissionError(
+                "Service archive path must exist without symlink components"
+            ) from None
         yield descriptor, path
-    except OSError:
-        raise PermissionError(
-            "Service archive path must exist without symlink components"
-        ) from None
     finally:
         os.close(descriptor)
 
@@ -204,12 +205,15 @@ class ProtectedApplication:
                     current = os.fstat(current_fd)
                     if (original.st_dev, original.st_ino) != (current.st_dev, current.st_ino):
                         raise PermissionError("Service export directory changed during transfer")
-                destination_fd = os.open(
-                    filename,
-                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                    0o600,
-                    dir_fd=directory_fd,
-                )
+                try:
+                    destination_fd = os.open(
+                        filename,
+                        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                        0o600,
+                        dir_fd=directory_fd,
+                    )
+                except FileExistsError:
+                    raise PermissionError("Service export destination already exists") from None
                 try:
                     with (
                         os.fdopen(destination_fd, "wb") as destination,
@@ -305,8 +309,13 @@ class ProtectedApplication:
             self._ref_by_id_locked(actor, profile_id)
             if self._transfers is None:
                 raise DomainError(ErrorCode.RUNTIME_RECOVERING)
-            with self._transfers.download(actor, download_id, profile_id) as source:
-                yield source
+        with self._transfers.download(actor, download_id, profile_id) as source:
+            yield source
+
+    def authorize_archive_delivery(self, principal: PrincipalDTO | None, profile_id: str) -> None:
+        with catalog_lock(self._catalog.lock_path):
+            actor = require_personal(self.current_principal(principal))
+            self._ref_by_id_locked(actor, profile_id)
 
     def current_principal(self, principal: PrincipalDTO | None) -> PrincipalDTO:
         """Refresh live personal-session authority for this interaction."""
@@ -705,23 +714,19 @@ class ProtectedApplication:
         self, principal: PrincipalDTO, identifiers: Sequence[str]
     ) -> tuple[ProfileRefDTO, ...]:
         profiles = self._catalog.list_profiles()
+        profiles_by_id = {profile.profile_id: profile for profile in profiles}
+        profiles_by_name = {profile.name: profile for profile in profiles}
         resolved: list[ProfileRefDTO] = []
         seen: set[str] = set()
         for identifier in identifiers:
             canonical = identifier.startswith("id:")
             profile_id = identifier[3:] if canonical else identifier
-            candidate = next((item for item in profiles if item.profile_id == profile_id), None)
+            candidate = profiles_by_id.get(profile_id)
             if candidate is None and not canonical:
-                candidate = next((item for item in profiles if item.name == identifier), None)
+                candidate = profiles_by_name.get(identifier)
             if candidate is None:
                 raise DomainError(ErrorCode.FORBIDDEN_OR_NOT_FOUND)
-            try:
-                current = self._catalog.get_profile(candidate.profile_id)
-            except CatalogOperationError:
-                raise DomainError(ErrorCode.FORBIDDEN_OR_NOT_FOUND) from None
-            if current.profile_id != candidate.profile_id:
-                raise DomainError(ErrorCode.FORBIDDEN_OR_NOT_FOUND)
-            ref = ProfileRefDTO(current.profile_id, current.name)
+            ref = ProfileRefDTO(candidate.profile_id, candidate.name)
             require_profile_access(principal, ref, self._assignments.is_assigned)
             if ref.profile_id not in seen:
                 seen.add(ref.profile_id)

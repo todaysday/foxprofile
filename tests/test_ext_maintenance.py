@@ -1,5 +1,6 @@
 """Executable offline backup/migration/restore rehearsals on synthetic installations."""
 
+import errno
 import json
 import os
 import sqlite3
@@ -8,9 +9,11 @@ import subprocess
 import sys
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
+import foxprofile_ext.locking as locking
 from foxprofile_ext.locking import catalog_lock
 from foxprofile_ext.maintenance import Installation, MaintenanceError, backup, restore
 from foxprofile_ext.storage import AssignmentDAO, ExtensionDatabase, SettingsDAO, UserDAO
@@ -411,6 +414,54 @@ def test_catalog_lock_timeout_and_reentrance(tmp_path):
         thread.join(3)
     with catalog_lock(path, timeout=0.1), catalog_lock(path, timeout=0):
         pass
+
+
+def test_catalog_lock_windows_waits_indefinitely_after_contention(tmp_path, monkeypatch):
+    path = tmp_path / "profiles.lock"
+    attempts = []
+    sleeps = []
+    msvcrt = SimpleNamespace(LK_NBLCK=1, LK_UNLCK=2)
+
+    def lock_file(fd, mode, length):
+        if mode == msvcrt.LK_UNLCK:
+            return
+        attempts.append(mode)
+        if len(attempts) < 3:
+            raise OSError(errno.EACCES, "busy")
+
+    msvcrt.locking = lock_file
+    windows_os = SimpleNamespace(**(os.__dict__ | {"name": "nt"}))
+    monkeypatch.setattr(locking, "os", windows_os)
+    monkeypatch.setitem(sys.modules, "msvcrt", msvcrt)
+    monkeypatch.setattr(locking.time, "sleep", sleeps.append)
+
+    with catalog_lock(path):
+        pass
+
+    assert attempts == [msvcrt.LK_NBLCK] * 3
+    assert sleeps == [0.05, 0.05]
+
+
+def test_catalog_lock_windows_timeout_and_unrelated_errors(tmp_path, monkeypatch):
+    path = tmp_path / "profiles.lock"
+    attempts = []
+    msvcrt = SimpleNamespace(LK_NBLCK=1, LK_UNLCK=2)
+
+    def lock_file(fd, mode, length):
+        attempts.append(mode)
+        raise OSError(errno.EACCES if len(attempts) == 1 else errno.EIO, "lock failed")
+
+    msvcrt.locking = lock_file
+    windows_os = SimpleNamespace(**(os.__dict__ | {"name": "nt"}))
+    monkeypatch.setattr(locking, "os", windows_os)
+    monkeypatch.setitem(sys.modules, "msvcrt", msvcrt)
+
+    with pytest.raises(TimeoutError), catalog_lock(path, timeout=0):
+        pytest.fail("contended lock unexpectedly acquired")
+    with pytest.raises(OSError) as exc_info, catalog_lock(path):
+        pytest.fail("unrelated locking error was swallowed")
+    assert exc_info.value.errno == errno.EIO
+    assert attempts == [msvcrt.LK_NBLCK, msvcrt.LK_NBLCK]
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX special-file fixtures and permissions")

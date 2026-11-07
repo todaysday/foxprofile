@@ -6,15 +6,23 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from foxprofile_ext.capacity import CapacityService
-from foxprofile_ext.dto import PrincipalDTO, PrincipalKind, ProcessIdentity, ProfileRefDTO
+from foxprofile_ext.dto import (
+    BrowserRunRefDTO,
+    PrincipalDTO,
+    PrincipalKind,
+    ProcessIdentity,
+    ProfileRefDTO,
+)
 from foxprofile_ext.errors import DomainError, ErrorCode
 from foxprofile_ext.locking import catalog_lock
+from foxprofile_ext.manual import helper as manual_helper
 from foxprofile_ext.request_context import principal_scope
 from foxprofile_ext.runtime.coordinator import RuntimeCoordinator
 from foxprofile_ext.runtime.processes import (
@@ -147,6 +155,74 @@ def test_preparation_failure_releases_admitted_run_without_spawn(setup, monkeypa
     assert not setup.ledger.active_runs()
 
 
+@pytest.mark.parametrize("claimed", [False, True])
+def test_failed_supervisor_watcher_keeps_only_unconfirmed_claims_owned(setup, monkeypatch, claimed):
+    from foxprofile_ext.runtime import processes as runtime_processes
+
+    ref = setup.ledger.reserve(
+        (setup.profiles[0].profile_id,), setup.runtime.host_id
+    ).newly_reserved[0]
+    identity = ProcessIdentity(700010, 81)
+    spawned = []
+
+    class Stdin:
+        def write(self, _data):
+            if claimed:
+                assert setup.ledger.claim(ref, setup.runtime.host_id, identity)
+
+        def close(self):
+            return None
+
+    class Process:
+        def __init__(self):
+            self.stdin = Stdin()
+            self.returncode = None
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self):
+            self.returncode = 0
+
+        def wait(self, timeout=None):
+            self.returncode = 0
+            return 0
+
+    def popen(*_args, **_kwargs):
+        process = Process()
+        spawned.append(process)
+        return process
+
+    def fail_start(_thread):
+        raise RuntimeError("watcher start failed")
+
+    monkeypatch.setattr(runtime_processes.subprocess, "Popen", popen)
+    monkeypatch.setattr(
+        runtime_processes.threading.Thread,
+        "start",
+        fail_start,
+    )
+    if claimed:
+        monkeypatch.setattr(setup.runtime, "_probe_run", lambda *_: ProcessLiveness.LIVE)
+
+    with pytest.raises(RuntimeError, match="watcher start failed"):
+        setup.runtime.spawn_browser(setup.profiles[0], ref.profile_id, ref.run_id)
+
+    assert spawned and spawned[0].poll() == 0
+    if claimed:
+        assert setup.ledger.get(ref).status is RunStatus.STARTING
+        assert setup.runtime._owned_runs[ref.run_id] == ref
+        assert (setup.runtime.data_dir / ".foxprofile-runtime" / ref.run_id).is_dir()
+        monkeypatch.setattr(setup.runtime, "_probe_run", lambda *_: ProcessLiveness.DEAD)
+        setup.runtime._watch(ref, spawned[0])
+        assert setup.ledger.get(ref).status is RunStatus.CLOSED
+    else:
+        assert setup.ledger.get(ref).status is RunStatus.CANCELLED
+    assert ref.run_id not in setup.runtime._owned_runs
+    assert not (setup.runtime.data_dir / ".foxprofile-runtime" / ref.run_id).exists()
+    setup.runtime.shutdown(0)
+
+
 def test_partial_batch_failure_preserves_success_and_wait_timeout_capacity(setup):
     def start(profile, log, **options):
         if profile.name == "beta":
@@ -177,6 +253,377 @@ def test_wait_does_not_hold_catalog_lock(setup):
 
     launcher = SimpleNamespace(start_thread=lambda *a, **k: True, wait_for_launch=wait)
     coordinator(setup, launcher).reserve_and_start(SERVICE, refs(setup)[:1], wait=True)
+
+
+def test_launch_preparation_does_not_hold_catalog_lock(setup):
+    preparing = threading.Event()
+    resume = threading.Event()
+    acquired = threading.Event()
+    starts = []
+
+    def prepare(_profile):
+        preparing.set()
+        assert resume.wait(5)
+
+    def start(profile, *args, **kwargs):
+        starts.append(profile.name)
+        return True
+
+    def take_lock():
+        with catalog_lock(setup.lock):
+            acquired.set()
+
+    setup.runtime.prepare_launch = prepare
+    launcher = SimpleNamespace(start_thread=start)
+    results = []
+    thread = threading.Thread(
+        target=lambda: results.append(
+            coordinator(setup, launcher).reserve_and_start(SERVICE, refs(setup)[:1])
+        )
+    )
+    thread.start()
+    try:
+        assert preparing.wait(2)
+        lock_thread = threading.Thread(target=take_lock)
+        lock_thread.start()
+        assert acquired.wait(2)
+        lock_thread.join(2)
+    finally:
+        resume.set()
+        thread.join(5)
+        setup.runtime.shutdown(0)
+    assert not thread.is_alive()
+    assert starts == ["alpha"]
+    assert results[0][0].state == "starting"
+
+
+@pytest.mark.parametrize("change", ["stop", "revoke", "rename", "delete"])
+def test_preparation_revalidates_exact_reservation_and_profile_grant(setup, change):
+    preparing = threading.Event()
+    resume = threading.Event()
+    revoked = False
+    deleted = False
+    starts = []
+
+    def prepare(_profile):
+        preparing.set()
+        assert resume.wait(5)
+
+    def profile_by_id(profile_id):
+        if deleted:
+            raise DomainError(ErrorCode.FORBIDDEN_OR_NOT_FOUND)
+        return next(profile for profile in setup.profiles if profile.profile_id == profile_id)
+
+    def authorize(actor, _ref):
+        if revoked:
+            raise DomainError(ErrorCode.FORBIDDEN_OR_NOT_FOUND)
+        return actor
+
+    launcher = SimpleNamespace(
+        start_thread=lambda profile, *args, **kwargs: starts.append(profile.name) or True
+    )
+    run_coordinator = RuntimeCoordinator(
+        setup.capacity,
+        setup.ledger,
+        setup.runtime,
+        launcher,
+        profile_by_id=profile_by_id,
+        authorize=authorize,
+        lock_path=setup.lock,
+    )
+    setup.runtime.prepare_launch = prepare
+    results = []
+    thread = threading.Thread(
+        target=lambda: results.append(run_coordinator.reserve_and_start(SERVICE, refs(setup)[:1]))
+    )
+    thread.start()
+    try:
+        assert preparing.wait(2)
+        if change == "stop":
+            assert run_coordinator.stop(SERVICE, refs(setup)[0])
+        elif change == "revoke":
+            revoked = True
+        elif change == "rename":
+            setup.profiles[0].name = "renamed"
+        else:
+            deleted = True
+        resume.set()
+        thread.join(5)
+    finally:
+        resume.set()
+        thread.join(5)
+        setup.runtime.shutdown(0)
+    assert not thread.is_alive()
+    assert starts == []
+    assert results[0][0].state == "failed"
+    assert (
+        setup.ledger.get(
+            BrowserRunRefDTO(refs(setup)[0].profile_id, results[0][0].browser_run_id)
+        ).status
+        is RunStatus.CANCELLED
+    )
+
+
+def test_wait_returns_the_exact_closed_generation_after_ready(setup):
+    identity = ProcessIdentity(700001, 77)
+    callbacks = {}
+
+    def start(profile, _log, *, on_ready, run_id, profile_id, **_kwargs):
+        ref = BrowserRunRefDTO(profile_id, run_id)
+        assert setup.ledger.claim(ref, setup.runtime.host_id, identity)
+        callbacks[run_id] = on_ready
+        return True
+
+    def wait(_name, _timeout, run_id):
+        ref = BrowserRunRefDTO(setup.profiles[0].profile_id, run_id)
+        callbacks[run_id]()
+        assert setup.ledger.mark_stopping(ref)
+        assert setup.ledger.release_after_exit(ref, identity, lambda *_: ProcessLiveness.DEAD)
+        return True, None
+
+    result = coordinator(
+        setup, SimpleNamespace(start_thread=start, wait_for_launch=wait)
+    ).reserve_and_start(SERVICE, refs(setup)[:1], wait=True)
+
+    assert result[0].state == "failed"
+    assert result[0].error_code == "LAUNCH_FAILED"
+    assert (
+        setup.ledger.get(BrowserRunRefDTO(result[0].profile_id, result[0].browser_run_id)).status
+        is RunStatus.CLOSED
+    )
+
+
+def test_control_releases_catalog_lock_and_keeps_exact_generation(setup, monkeypatch):
+    old = setup.ledger.reserve(
+        (setup.profiles[0].profile_id,), setup.runtime.host_id
+    ).newly_reserved[0]
+    identity = ProcessIdentity(700002, 78)
+    assert setup.ledger.claim(old, setup.runtime.host_id, identity)
+    assert setup.ledger.mark_running(old)
+    entered = threading.Event()
+    resume = threading.Event()
+    acquired = threading.Event()
+    calls = []
+
+    def control(profile_id, run_id, action, params):
+        calls.append((profile_id, run_id, action, params))
+        entered.set()
+        assert resume.wait(5)
+        return "controlled"
+
+    monkeypatch.setattr(setup.runtime, "control", control)
+    run_coordinator = coordinator(setup, SimpleNamespace())
+    results = []
+    thread = threading.Thread(
+        target=lambda: results.append(run_coordinator.control(SERVICE, refs(setup)[0], "click"))
+    )
+    thread.start()
+    try:
+        assert entered.wait(2)
+
+        def take_lock():
+            with catalog_lock(setup.lock):
+                acquired.set()
+
+        lock_thread = threading.Thread(target=take_lock)
+        lock_thread.start()
+        assert acquired.wait(2)
+        lock_thread.join(2)
+        assert setup.ledger.mark_stopping(old)
+        assert setup.ledger.release_after_exit(old, identity, lambda *_: ProcessLiveness.DEAD)
+        replacement = setup.ledger.reserve((old.profile_id,), setup.runtime.host_id).newly_reserved[
+            0
+        ]
+    finally:
+        resume.set()
+        thread.join(5)
+    assert not thread.is_alive()
+    assert results == ["controlled"]
+    assert calls == [(old.profile_id, old.run_id, "click", None)]
+    assert replacement.run_id != old.run_id
+    setup.ledger.cancel_unclaimed(replacement)
+    setup.runtime.shutdown(0)
+
+
+def test_runtime_stop_backoff_reprobes_live_then_dead_orphan(setup, monkeypatch):
+    from foxprofile_ext.runtime import processes as runtime_processes
+
+    ref = setup.ledger.reserve(
+        (setup.profiles[0].profile_id,), setup.runtime.host_id
+    ).newly_reserved[0]
+    identity = ProcessIdentity(700003, 79)
+    assert setup.ledger.claim(ref, setup.runtime.host_id, identity)
+    assert setup.ledger.mark_running(ref)
+    descriptor = SimpleNamespace(
+        host_id=setup.runtime.host_id,
+        supervisor=identity,
+        boundary=None,
+        namespace=None,
+    )
+    monkeypatch.setattr(
+        setup.runtime.registry, "get", lambda _ref: SimpleNamespace(descriptor=descriptor)
+    )
+    monkeypatch.setattr(runtime_processes, "probe_process", lambda *_: ProcessLiveness.LIVE)
+    monkeypatch.setattr(runtime_processes, "process_identity", lambda _pid: identity)
+    monkeypatch.setattr(runtime_processes.os, "kill", lambda *_: None)
+    liveness = iter(
+        (
+            ProcessLiveness.LIVE,
+            ProcessLiveness.LIVE,
+            ProcessLiveness.DEAD,
+            ProcessLiveness.DEAD,
+        )
+    )
+    probes = []
+
+    def probe(*_args):
+        probes.append(True)
+        return next(liveness)
+
+    monkeypatch.setattr(setup.runtime, "_probe_run", probe)
+
+    class Clock:
+        now = 100.0
+        sleeps = []
+
+        @classmethod
+        def monotonic(cls):
+            return cls.now
+
+        @classmethod
+        def sleep(cls, delay):
+            cls.sleeps.append(delay)
+            cls.now += delay
+
+    Clock.sleeps = []
+    monkeypatch.setattr(runtime_processes, "time", Clock)
+    try:
+        assert setup.runtime.request_stop(ref.profile_id, ref.run_id, 1)
+    finally:
+        setup.runtime.shutdown(0)
+    assert Clock.sleeps == pytest.approx([0.05, 0.1])
+    assert len(probes) == 4
+    assert setup.ledger.get(ref).status is RunStatus.CLOSED
+
+
+def test_runtime_stop_timeout_is_bounded_by_deadline(setup, monkeypatch):
+    from foxprofile_ext.runtime import processes as runtime_processes
+
+    ref = setup.ledger.reserve(
+        (setup.profiles[0].profile_id,), setup.runtime.host_id
+    ).newly_reserved[0]
+    identity = ProcessIdentity(700004, 80)
+    assert setup.ledger.claim(ref, setup.runtime.host_id, identity)
+    assert setup.ledger.mark_running(ref)
+    descriptor = SimpleNamespace(
+        host_id=setup.runtime.host_id,
+        supervisor=identity,
+        boundary=None,
+        namespace=None,
+    )
+    monkeypatch.setattr(
+        setup.runtime.registry, "get", lambda _ref: SimpleNamespace(descriptor=descriptor)
+    )
+    monkeypatch.setattr(runtime_processes, "probe_process", lambda *_: ProcessLiveness.LIVE)
+    monkeypatch.setattr(runtime_processes, "process_identity", lambda _pid: identity)
+    monkeypatch.setattr(runtime_processes.os, "kill", lambda *_: None)
+    monkeypatch.setattr(setup.runtime, "_probe_run", lambda *_: ProcessLiveness.LIVE)
+
+    class Clock:
+        now = 0.0
+        sleeps = []
+
+        @classmethod
+        def monotonic(cls):
+            return cls.now
+
+        @classmethod
+        def sleep(cls, delay):
+            cls.sleeps.append(delay)
+            cls.now += delay
+
+    Clock.sleeps = []
+    monkeypatch.setattr(runtime_processes, "time", Clock)
+    try:
+        assert not setup.runtime.request_stop(ref.profile_id, ref.run_id, 0.15)
+    finally:
+        setup.runtime.shutdown(0)
+    assert Clock.sleeps == pytest.approx([0.05, 0.1])
+    assert Clock.now == pytest.approx(0.15)
+
+
+def test_request_stop_honors_real_timeout_boundary(setup, monkeypatch):
+    from foxprofile_ext.runtime import processes as runtime_processes
+
+    child = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True
+    )
+    original_kill = os.kill
+    try:
+        identity = process_identity(child.pid)
+        assert identity is not None
+        ref = setup.ledger.reserve(
+            (setup.profiles[0].profile_id,), setup.runtime.host_id
+        ).newly_reserved[0]
+        assert setup.ledger.claim(ref, setup.runtime.host_id, identity)
+        assert setup.ledger.mark_running(ref)
+        descriptor = SimpleNamespace(
+            host_id=setup.runtime.host_id,
+            supervisor=identity,
+            boundary=None,
+            namespace=None,
+        )
+        monkeypatch.setattr(
+            setup.runtime.registry,
+            "get",
+            lambda _ref: SimpleNamespace(descriptor=descriptor),
+        )
+        monkeypatch.setattr(runtime_processes.os, "kill", lambda *_: None)
+        started = time.monotonic()
+        assert not setup.runtime.request_stop(ref.profile_id, ref.run_id, 0.15)
+        elapsed = time.monotonic() - started
+        assert 0.14 <= elapsed < 0.5
+        assert child.poll() is None
+    finally:
+        monkeypatch.setattr(runtime_processes.os, "kill", original_kill)
+        child.terminate()
+        child.wait(timeout=5)
+        setup.runtime.shutdown(0)
+
+
+def test_manual_runtime_liveness_rejects_unreaped_zombie():
+    if not hasattr(os, "fork"):
+        pytest.skip("requires Linux /proc process state")
+    child = os.fork()
+    if child == 0:
+        os._exit(0)
+    try:
+        deadline = time.monotonic() + 2
+        identity = None
+        while time.monotonic() < deadline:
+            identity = process_identity(child)
+            if identity is not None:
+                state = Path(f"/proc/{child}/stat").read_text(encoding="ascii")
+                if state[state.rfind(")") + 2 :].split()[0] == "Z":
+                    break
+            time.sleep(0.01)
+        assert identity is not None
+        assert state[state.rfind(")") + 2 :].split()[0] == "Z"
+        host_id = manual_helper.current_host_id()
+        assert manual_helper._alive([child, identity.start_ticks])
+        assert (
+            manual_helper._runtime_alive(
+                {"host_id": host_id, "runtime_processes": [[child, identity.start_ticks]]}
+            )
+            is False
+        )
+        current = process_identity(os.getpid())
+        assert current is not None
+        assert manual_helper._runtime_alive(
+            {"host_id": host_id, "runtime_processes": [[os.getpid(), current.start_ticks]]}
+        )
+    finally:
+        os.waitpid(child, 0)
 
 
 def test_registry_claim_atomic_and_late_cancelled_child_cannot_claim(setup):
@@ -442,6 +889,7 @@ def test_shutdown_cancels_paused_preparation_before_replacement_can_spawn(setup,
         assert popen_calls == []
         assert len(errors) == 1 and "shut down" in str(errors[0])
         assert setup.ledger.get(ref).status is RunStatus.CANCELLED
+        assert not (setup.runtime.data_dir / ".foxprofile-runtime" / ref.run_id).exists()
     finally:
         resume.set()
         thread.join(5)

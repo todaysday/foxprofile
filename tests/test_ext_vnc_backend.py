@@ -331,7 +331,7 @@ def test_close_during_runtime_validation_cannot_create_late_helper(native, monke
         resume.set()
         with pytest.raises(VNCBackendUnavailable, match="cancelled"):
             future.result(timeout=5)
-    assert native.backend._sessions["session"].process is None
+    assert "session" not in native.backend._sessions
     assert native.backend.probe("session", native.runtime.host_id, None) is HelperLiveness.DEAD
 
 
@@ -345,13 +345,18 @@ def test_real_partial_start_failure_is_confirmed_clean(native, failure):
         native.backend._sha256 = "0" * 64
     with pytest.raises(VNCBackendUnavailable):
         start(native, claim=lambda _: failure != "claim", watchdog=3)
-    entry = native.backend._sessions["session"]
+    receipt = native.backend._read_receipt("session")
+    helper = (
+        ProcessIdentity(*receipt["supervisor"])
+        if receipt is not None and receipt.get("supervisor") is not None
+        else None
+    )
     eventually(
         lambda: (
-            native.backend.probe("session", native.runtime.host_id, entry.helper)
-            is HelperLiveness.DEAD
+            native.backend.probe("session", native.runtime.host_id, helper) is HelperLiveness.DEAD
         )
     )
+    eventually(lambda: "session" not in native.backend._sessions)
     assert native.process.poll() is None
 
 
@@ -652,12 +657,16 @@ def test_old_close_cannot_stop_replacement_session_on_same_display(native):
     handshake(old.channel)
     native.backend.stop("old", native.runtime.host_id, old.helper, time.time() + 2)
     wait_dead(native, "old", old.helper)
+    eventually(lambda: "old" not in native.backend._sessions)
     new = start(native, "new")
     handshake(new.channel)
     native.backend.stop("old", native.runtime.host_id, old.helper, time.time() + 2)
     assert native.backend.connect("new", new.helper) is new.channel
     assert not new.channel.revoked
     assert native.process.poll() is None
+    native.backend.stop("new", native.runtime.host_id, new.helper, time.time() + 2)
+    wait_dead(native, "new", new.helper)
+    eventually(lambda: not native.backend._sessions)
 
 
 def test_real_watchdog_still_kills_child_when_receipt_writes_fail(native):

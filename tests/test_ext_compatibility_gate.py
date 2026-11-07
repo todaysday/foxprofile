@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+import foxprofile_ext.compatibility as compatibility
 from foxprofile_ext.compatibility import (
     ROOT,
     check_compatibility,
@@ -69,6 +70,40 @@ def test_baseline_route_and_source_contracts(protected_app):
             assert "src.api.dependencies.get_request_principal" in route["dependencies"]
     assert any(entry["classification"] == "public" for entry in routes.values())
     assert any(entry["classification"] == "protected-service" for entry in routes.values())
+
+
+def test_source_contract_gate_parses_each_inventory_file_once(candidate, monkeypatch):
+    parsed = 0
+    original_parse = ast.parse
+
+    def count_parse(*args, **kwargs):
+        nonlocal parsed
+        parsed += 1
+        return original_parse(*args, **kwargs)
+
+    monkeypatch.setattr(compatibility.ast, "parse", count_parse)
+    source_files = [
+        path
+        for package in compatibility.PACKAGES
+        for path in (candidate / package).rglob("*.py")
+        if not {"tests", "e2e", "__pycache__"}.intersection(path.relative_to(candidate).parts)
+        and path.relative_to(candidate).as_posix() != "foxprofile_ext/compatibility.py"
+    ]
+
+    assert check_source_contracts(candidate) == []
+    assert parsed == len(source_files)
+
+    path = candidate / "src/api/routes/unreviewed.py"
+    path.write_text(
+        "from fastapi import APIRouter\nrouter=APIRouter()\n"
+        '@router.get("/unmounted-profile-export")\ndef export_data():\n    return {}\n',
+        encoding="utf-8",
+    )
+    parsed = 0
+    assert check_source_contracts(candidate) == [
+        "unclassified source_routes: src/api/routes/unreviewed.py:export_data:router.get('/unmounted-profile-export')"
+    ]
+    assert parsed == len(source_files) + 1
 
 
 def test_register_records_real_baseline_and_finite_covering_contracts():
@@ -425,6 +460,6 @@ def test_empty_admission_context_cannot_keep_existing_launch_call(candidate):
         "run_id=None,",
     )
     assert (
-        "missing required call: foxprofile_ext/runtime/coordinator.py:RuntimeCoordinator.reserve_and_start -> self.launcher.start_thread"
+        "missing required call: foxprofile_ext/runtime/coordinator.py:RuntimeCoordinator._prepare_and_start -> self.launcher.start_thread"
         in check_source_contracts(candidate)
     )

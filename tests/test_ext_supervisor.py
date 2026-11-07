@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pytest
 
+from foxprofile_ext.dto import ProcessIdentity
+from foxprofile_ext.runtime import supervisor as supervisor_module
 from foxprofile_ext.runtime.processes import RuntimeSupervisor
 from foxprofile_ext.runtime.registry import current_host_id, process_identity
 from foxprofile_ext.runtime.supervisor import _confined_arguments, _runtime_details
@@ -99,6 +101,47 @@ def stop_owned(process, runtime=None, ref=None):
     if process.poll() is None:
         process.terminate()
         process.wait(timeout=8)
+
+
+def test_verified_namespace_reads_one_child_before_parent_proc_snapshot(monkeypatch):
+    reads = {}
+    parents = {30: 20, 20: 10, 10: 1}
+
+    class StatFile:
+        def __init__(self, pid):
+            self.pid = pid
+
+        def read_text(self, encoding):
+            assert encoding == "ascii"
+            reads[self.pid] = reads.get(self.pid, 0) + 1
+            return f"({self.pid}) S {parents[self.pid]} 0 0"
+
+    class Entry:
+        def __init__(self, pid):
+            self.name = str(pid)
+
+        def __truediv__(self, name):
+            assert name == "stat"
+            return StatFile(int(self.name))
+
+    class ProcPath:
+        def __init__(self, path):
+            self.path = str(path)
+
+        def iterdir(self):
+            assert self.path == "/proc"
+            return iter((Entry(30), Entry(20), Entry(10)))
+
+    browser = ProcessIdentity(10, 101)
+    monkeypatch.setattr(supervisor_module, "Path", ProcPath)
+    monkeypatch.setattr(supervisor_module, "process_identity", lambda _pid: browser)
+    monkeypatch.setattr(supervisor_module.os, "readlink", lambda _path: "pid:[1]")
+    monkeypatch.setattr(
+        supervisor_module, "_namespace_of", lambda pid: "pid:[99]" if pid == 30 else "pid:[1]"
+    )
+
+    assert supervisor_module._verified_namespace(browser, "pid:[99]")
+    assert reads == {30: 1, 20: 1, 10: 1}
 
 
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux /proc supervisor protocol")

@@ -71,6 +71,36 @@ def _archive(name, extra=None):
     return output
 
 
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        [],
+        {"name": 123},
+        {"name": "bad-engine", "engine": []},
+        {"name": "bad-os", "os_type": {}},
+    ],
+)
+def test_managed_import_rejects_bad_metadata_before_catalog_operation(
+    tmp_path, monkeypatch, metadata
+):
+    catalog, manager, _, handles, transfer = _services(tmp_path, monkeypatch)
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as zipped:
+        zipped.writestr("profile.json", json.dumps(metadata))
+        zipped.writestr("data/Cookies", "must not extract")
+    archive.seek(0)
+
+    handle_id, profile_id = transfer.stage_import(_principal("alice"), archive)
+    with pytest.raises(DomainError) as error:
+        transfer.import_staged(_principal("alice"), handle_id, profile_id)
+
+    assert error.value.code is ErrorCode.VALIDATION_ERROR
+    assert catalog.operations.pending() == ()
+    assert manager.list_profiles() == []
+    assert not list(transfer.staging_dir.iterdir())
+    assert handles.get_valid(handle_id, "alice", profile_id, time.time()) is None
+
+
 def test_managed_import_is_one_use_actor_bound_and_assigns_fresh_id(tmp_path, monkeypatch):
     catalog, _, assignments, handles, transfer = _services(tmp_path, monkeypatch)
     handle, profile_id = transfer.stage_import(

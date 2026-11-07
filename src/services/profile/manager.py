@@ -322,8 +322,12 @@ class ProfileManager:
         # Decide before extracting: an archive must not write into an existing
         # profile's data unless overwriting, and an overwrite that changes the
         # engine starts from an empty directory (the engines' data do not mix).
-        meta = read_profile_meta(zip_path) or {}
-        name = target_name or meta.get("name")
+        meta = read_profile_meta(zip_path)
+        if meta is None:
+            return False, "Invalid profile archive metadata"
+        name = target_name or meta["name"]
+        if not isinstance(name, str) or not validate_profile_name(name)[0]:
+            return False, "Invalid profile name in archive"
         if target_name is not None and not overwrite:
             return False, "An explicit import target requires overwrite"
         with self._lock:

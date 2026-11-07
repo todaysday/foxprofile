@@ -149,18 +149,27 @@ class ManagedProfileTransfer:
         self, principal: PrincipalDTO, handle_id: str, profile_id: str
     ) -> Iterator[BinaryIO]:
         principal = require_personal(principal)
-        with catalog_lock(self.catalog.lock_path):
-            self._authorized_profile(principal, profile_id)
-            handle = self.handles.consume(handle_id, principal.subject_id, profile_id, time.time())
-            if handle is None:
-                raise DomainError(ErrorCode.FORBIDDEN_OR_NOT_FOUND)
-            path = self._managed_path(handle.server_path)
-            if not path.is_file():
-                raise DomainError(ErrorCode.FORBIDDEN_OR_NOT_FOUND)
-            try:
-                with path.open("rb") as source:
-                    yield source
-            finally:
+        path = None
+        source = None
+        remove_path = False
+        try:
+            with catalog_lock(self.catalog.lock_path):
+                self._authorized_profile(principal, profile_id)
+                handle = self.handles.consume(
+                    handle_id, principal.subject_id, profile_id, time.time()
+                )
+                if handle is None:
+                    raise DomainError(ErrorCode.FORBIDDEN_OR_NOT_FOUND)
+                path = self._managed_path(handle.server_path)
+                if not path.is_file():
+                    raise DomainError(ErrorCode.FORBIDDEN_OR_NOT_FOUND)
+                remove_path = True
+                source = path.open("rb")
+            yield source
+        finally:
+            if source is not None:
+                source.close()
+            if remove_path and path is not None:
                 path.unlink(missing_ok=True)
 
     def _authorized_profile(self, principal: PrincipalDTO, profile_id: str) -> Profile:

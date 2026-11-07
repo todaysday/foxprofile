@@ -48,7 +48,7 @@ Tab closure, network loss, session expiry/timeout, and gateway failure each star
 
 Suggested public manual DTO: `session_id`, `profile_id`, `browser_run_id`, `state`, `websocket_path`, and relevant expiry. Keep `DISPLAY`, Xauthority paths, backend host/ports, process IDs and backend tokens private. A second request cannot retrieve another user's connection authorization just because both users can operate the profile.
 
-Use same-origin cookies by default; a short-lived single-use ticket is an alternative only when the verified transport requires it. Close and revoke on disable/revoke/logout/run end. A new WS connection rechecks authority and run identity. Error text names a busy profile only if the requester already has access to it.
+Use the personal session cookie for same-origin WSS with exact Origin validation. State-changing cookie-authenticated HTTP operations require exact Origin and a live session-bound CSRF token. Close and revoke on disable/revoke/logout/run end. A new WS connection rechecks authority and run identity. Error text names a busy profile only if the requester already has access to it.
 
 There is no `/complete`, help-request ID, agent callback or Pause/Resume endpoint.
 

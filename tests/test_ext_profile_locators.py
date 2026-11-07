@@ -3,6 +3,7 @@
 import pytest
 
 from foxprofile_ext.errors import DomainError, ErrorCode
+from foxprofile_ext.locking import catalog_lock
 from tests.test_ext_access import access as access
 from tests.test_ext_api_access import _login, _mutation_headers
 from tests.test_ext_api_access import real_api as real_api
@@ -23,6 +24,34 @@ def test_canonical_locator_follows_rename_and_deduplicates_legacy_aliases(access
     results = app.start_profiles(actor, (locator, original.profile_id, "Renamed"))
     assert [result.profile_id for result in results] == [original.profile_id]
     assert access["coordinator"].calls[0][1] == (resolved,)
+
+
+def test_batch_profile_resolution_reloads_catalog_once(access, monkeypatch):
+    app = access["app"]
+    actor = access["user_a"]
+    profiles = (
+        app.resolve_profile(actor, "Profile A"),
+        app.create_profile(actor, name="Second profile"),
+        app.create_profile(actor, name="Third profile"),
+    )
+    manager = app._catalog.manager
+    reload_profiles = manager.reload_profiles
+    reload_count = 0
+
+    def count_reload():
+        nonlocal reload_count
+        reload_count += 1
+        reload_profiles()
+
+    monkeypatch.setattr(manager, "reload_profiles", count_reload)
+    identifiers = (profiles[0].profile_id, profiles[1].name, profiles[2].profile_id)
+    with catalog_lock(app._catalog.lock_path):
+        resolved = app._resolve_profiles_locked(actor, identifiers)
+
+    assert reload_count == 1
+    assert tuple(ref.profile_id for ref in resolved) == tuple(
+        profile.profile_id for profile in profiles
+    )
 
 
 @pytest.mark.parametrize("operation", ["perform", "start", "stop", "control", "delete"])

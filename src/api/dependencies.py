@@ -46,16 +46,13 @@ def domain_http_error(error: DomainError) -> HTTPException:
     return HTTPException(status_code=status, detail=detail)
 
 
-def _has_service_credential(request: Request) -> bool:
-    authorization = request.headers.get("Authorization", "")
-    return authorization.lower().startswith("bearer ") or "X-API-Key" in request.headers
-
-
-def _service_token(request: Request) -> str:
+def _service_token(request: Request) -> str | None:
     authorization = request.headers.get("Authorization", "")
     if authorization.lower().startswith("bearer "):
         return authorization[7:].strip()
-    return request.headers.get("X-API-Key", "").strip()
+    if "X-API-Key" in request.headers:
+        return request.headers["X-API-Key"].strip()
+    return None
 
 
 def _request_origin(request: Request) -> str:
@@ -89,8 +86,8 @@ def get_request_principal(request: Request) -> PrincipalDTO:
     container = _container(request)
     protected = container.protected_application
     try:
-        if _has_service_credential(request):
-            token = _service_token(request)
+        token = _service_token(request)
+        if token is not None:
             if not auth.API_TOKEN or not hmac.compare_digest(token, auth.API_TOKEN):
                 raise HTTPException(
                     status_code=401,

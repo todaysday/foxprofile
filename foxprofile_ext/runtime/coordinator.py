@@ -9,7 +9,7 @@ from collections.abc import Callable, Sequence
 from src.models.profile import Profile
 
 from ..capacity import CapacityService
-from ..dto import PrincipalDTO, ProfileRefDTO
+from ..dto import BrowserRunRefDTO, PrincipalDTO, ProfileRefDTO
 from ..errors import DomainError, ErrorCode
 from ..locking import catalog_lock
 from ..run_contracts import RunLaunchResult, RunStatusResult
@@ -74,32 +74,17 @@ class RuntimeCoordinator:
                 refs.append(current_ref)
             admission = self.capacity.reserve(current_actor, refs, self.host_id)
             new_ids = {ref.profile_id: ref.run_id for ref in admission.newly_reserved}
-            for ref in admission.newly_reserved:
-                profile = current_profiles[ref.profile_id]
-                try:
-                    started = self.launcher.start_thread(
-                        profile,
-                        lambda _message: None,
-                        on_ready=lambda item=ref: self.ledger.mark_running(item),
-                        on_stop=lambda item=ref: self._launch_stopped(item),
-                        run_id=ref.run_id,
-                        profile_id=ref.profile_id,
-                    )
-                    if not started:
-                        self.ledger.cancel_unclaimed(ref)
-                except Exception:
-                    self.ledger.cancel_unclaimed(ref)
-                    record = self.ledger.get(ref)
-                    if record is not None and record.status in {
-                        RunStatus.STARTING,
-                        RunStatus.RUNNING,
-                    }:
-                        self.runtime.request_stop(ref.profile_id, ref.run_id, 1.0)
+            profile_names = {ref.profile_id: ref.name for ref in refs}
+
+        for ref in admission.newly_reserved:
+            self._prepare_and_start(
+                principal, current_profiles[ref.profile_id], ref, profile_names[ref.profile_id]
+            )
 
         deadline = time.monotonic() + float(timeout)
         results: list[RunLaunchResult] = []
         for run in admission.runs:
-            ref = ProfileRefDTO(run.ref.profile_id, current_profiles[run.ref.profile_id].name)
+            ref = ProfileRefDTO(run.ref.profile_id, profile_names[run.ref.profile_id])
             state = _launch_state(run.status)
             error_code = None
             if ref.profile_id in new_ids:
@@ -108,17 +93,14 @@ class RuntimeCoordinator:
                     state = _launch_state(record.status)
                 if wait and state == "starting":
                     remaining = max(0.0, deadline - time.monotonic())
-                    ok, error = self.launcher.wait_for_launch(ref.name, remaining)
+                    ok, error = self.launcher.wait_for_launch(ref.name, remaining, run.ref.run_id)
                     record = self.ledger.get(run.ref)
-                    if ok:
-                        if record is not None and record.status is RunStatus.STARTING:
-                            self.ledger.mark_running(run.ref)
-                        state = "running"
-                    elif error != "timeout":
-                        state = "failed"
+                    if ok and record is not None and record.status is RunStatus.STARTING:
+                        self.ledger.mark_running(run.ref)
+                        record = self.ledger.get(run.ref)
+                    state = _launch_state(record.status) if record is not None else "failed"
+                    if state == "failed" or (not ok and error != "timeout"):
                         error_code = "LAUNCH_FAILED"
-                    else:
-                        state = "starting"
                 elif state == "failed":
                     state = "failed"
                     error_code = "LAUNCH_FAILED"
@@ -132,6 +114,59 @@ class RuntimeCoordinator:
                 )
             )
         return tuple(results)
+
+    def _prepare_and_start(
+        self, principal: PrincipalDTO, profile: Profile, ref: BrowserRunRefDTO, expected_name: str
+    ) -> None:
+        try:
+            self.runtime.prepare_browser(profile, ref.profile_id, ref.run_id)
+        except Exception:
+            self.ledger.cancel_unclaimed(ref)
+            self.runtime.discard_prepared(ref)
+            return
+
+        with catalog_lock(self.lock_path):
+            try:
+                current_profile = self.profile_by_id(ref.profile_id)
+                if (
+                    current_profile.profile_id != ref.profile_id
+                    or current_profile.name != expected_name
+                ):
+                    raise DomainError(ErrorCode.FORBIDDEN_OR_NOT_FOUND)
+                current_ref = ProfileRefDTO(current_profile.profile_id, current_profile.name)
+                self.authorize(principal, current_ref)
+            except DomainError:
+                self.ledger.cancel_unclaimed(ref)
+                self.runtime.discard_prepared(ref)
+                return
+
+            run = self.ledger.get(ref)
+            if run is None or run.host_id != self.host_id or run.status is not RunStatus.RESERVED:
+                self.ledger.cancel_unclaimed(ref)
+                self.runtime.discard_prepared(ref)
+                return
+
+            try:
+                started = self.launcher.start_thread(
+                    current_profile,
+                    lambda _message: None,
+                    on_ready=lambda: self.ledger.mark_running(ref),
+                    on_stop=lambda: self._launch_stopped(ref),
+                    run_id=ref.run_id,
+                    profile_id=ref.profile_id,
+                )
+                if not started:
+                    self.ledger.cancel_unclaimed(ref)
+            except Exception:
+                self.ledger.cancel_unclaimed(ref)
+                record = self.ledger.get(ref)
+                if record is not None and record.status in {
+                    RunStatus.STARTING,
+                    RunStatus.RUNNING,
+                }:
+                    self.runtime.request_stop(ref.profile_id, ref.run_id, 1.0)
+            finally:
+                self.runtime.discard_prepared(ref)
 
     def _launch_stopped(self, ref) -> None:
         if not self.ledger.cancel_unclaimed(ref):
@@ -162,10 +197,11 @@ class RuntimeCoordinator:
         params: dict[str, object] | None = None,
     ) -> object:
         with catalog_lock(self.lock_path):
-            current, run = self._current_run(principal, profile)
+            _, run = self._current_run(principal, profile)
             if run is None:
                 raise DomainError(ErrorCode.STALE_BROWSER_RUN)
-            return self.runtime.control(run.ref.profile_id, run.ref.run_id, action, params)
+            ref = run.ref
+        return self.runtime.control(ref.profile_id, ref.run_id, action, params)
 
     def shutdown(self, *, timeout: float = 30.0) -> None:
         self.runtime.shutdown(timeout)

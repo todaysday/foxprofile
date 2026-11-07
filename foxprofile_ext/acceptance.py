@@ -221,6 +221,7 @@ def smoke(fixture: dict, expected_id: str, base_url: str, secrets: dict[str, str
             for name in ("admin0", "A", "B", "service")
         }
         csrf = {}
+        cleanup_failures = []
         try:
             for name in ("admin0", "A", "B"):
                 key = "admin0_password" if name == "admin0" else f"{name.lower()}_password"
@@ -313,9 +314,17 @@ def smoke(fixture: dict, expected_id: str, base_url: str, secrets: dict[str, str
             passed.append("administrator saved capacity read")
         finally:
             for name, token in csrf.items():
-                clients[name].post(
-                    "/api/v1/ext/auth/logout", headers={"Origin": origin, "X-CSRF-Token": token}
-                )
+                try:
+                    response = clients[name].post(
+                        "/api/v1/ext/auth/logout",
+                        headers={"Origin": origin, "X-CSRF-Token": token},
+                    )
+                except httpx.HTTPError:
+                    cleanup_failures.append(f"{name} transport error")
+                else:
+                    if not 200 <= response.status_code < 300:
+                        cleanup_failures.append(f"{name} HTTP {response.status_code}")
+    _expect(not cleanup_failures, f"logout cleanup ({', '.join(cleanup_failures)})")
     return passed
 
 

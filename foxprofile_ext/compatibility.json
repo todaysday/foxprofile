@@ -5,7 +5,7 @@
     "version": "2.4.0"
   },
   "candidate": {
-    "commit": "0710c0bca98e91375fb7117ea33cc87e867e3afd",
+    "commit": "a37cd813606dfdb4accaeb27fd35aa29e769bf20",
     "status": "locked",
     "note": "Immutable runtime-source checkpoint after system-shell, private-cache, control-header and manual-status corrections. Definitive non-browser regression, installed artifacts and bounded real x86 checks passed. Later evidence metadata does not change this Python/JavaScript source. Full two-host acceptance remains incomplete."
   },
@@ -44,7 +44,7 @@
       },
       {
         "command": "pytest -q -rs -m 'not browser' --maxfail=5",
-        "result": "1113 passed, 24 deselected, 3 warnings, 385.45 seconds; no failures or skips. Pristine archive 0710c0bca98e91375fb7117ea33cc87e867e3afd; Python 3.12.3; native X and isolated Chromium enabled; trusted resolver mount namespace; DAC override/read-search capabilities dropped. All 402 archive blobs unchanged. Log SHA-256 35202734fc91f91b528501b7a395add344173940a2969cdd623e33a82a86b4e4. Offline evidence does not establish full live acceptance."
+        "result": "1113 passed, 24 deselected, 3 warnings, 385.45 seconds; no failures or skips. Pristine archive a37cd813606dfdb4accaeb27fd35aa29e769bf20; Python 3.12.3; native X and isolated Chromium enabled; trusted resolver mount namespace; DAC override/read-search capabilities dropped. All 402 archive blobs unchanged. Log SHA-256 35202734fc91f91b528501b7a395add344173940a2969cdd623e33a82a86b4e4. Offline evidence does not establish full live acceptance."
       }
     ],
     "artifact_sha256": {
@@ -4338,9 +4338,9 @@
     "dependency_report": "deploy/extension/dependencies-tested-py312-linux.txt",
     "dependency_report_sha256": "56a45b7ce21c1a2cce32067d4b408e2ca394dd19e81f7bd675cd68877ed74127",
     "dependency_report_scope": "Observed Linux Python 3.12.14 development/test environment; pip freeze --all includes test/build tools, no private URLs/paths, not a production-only artifact lock. Matching dependency wheels/image remain separate release inputs.",
-    "final_packaged_release_revision": "0710c0bca98e91375fb7117ea33cc87e867e3afd; immutable runtime-source test candidate; later evidence metadata is separate",
-    "final_distribution_sha256": "Exact 0710c0b only: wheel 9a26bbd644b03f2200f587b3023c30620bd8cbac9df4732ce617a5d5c7e7ca48; sdist e9d2fd4385d38cf55aca301a6bdaf96b3c2834f477f76b780d6b6a8e55caefd4. Later rebuilt artifacts require their own digests.",
-    "definitive_full_regression": "0710c0b:1113 passed,24 actual Chromium-engine cases deselected,3 warnings,no failures or skips; completion.review records command and log digest",
-    "post_lock_verification": "225 installed runtime files byte-verified; installed source and assembled-route gate passed for 0710c0b; later register/distribution gate:29 passed in24.87seconds, including complete rebuilt wheel/sdist payloads. Later artifacts are separate from0710c0b hashes."
+    "final_packaged_release_revision": "a37cd813606dfdb4accaeb27fd35aa29e769bf20; immutable runtime-source test candidate; later evidence metadata is separate",
+    "final_distribution_sha256": "Exact public a37cd81 runtime-source rebuild: wheel 9a26bbd644b03f2200f587b3023c30620bd8cbac9df4732ce617a5d5c7e7ca48; sdist 04cbda78f45550973ee9a08788beca85d3cbd8b25a447d8ab6659ad524b02ab1. All wheel bytes and sdist file contents match the original tested input; author metadata alone was normalized before publication. Later rebuilt artifacts require their own digests.",
+    "definitive_full_regression": "a37cd81:1113 passed,24 actual Chromium-engine cases deselected,3 warnings,no failures or skips; completion.review records command and log digest",
+    "post_lock_verification": "225 installed runtime files byte-verified; installed source and assembled-route gate passed for a37cd81; later register/distribution gate:29 passed in24.87seconds, including complete rebuilt wheel/sdist payloads. Later artifacts are separate froma37cd81 hashes."
   }
 }

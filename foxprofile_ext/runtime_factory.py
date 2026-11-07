@@ -89,6 +89,7 @@ def build_run_coordinator(
         Path(item)
         for item in (
             "/usr",
+            "/bin",
             "/lib",
             "/lib64",
             "/etc/fonts",

@@ -49,7 +49,7 @@ Run everything from the repo root: `profiles.json`, `camoufox_data/`, `logs/` an
 
 **MCP is a REST client.** `src/mcp_server/server.py` defines the tools with FastMCP and calls the REST API over HTTP. The same tools are also served over Streamable HTTP at `/mcp` (`api/mcp_http.py`), calling back into the API through `self_url` on loopback. A new capability therefore usually needs a REST route first, then an MCP tool. MCP deliberately has no delete tool.
 
-**Auth.** `FOXPROFILE_API_TOKEN` protects the REST routers, the web panel and `/mcp` (`/health` and `/info` stay public). `check_bind_safety` refuses to start on a non-loopback host without a 24+ character token. Without a token, `LocalOnlyGuard` blocks CSRF/DNS-rebinding requests from websites.
+**Auth.** `FOXPROFILE_API_TOKEN` protects the REST routers, the web panel and `/mcp` (`/api/v1/health` and `/api/v1/info` stay public). `check_bind_safety` refuses to start on a non-loopback host without a 24+ character token. Without a token, `LocalOnlyGuard` blocks CSRF/DNS-rebinding requests from websites.
 
 **Config** is read from `FOXPROFILE_*` env vars (and `.env`) at import time in `src/core/config.py`. Anything that must change it, like server mode defaulting `FOXPROFILE_HEADLESS=true`, has to set the env var before `src.core.config` is imported; runner subprocesses inherit it through the environment.
 

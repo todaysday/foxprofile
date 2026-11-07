@@ -5,9 +5,9 @@
     "version": "2.4.0"
   },
   "candidate": {
-    "commit": "2e42a93e0b4441511ec4516941cc0217cc31a898",
-    "status": "locked",
-    "note": "Immutable fork-review source checkpoint. Its pristine Git archive passed 1110 offline tests with native X and isolated Chromium enabled; 24 actual engine browser cases were deselected. The following audit-metadata commit does not change tested Python source. Prior d20bf66 distribution digests remain historical; new deployment artifacts require separate release preparation."
+    "commit": "33a6c2eb71b7b2733ccefde50474987611d70191",
+    "status": "uncommitted-draft",
+    "note": "Previous reviewed artifact checkpoint. A subsequent default-runtime /bin mount correction and pinned fpgen installation prerequisite are under x86 staging verification; this metadata is not an accepted replacement release. Exact committed test candidates and outcomes are recorded in completion.review and private release receipts."
   },
   "schema": {
     "version": 5,

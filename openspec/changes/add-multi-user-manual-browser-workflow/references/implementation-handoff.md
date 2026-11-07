@@ -1,6 +1,6 @@
 # Implementation handoff
 
-**Updated:** 2026-11-07. **Scope:** implementation slices 1–8; separate deployment agent owns [slice 09](../slices/09-live-deployment-and-acceptance.md). **Release status: slices 1–8 complete; offline verification, immutable artifact lock, independent review and separate deployment-agent handoff accepted.** No real server has been deployed, migrated or accepted by this work. Both target hosts/access are unresolved; all live A/N/S/X cases and resource measurements remain **NOT RUN**.
+**Updated:** 2026-11-07. **Scope:** implementation slices 1–8; separate deployment agent owns [slice 09](../slices/09-live-deployment-and-acceptance.md). **Release status: slices 1–8 complete; offline verification, immutable artifact lock, independent review and separate deployment-agent handoff accepted.** No real server has been deployed, migrated or accepted by this work. Targets are now selected. Private x86-64 preflight and bounded disposable staging have started; ARM64 follows after x86-64. Full A/N/S/X live acceptance and resource measurements remain incomplete; no broad PASS is established.
 
 This is the canonical implementation evidence and handoff record. [tasks.md](../tasks.md) tracks completion; [acceptance-plan.md](acceptance-plan.md) retains the acceptance inventory and live result cells. [VALIDATION.md](../../../../VALIDATION.md) records document checks, not product acceptance. Do not create a second implementation ledger or archive this change before slice 09 closes its required cases.
 

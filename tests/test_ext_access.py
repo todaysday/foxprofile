@@ -633,7 +633,8 @@ def test_default_container_runs_confined_stub_and_reports_status_without_browser
     monkeypatch.setenv("FOXPROFILE_EXT_DB", str(tmp_path / "extension.sqlite3"))
     monkeypatch.setattr(runtime_factory, "_installed_executable", lambda _engine: None)
     script = (
-        "import time, json, os; import src.models.profile; import foxprofile_ext.request_context; "
+        "import time, json, os, subprocess; import src.models.profile; import foxprofile_ext.request_context; "
+        "subprocess.run(['/bin/sh', '-c', 'true'], check=True); "
         "print('RUNTIME:' + json.dumps({'display': None, 'xauthority_path': None, "
         "'tmp_path': '/tmp', 'namespace': os.readlink('/proc/self/ns/pid')}), flush=True); "
         "print('CONTROL:9001:stub-control-token', flush=True); "

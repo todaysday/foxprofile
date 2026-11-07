@@ -1,8 +1,9 @@
 # Bàn giao triển khai protected extension
 
-Đây là bàn giao offline slice 8.3. **Cả hai host thật: BLOCKED; slice 09: NOT RUN.**
-Chưa có địa chỉ host, quyền truy cập hoặc topology thực tế. Test synthetic và
-fixture native tại máy local không xác nhận acceptance ARM64/x86-64. Deployment
+Đây là bàn giao offline slice 8.3. **Slice 09 vẫn chưa hoàn tất.**
+Đã chọn target; preflight private và staging dùng một lần trên x86-64 đã bắt đầu.
+Theo yêu cầu, ARM64 chỉ thực hiện sau giai đoạn x86-64. Test synthetic và fixture
+native tại máy local không xác nhận live acceptance của hai host. Deployment
 agent riêng thực hiện [slice 09](../openspec/changes/add-multi-user-manual-browser-workflow/slices/09-live-deployment-and-acceptance.md),
 ghi từng case live và số đo tài nguyên. [DEPLOY.md](DEPLOY.md) giữ nguyên cho
 upstream. [English](EXTENSION_DEPLOY.md).
@@ -28,6 +29,29 @@ desktop manager trên cùng installation. Capacity mặc định 10; giữ giá 
 khảo sát. Điền bản riêng của `target.json.example` cho từng host; giải quyết mọi
 `UNRESOLVED`, `LOCKED_COMMIT`, `REPLACE_...`, owner, đường dẫn, TLS, namespace và
 resource policy trước khi dùng.
+
+## Model fingerprint cho dependency chỉ đọc
+
+Environment Camoufox 0.5.9 đã khóa cần model trong
+`camoufox/fpgen-model.json` trước khi mount dependency chỉ đọc. `camoufox fetch`
+chuẩn bị cả browser và model đã khóa. Nếu đã có browser được xác minh, chỉ chuẩn
+bị model bằng environment đã khóa:
+
+```bash
+env -u FPGEN_MODEL_URL python -c 'from camoufox.fpgen_model import ensure_fpgen_model; ensure_fpgen_model()'
+```
+
+Đây là download upstream tường minh khi cài đặt, không cho browser quyền ghi vào
+dependency. Input được chọn: `scrapfly/fingerprint-generator`, tag `model-2/2026`,
+`model-release.zip`, SHA-256 archive
+`6530b8322cdaa4ec042921c8d9a0369a0e6e0269ba636c01a7203e4a2f109936`.
+Helper kiểm tra archive và từng file theo manifest của package; giữ manifest và
+model đã xác minh trong input triển khai private. Kiểm tra service UID đọc được
+model rồi giữ dependency mount chỉ đọc. Không preload bằng `import fpgen` vì
+bootstrap riêng của nó chọn model khác chưa được xác minh. Không đặt
+`FPGEN_MODEL_URL`, tắt TLS verification hoặc cho dependency trong confinement quyền
+ghi để bỏ qua prerequisite. Repo không bundle model thô và không tuyên bố license
+riêng cho dataset ngoài metadata package/project upstream.
 
 ## Cấu hình và native dependency
 
@@ -167,7 +191,7 @@ installation dừng, rồi chỉ chạy locked protected release với environme
 Kiểm tra unit đã điền bằng `systemd-analyze verify`, nginx đã điền bằng `nginx -t`.
 Phải giải quyết placeholder, certificate/user/executable còn thiếu; parse template
 không xác nhận host. Chạy staging riêng, kiểm tra `curl --fail
-http://127.0.0.1:8000/health` và `/info` public qua loopback. Sau đó kiểm tra
+http://127.0.0.1:8000/api/v1/health` và `/api/v1/info` public qua loopback. Sau đó kiểm tra
 login/session, từ chối route protected khi chưa login, assignment filtering,
 service separation, capacity đã lưu. Health public không chứng minh auth. Request
 auth dùng secret manager hoặc header file private; không dùng token trong argument

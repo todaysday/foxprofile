@@ -90,7 +90,7 @@ pip install -r requirements.txt
 python -m camoufox fetch
 ```
 
-`camoufox fetch` tải bản trình duyệt Camoufox (vài trăm MB) từ GitHub của dự án Camoufox. Lần mở profile đầu tiên sẽ tải thêm cơ sở dữ liệu GeoIP (~50 MB).
+`camoufox fetch` tải browser Camoufox và model fingerprint fpgen được khóa checksum từ GitHub release upstream tương ứng. Chuẩn bị cả hai trước khi protected runtime mount dependency ở chế độ chỉ đọc. Lần mở profile đầu tiên tải thêm cơ sở dữ liệu GeoIP.
 
 Chạy ứng dụng:
 

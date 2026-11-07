@@ -262,3 +262,23 @@
 - No task-owned MCP service was started manually. Available Codebase Memory MCP tools expose no close operation; unknown/shared MCP services and persistent browsers were preserved. Test fixture subprocesses use normal teardown; no broad process termination was used.
 
 - Final metadata/package gate after pinning the reviewed source: **29 passed** (`test_ext_compatibility_gate.py` and `test_ext_packaging.py`), including rebuilt wheel/sdist installed-payload checks. Ruff passed across 215 Python files, strict OpenSpec validation passed, all 51 manifest entries verified and whitespace checks passed. This metadata-only audit commit leaves the fully tested Python source unchanged.
+
+### x86 staging documentation correction
+
+- The separate deployment agent observed HTTP 404 for the documented bare `/health` and `/info` paths; actual public `/api/v1/health` and `/api/v1/info` returned 200. Independent source inspection confirms `API_PREFIX = "/api/v1"` and both public decorators in `src/api/app.py`.
+- Corrected the English/Vietnamese deployment guide and the matching CLAUDE.md auth description. Runtime routing and authentication are unchanged. Graph discovery was attempted but its transport was closed; exact source/config reads supplied the evidence. This is a documentation correction, not full live acceptance.
+
+### x86 cold-runtime dependency finding
+
+- Actual disposable x86 launch failed before Xvfb/Camoufox readiness because fpgen tried to install model data into its read-only site-packages directory. The exact diagnostic generation was confirmed closed and task-owned listeners/processes were stopped before retry; no failed launch is reported as acceptance.
+- A diagnostic dotted `find_spec` imported fpgen's parent package and triggered its supported model bootstrap in the task-owned release venv. This download was an unintended effect of introspection, not a previously declared pristine dependency input. Three model assets appeared; they were preserved for provenance/integrity checks rather than silently deleted or treated as wheel payload.
+- Parent independently compared 5,562 original installed payload files against all 92 retained wheels: zero missing or modified files, with two installer-transformed scripts excluded. Only the three additional model assets were observed. Their exact sizes and SHA-256 are retained in the private integrity receipt. The venv is now explicitly model-preloaded and must not be described as pristine. Source/runtime guards remain unchanged; provenance, pinning and a fresh actual x86 smoke follow before closing this issue.
+
+- Provenance correction: the accidentally fetched raw-fpgen assets are NOT the Camoufox-pinned model and are not accepted runtime inputs. Static package inspection found that Camoufox verifies its `fpgen-model.json` pin before loading fpgen; the raw package import follows a different, unverified bootstrap path. Correct preparation must use Camoufox's pinned installer with model-URL overrides absent, quarantine the wrong assets, verify all expected member hashes and retain read-only confinement. No browser acceptance was established using the wrong assets.
+
+### Default runtime system-shell correction
+
+- x86 staging passed pinned fingerprint generation but Xvfb failed before display readiness; the upstream Camoufox error formatter masked the cause by dereferencing a cleared process object. That dependency diagnostic defect is tracked separately; no local compatibility shim was added.
+- Independent native default-composition regression now runs `/bin/sh` before readiness inside the existing confined stub. The prior immutable factory reproduced `FileNotFoundError: /bin/sh`: mounting `/usr` alone does not create the merged-system `/bin` alias. Native-X fixtures had explicitly included `/bin`, so their earlier green result did not cover the default factory's omission.
+- Minimal production correction: add fixed read-only `/bin` to the approved system asset list. No caller-controlled mount, broad host root, writable dependency mount or authorization change was introduced. Corrected trusted `/opt` snapshot: default-container shell regression plus confinement/supervisor batch **30 passed**. Harness-only `/srv` and stale-copy attempts are not accepted as before/after proof.
+- Code Simplifier applied to this one-line factory correction, the existing meaningful regression and the bilingual health/model-preparation documentation. No extra abstraction or speculative configurability warranted. Real Camoufox staging revalidation and final integrated candidate checks remain pending; no HTTP-200 or fixture result is promoted to live acceptance.

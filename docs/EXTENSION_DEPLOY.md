@@ -1,8 +1,9 @@
 # Protected extension deployment handoff
 
-This is the offline slice 8.3 handoff. **Both real hosts: BLOCKED; slice 09: NOT RUN.**
-Host addresses, access and actual topology have not been supplied. Synthetic tests
-and local native fixtures do not establish ARM64 or x86-64 host acceptance. A
+This is the offline slice 8.3 handoff. **Slice 09 remains incomplete.**
+Targets are selected; private x86-64 preflight and disposable staging have begun.
+ARM64 follows only after the x86-64 phase, as requested by the user. Synthetic
+tests and local native fixtures do not establish either host's live acceptance. A
 separate deployment agent executes [slice 09](../openspec/changes/add-multi-user-manual-browser-workflow/slices/09-live-deployment-and-acceptance.md)
 and records every required live case and resource measurement. Keep existing
 [DEPLOY.md](DEPLOY.md) for the upstream deployment; protected mode uses this handoff.
@@ -32,6 +33,30 @@ discovered service definitions**. Copy `target.json.example` into a private
 operator directory; resolve every `UNRESOLVED` field for each host. Replace all
 `LOCKED_COMMIT`/`REPLACE_...` placeholders and resolve owners, actual data paths,
 TLS, service/container topology, namespace and resource policy before use.
+
+## Read-only fingerprint model prerequisite
+
+The locked Camoufox 0.5.9 environment needs the model pinned by its installed
+`camoufox/fpgen-model.json` before dependency directories become read-only.
+`camoufox fetch` prepares both browser and pinned model. When a verified browser
+is already installed, prepare only the model with the locked environment:
+
+```bash
+env -u FPGEN_MODEL_URL python -c 'from camoufox.fpgen_model import ensure_fpgen_model; ensure_fpgen_model()'
+```
+
+This is an explicit upstream download during installation, not browser-time
+permission to write dependencies. The selected input is
+`scrapfly/fingerprint-generator`, tag `model-2/2026`, `model-release.zip`, archive
+SHA-256 `6530b8322cdaa4ec042921c8d9a0369a0e6e0269ba636c01a7203e4a2f109936`.
+The helper verifies the archive and each member against its package manifest;
+retain that manifest and the verified model files as private deployment inputs.
+Verify the service UID can read them, then retain read-only dependency mounts.
+Do not preload through bare `import fpgen`: its separate bootstrap selects a
+different unverified model. Do not set `FPGEN_MODEL_URL`, disable TLS verification,
+or make the confined dependency environment writable to bypass this prerequisite.
+Raw model data is not bundled in this repository; no separate dataset-license
+claim is made beyond the upstream package/project metadata.
 
 ## Configuration and native prerequisites
 
@@ -191,7 +216,7 @@ Syntax-check the resolved service file with `systemd-analyze verify` and the
 resolved nginx configuration with `nginx -t`. Placeholders, absent certificates,
 service users or executable paths must be resolved; template parsing is not host
 validation. Start a separate staging instance and check `curl --fail
-http://127.0.0.1:8000/health` and `/info` without credentials (public, loopback).
+http://127.0.0.1:8000/api/v1/health` and `/api/v1/info` without credentials (public, loopback).
 Then check login/session flow, unauthenticated protected-route denial, assignment
 filtering, service separation and saved capacity. Public health alone does not
 prove authorization. Use a secret-manager client or a private request-header

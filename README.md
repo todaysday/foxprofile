@@ -90,7 +90,7 @@ pip install -r requirements.txt
 python -m camoufox fetch
 ```
 
-`camoufox fetch` downloads the Camoufox browser (a few hundred MB) from the Camoufox GitHub releases. The first profile launch also downloads a GeoIP database (~50 MB).
+`camoufox fetch` downloads the Camoufox browser and the checksum-pinned fpgen fingerprint model from their upstream GitHub releases. Prepare both before protected runtimes mount dependencies read-only. The first profile launch also downloads the GeoIP database.
 
 Run the app:
 

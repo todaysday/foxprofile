@@ -4,7 +4,7 @@
 
 - [x] Complete implementation and offline verification slices 1–8. Immutable candidate `d20bf661a7fff42211dff0d62fe21c88746393e5`: 1049 passed, 24 browser tests deselected; release artifacts and installed distributions verified.
 - [x] Hand off to a separate deployment agent. IND901 accepted the verified offline delivery; independent UI correction review passed six Chromium cases.
-- [ ] Complete slice 9 on the actual ARM64/x86-64 hosts. Host identities/access, installation paths/revisions, native/browser pins, namespace/TLS configuration and staging resources remain unspecified; live acceptance is BLOCKED/NOT RUN.
+- [ ] Complete slice 9 on the selected ARM64/x86-64 hosts, in user-selected order: x86-64 first, then ARM64. Private x86 preflight and disposable staging started; initial browser attempts failed before readiness. Correct pinned fingerprint-model preload and full live acceptance remain pending. Keep actual host/access/configuration details outside Git.
 - [ ] Keep live acceptance open and do not archive this change until required acceptance is complete.
 - [x] Finish compatibility/startup gates, protected gateway composition, web/Flet integration, distribution verification and the offline deployment handoff.
 - [x] Verify CI dependency installation and separate Linux native contracts from portable checks. Fresh-environment categories passed (163 passed, 18 opt-in skips); the native selection passed 89 without skips. Windows/macOS and Python 3.10 execution remains unverified locally.
@@ -40,3 +40,8 @@
 - [ ] Measure the retained single authorized fingerprint-stat scan per 120 ms desktop poll on the intended catalog sizes before selecting any further optimization; a lighter snapshot must preserve session, assignment and lifecycle reconciliation.
 - [ ] Verify resolver-file ownership and modes during deployment preflight: the confinement contract accepts only root/service-owned resolver files without group/other write permission. Local namespace-fixture success does not establish that a target's resolver satisfies this contract.
 - [ ] Before a future deployment, refresh retained distribution artifacts and the deployment handoff for the reviewed revision; the earlier d20bf66 artifact hashes remain historical and must not be assigned to the revised source.
+
+- [x] Correct health-check URLs in both deployment guides and CLAUDE.md to `/api/v1/health` and `/api/v1/info`; actual x86 staging responses and source route decorators confirm the prefix.
+- [ ] Pin and preload the supported fpgen model assets before protected browser launch; the first real x86 attempt exposed a model installation into the intentionally read-only dependency environment. Preserve read-only confinement and verify a real disposable launch after preload.
+- [x] Expose the fixed `/bin` system alias in default protected runtime composition; native default-container regression reproduces missing `/bin/sh` before the fix and passes afterward. Real Camoufox x86 revalidation is still required.
+- [ ] During the next pinned Camoufox dependency review, verify upstream VirtualDisplay startup-error formatting: Xvfb failure currently becomes an AttributeError after the process reference is cleared. Keep underlying operator diagnostics private; do not add a compatibility shim to the application.

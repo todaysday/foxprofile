@@ -58,6 +58,11 @@ or make the confined dependency environment writable to bypass this prerequisite
 Raw model data is not bundled in this repository; no separate dataset-license
 claim is made beyond the upstream package/project metadata.
 
+Runs use a private writable XDG cache under their own temporary directory. Only
+the prepared GeoIP leaf is mounted there read-only; generated fontconfig stays
+private to the run. The shared host cache and dependency environment remain
+read-only to browsers and helpers.
+
 ## Configuration and native prerequisites
 
 Install private `runtime.env` and `secrets.env` from the templates, mode 0600,

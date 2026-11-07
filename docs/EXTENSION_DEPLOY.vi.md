@@ -53,6 +53,10 @@ bootstrap riêng của nó chọn model khác chưa được xác minh. Không �
 ghi để bỏ qua prerequisite. Repo không bundle model thô và không tuyên bố license
 riêng cho dataset ngoài metadata package/project upstream.
 
+Run dùng XDG cache có quyền ghi trong thư mục tạm riêng. Chỉ GeoIP leaf đã chuẩn
+bị được mount chỉ đọc vào đó; fontconfig sinh ra thuộc riêng run. Browser/helper
+vẫn không có quyền ghi vào cache host dùng chung hay environment dependency.
+
 ## Cấu hình và native dependency
 
 Tạo `runtime.env`, `secrets.env` private từ template: thư mục 0700, file 0600,

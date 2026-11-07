@@ -5,9 +5,9 @@
     "version": "2.4.0"
   },
   "candidate": {
-    "commit": "33a6c2eb71b7b2733ccefde50474987611d70191",
+    "commit": "4a4b7044b254c97a2d66258c82018a0a2002b266",
     "status": "uncommitted-draft",
-    "note": "Previous reviewed artifact checkpoint. A subsequent default-runtime /bin mount correction and pinned fpgen installation prerequisite are under x86 staging verification; this metadata is not an accepted replacement release. Exact committed test candidates and outcomes are recorded in completion.review and private release receipts."
+    "note": "Previous immutable x86 test candidate. The subsequent private-XDG/readonly-GeoIP mapping correction passed scoped native isolation checks and independent review; real Camoufox and final integrated validation remain pending. Exact test commits and outcomes are recorded in completion.review and private release receipts."
   },
   "schema": {
     "version": 5,

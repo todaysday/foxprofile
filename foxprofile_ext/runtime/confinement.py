@@ -291,6 +291,19 @@ def build_confined_command(
 
     profile, private_tmp, code_root, runtime_paths, purpose = _validate_spec(spec)
     executable = _validate_command(command, runtime_paths, code_root)
+    cache = None
+    cache_root = Path(_TEMP_ROOT) / ".cache"
+    cache_home = (settings or {}).get("XDG_CACHE_HOME")
+    if cache_home is not None:
+        if (
+            not isinstance(cache_home, str)
+            or "\x00" in cache_home
+            or not Path(cache_home).is_absolute()
+        ):
+            raise ConfinementUnavailable("GeoIP cache home must be an absolute runtime path")
+        cache = Path(cache_home) / "camoufox" / "geoip"
+        if cache not in runtime_paths or not cache.is_dir() or cache != cache.resolve():
+            raise ConfinementUnavailable("GeoIP cache requires its exact read-only runtime mount")
     argv = [
         _bubblewrap(),
         "--die-with-parent",
@@ -319,7 +332,10 @@ def build_confined_command(
         argv.extend(("--bind", str(profile), _PROFILE_ROOT))
     argv.extend(("--bind", str(private_tmp), _TEMP_ROOT))
     for path in runtime_paths:
-        argv.extend(("--ro-bind", str(path), str(_runtime_target(path, code_root))))
+        target = _runtime_target(path, code_root)
+        if path == cache:
+            target = cache_root / "camoufox" / "geoip"
+        argv.extend(("--ro-bind", str(path), str(target)))
     argv.extend(
         (
             "--chdir",
@@ -341,18 +357,8 @@ def build_confined_command(
         if not Path(value).is_file():
             raise ConfinementUnavailable("browser executable is unavailable")
         environment[name] = str(_validate_command((value,), runtime_paths, code_root))
-    cache_home = (settings or {}).get("XDG_CACHE_HOME")
-    if cache_home is not None:
-        if (
-            not isinstance(cache_home, str)
-            or "\x00" in cache_home
-            or not Path(cache_home).is_absolute()
-        ):
-            raise ConfinementUnavailable("GeoIP cache home must be an absolute runtime path")
-        cache = Path(cache_home) / "camoufox" / "geoip"
-        if cache not in runtime_paths or not cache.is_dir() or cache != cache.resolve():
-            raise ConfinementUnavailable("GeoIP cache requires its exact read-only runtime mount")
-        environment["XDG_CACHE_HOME"] = str(_runtime_target(cache, code_root).parents[1])
+    if cache is not None:
+        environment["XDG_CACHE_HOME"] = str(cache_root)
     return argv, environment
 
 

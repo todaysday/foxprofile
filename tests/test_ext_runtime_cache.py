@@ -327,10 +327,11 @@ def test_cache_home_requires_exact_readonly_mount_and_maps_without_parent_mount(
     command, environment = build_confined_command(
         spec, (sys.executable, "-c", "pass"), {"XDG_CACHE_HOME": str(home)}
     )
-    assert environment["XDG_CACHE_HOME"] == "/opt/foxprofile/.venv/cache"
+    assert environment["XDG_CACHE_HOME"] == "/tmp/.cache"
     assert str(home) not in command
     source = str(home / "camoufox" / "geoip")
     assert command[command.index(source) - 1] == "--ro-bind"
+    assert command[command.index(source) + 1] == "/tmp/.cache/camoufox/geoip"
     assert "XDG_CACHE_HOME" not in build_confined_environment({"XDG_CACHE_HOME": str(home)})
     for value in ("relative", str(home.parent), str(home / ".." / "cache"), "bad\x00path"):
         with pytest.raises(ConfinementUnavailable):
@@ -369,6 +370,9 @@ def test_actual_namespace_exposes_only_readonly_geoip_cache(tmp_path):
             "assert (GEOIP_DIR / 'canary').read_text() == 'geoip-only'",
             "assert not (GEOIP_DIR.parent.parent / 'private-cache').exists()",
             "assert os.environ['HOME'] == '/tmp'",
+            "fontconfig = GEOIP_DIR.parent / 'fontconfig'",
+            "fontconfig.mkdir()",
+            "(fontconfig / 'canary.conf').write_text('private-fontconfig')",
             "try: (GEOIP_DIR / 'forbidden-write').write_text('no')",
             "except OSError: pass",
             "else: raise AssertionError('GeoIP cache is writable')",
@@ -381,3 +385,7 @@ def test_actual_namespace_exposes_only_readonly_geoip_cache(tmp_path):
     if result.returncode != 0 and b"No permissions" in result.stderr:
         pytest.skip(result.stderr.decode())
     assert result.returncode == 0, result.stderr.decode()
+    assert (
+        spec.private_tmp_path / ".cache/camoufox/fontconfig/canary.conf"
+    ).read_text() == "private-fontconfig"
+    assert not (home / "camoufox/fontconfig").exists()

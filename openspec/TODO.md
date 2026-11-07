@@ -46,3 +46,5 @@
 - [x] Expose the fixed `/bin` system alias in default protected runtime composition; native default-container regression reproduces missing `/bin/sh` before the fix and passes afterward. Real Camoufox x86 revalidation is still required.
 - [ ] During the next pinned Camoufox dependency review, verify upstream VirtualDisplay startup-error formatting: Xvfb failure currently becomes an AttributeError after the process reference is cleared. Keep underlying operator diagnostics private; do not add a compatibility shim to the application.
 - [x] Map the prepared GeoIP leaf read-only below each run's private writable XDG cache; preserve private fontconfig writes and prevent writes to the shared cache. Native regression reproduces the old EROFS failure and verifies readonly GeoIP plus private fontconfig after correction. Real x86 launch revalidation remains open.
+
+- [ ] Correct and revalidate the protected supervisor control-header contract against the actual core controller; repeat disposable x86 navigation/snapshot/click/stop on a rebuilt immutable candidate before ARM testing. The prior candidate reached browser readiness but failed its first control action.

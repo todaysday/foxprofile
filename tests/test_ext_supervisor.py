@@ -185,18 +185,22 @@ def test_late_cancelled_supervisor_creates_no_browser_effect(tmp_path):
 def test_parent_stdout_loss_retains_browser_and_restart_adopts_private_control(tmp_path):
     code = "\n".join(
         (
-            "import http.server,json,threading,time",
-            "class Handler(http.server.BaseHTTPRequestHandler):",
-            " def do_POST(self):",
-            "  assert self.headers['X-FoxProfile-Control-Token']=='private-control-canary'",
-            '  self.send_response(200); self.end_headers(); self.wfile.write(b\'{"result":"same-run"}\')',
-            " def log_message(self,*args): pass",
-            "server=http.server.HTTPServer(('127.0.0.1',0),Handler)",
-            "threading.Thread(target=server.serve_forever,daemon=True).start()",
-            "print('RUNTIME:'+json.dumps({'display':None,'namespace':__import__('os').readlink('/proc/self/ns/pid'),'tmp_path':'/tmp','xauthority_path':None}),flush=True)",
-            "print(f'CONTROL:{server.server_port}:private-control-canary',flush=True)",
-            "print('BROWSER_STARTED',flush=True)",
-            "while True: print('heartbeat',flush=True); time.sleep(.05)",
+            "import asyncio,json,os",
+            "from aiohttp import web",
+            "from src.services.browser.control import build_app",
+            "class Controller:",
+            " async def dispatch(self,action,params): return 'same-run'",
+            "async def main():",
+            " runner=web.AppRunner(build_app(Controller(),'private-control-canary'),access_log=None)",
+            " await runner.setup()",
+            " site=web.TCPSite(runner,'127.0.0.1',0)",
+            " await site.start()",
+            " port=site._server.sockets[0].getsockname()[1]",
+            " print('RUNTIME:'+json.dumps({'display':None,'namespace':os.readlink('/proc/self/ns/pid'),'tmp_path':'/tmp','xauthority_path':None}),flush=True)",
+            " print(f'CONTROL:{port}:private-control-canary',flush=True)",
+            " print('BROWSER_STARTED',flush=True)",
+            " while True: print('heartbeat',flush=True); await asyncio.sleep(.05)",
+            "asyncio.run(main())",
         )
     )
     database, ledger, ref, process, _ = start_supervisor(tmp_path, code)

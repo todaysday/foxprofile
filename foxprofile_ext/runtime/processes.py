@@ -18,6 +18,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from src.models.profile import Profile
+from src.services.browser.control import TOKEN_HEADER
 from src.services.browser.process import helper_command, runner_command
 
 from ..capacity import CapacityService
@@ -29,8 +30,6 @@ from ..storage.capacity import CapacityLedger, ProcessLiveness, RunStatus
 from ..storage.database import ExtensionDatabase
 from .confinement import build_confined_environment
 from .registry import RuntimeRegistry, current_host_id, probe_process, process_identity
-
-_TOKEN_HEADER = "X-FoxProfile-Control-Token"
 
 
 class RuntimeSupervisor:
@@ -349,7 +348,7 @@ class RuntimeSupervisor:
         request = urllib.request.Request(
             f"http://127.0.0.1:{descriptor.control_port}/action",
             data=json.dumps({"action": action, "params": params or {}}).encode(),
-            headers={"Content-Type": "application/json", _TOKEN_HEADER: descriptor.control_token},
+            headers={"Content-Type": "application/json", TOKEN_HEADER: descriptor.control_token},
             method="POST",
         )
         try:

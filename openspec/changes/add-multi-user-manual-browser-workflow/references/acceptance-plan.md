@@ -1,6 +1,6 @@
 # Implementation acceptance plan
 
-**Mandatory acceptance status: NOT RUN.** This package specifies work; it does not contain an implemented fork or claim successful browser, migration, security, concurrency, or performance tests. Mandatory implementation checks below are **NOT RUN**. U04 is a conditional real-upstream-update rehearsal and is **N/A for an initial release without a selected update candidate**; synthetic drift checks remain mandatory. Document-format validation is separate from product acceptance.
+**Final live acceptance status: NOT RUN.** Implementation and focused offline checks are recorded in [implementation-handoff.md](implementation-handoff.md); exact candidate d20bf66 passed definitive native-enabled offline regression (1049 passed, 24 deselected, no skips/failures), artifact/installed compatibility checks and offline installation of all 92 retained dependency wheels. Independent UI review is closed and a separate deployment agent has verified and accepted the offline handoff. The runtime fixture is delivered and maintenance review findings are closed. Offline evidence does not change the live result cells below. U04 is **N/A for an initial release without a selected update candidate**; baseline and synthetic drift checks remain mandatory. Document-format validation is separate from product acceptance.
 
 Source labels used in the tables:
 

@@ -1,8 +1,10 @@
 # OpenSpec-пакет для форка FoxProfile
 
 **Change ID:** `add-multi-user-manual-browser-workflow`  
-**Дата:** 2026-11-05  
-**Статус:** спецификации и план реализации; код функциональности и live-приёмка ещё не выполнены.  
+**Дата:** 2026-11-07
+
+**Статус:** реализация и offline release-проверки пройдены: точный кандидат d20bf66 — 1049 passed, 24 deselected, без skips/failures; артефакты и все 92 dependency wheels проверены. Независимое UI review закрыто; отдельный deployment-агент проверил и принял offline handoff слайсов 1–8. Live-приёмка не выполнена. Текущие доказательства и ограничения: [implementation-handoff.md](openspec/changes/add-multi-user-manual-browser-workflow/references/implementation-handoff.md).
+
 **Проверенный upstream:** `chienbm98/foxprofile`, коммит `530b993ff3a7d211aaa0904fba0817b77c75d4c9`, версия 2.4.0.
 
 ## Что покрывает пакет
@@ -78,6 +80,7 @@ CLI можно установить стандартным способом Open
 - `references/upstream-audit.md` — аудит реальных исходников с ссылками на закреплённый commit.
 - `references/api-contract.md` — предлагаемые DTO, endpoints и ошибки.
 - `references/acceptance-plan.md` и `requirements-traceability.md` — приёмка и связь с источниками.
+- `references/implementation-handoff.md` — единый отчёт реализации: проверенные offline-результаты, версии, входы развёртывания и оставшиеся release gates.
 - `references/upstream-update.md` — подготовка обновлений и финальное продвижение отдельным агентом.
 - `references/inputs/` — три неизменённых исходных документа.
 - `slices/09-live-deployment-and-acceptance.md` — автономное задание deployment-агенту.

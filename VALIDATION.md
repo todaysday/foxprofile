@@ -1,32 +1,22 @@
 # Package validation
 
-**Date:** 2026-11-05  
-**Change:** `add-multi-user-manual-browser-workflow`  
-**Result:** specification package passed validation. Product implementation and live acceptance have not been performed.
+**Updated:** 2026-11-07. **Change:** `add-multi-user-manual-browser-workflow`.
 
-## Official OpenSpec validation
+Specification structure passed strict OpenSpec validation during authoring. Implementation and offline release checks passed: exact candidate d20bf66 produced 1049 passed, 24 deselected and two warnings, with zero skips/failures in the native-enabled full suite. Distributions, installed-artifact compatibility and fresh offline installation of all 92 retained dependency wheels passed. Maintenance P1/P2 review findings are closed and the disposable runtime fixture is delivered. Independent UI review is closed and a separate deployment agent has verified and accepted the offline handoff. The canonical product evidence and handoff is [implementation-handoff.md](openspec/changes/add-multi-user-manual-browser-workflow/references/implementation-handoff.md). Live deployment/acceptance remains **NOT RUN**, owned by the separate slice-09 deployment agent. Document checks do not establish product or host acceptance.
 
-Validated with the official `@fission-ai/openspec` CLI **1.16.0**, installed locally for this authoring task.
+## OpenSpec validation
+
+The official `@fission-ai/openspec` CLI **1.16.0** is installed outside the delivered package. Run from the repository root with telemetry disabled:
 
 ```bash
-export OPENSPEC_TELEMETRY=0
-openspec validate add-multi-user-manual-browser-workflow --type change --strict --no-interactive --json
-openspec status --change add-multi-user-manual-browser-workflow --json
-openspec instructions apply --change add-multi-user-manual-browser-workflow --json
+OPENSPEC_TELEMETRY=0 openspec validate add-multi-user-manual-browser-workflow --type change --strict --no-interactive --json
+OPENSPEC_TELEMETRY=0 openspec status --change add-multi-user-manual-browser-workflow --json
+OPENSPEC_TELEMETRY=0 openspec instructions apply --change add-multi-user-manual-browser-workflow --json
 ```
 
-Observed results:
+Latest implementation-document validation on **2026-11-07** exited **0** with `valid: true` and **zero issues**; status confirmed all four required planning artifacts present. The CLI status field `isComplete` describes planning artifacts, not completed implementation or live acceptance. Planning completeness is distinct from task completion. Exact product test results, historical failures, known limitations and remaining release gates are recorded only in the canonical handoff.
 
-- Strict validation exit code: **0**.
-- CLI version: **1.16.0**; telemetry was disabled with `OPENSPEC_TELEMETRY=0` for validation.
-- Change `valid`: **true**.
-- Validation issues: **0**; stderr empty.
-- All four planning artifacts present: proposal, design, specs, tasks.
-- Code-level provenance and adaptation review is recorded separately in `reuse.md`; CLI validation does not verify that evidence.
-- Implementation state: **ready**, **0 of 45 tasks completed**, **45 remaining**.
-- Planning completion means the specification artifacts exist; it does not mean the feature was implemented or accepted.
-
-## Structural and coverage checks
+## Structural and source coverage
 
 | Capability | Requirements | Scenarios |
 | --- | ---: | ---: |
@@ -39,41 +29,28 @@ Observed results:
 | `virtual-browser-runtime` | 8 | 14 |
 | **Total** | **73** | **162** |
 
-Additional checks passed:
+The seven capability specs retain 73 stable requirement IDs and source traceability. The 45 tasks are grouped into nine slices: 40 implementation/offline tasks in slices 1–8 and five separate deployment tasks in slice 9. OpenSpec apply inspection confirms **40/45 tasks complete**, with all of slices 1–8 checked and all five slice-09 tasks unchecked. Checked tasks mean implementation/offline verification and the accepted handoff, not live acceptance. The acceptance plan retains all **A01–A30**, **N01–N13**, **S01–S03**, focused X cases and both-host resource cells as NOT RUN. U04 is conditional N/A until an additional real upstream candidate is selected; baseline and synthetic drift checks remain mandatory.
 
-- All seven declared capability directories are present.
-- Every requirement has a unique stable ID, SHALL statement, and concrete WHEN/THEN scenario; descriptions satisfy the schema's length guidance.
-- No unknown requirement IDs, unresolved authoring markers, or broken relative Markdown file links were found.
-- **45 unchecked tasks** are grouped into nine slices: **40 implementation/offline tasks in slices 1–8**, and **5 final deployment tasks in slice 9**.
-- The original acceptance tables are covered exactly: **A01–A30**, **N01–N13**, **S01–S03**. Additional focused cases cover integration and upstream-update risks.
-- All 73 requirement IDs are represented in the traceability artifact.
-- All three source documents were copied **byte-for-byte unchanged**.
-- Deployment/live acceptance is assigned to a separate final agent throughout config, proposal, design, tasks, prompts, acceptance plan, and the independent slice-9 runbook.
+The audited upstream is commit `530b993ff3a7d211aaa0904fba0817b77c75d4c9`, declared FoxProfile version 2.4.0; actual installed target revisions remain unknown. Source provenance, licenses and adaptation rationale are in [upstream-audit.md](openspec/changes/add-multi-user-manual-browser-workflow/references/upstream-audit.md) and [reuse.md](openspec/changes/add-multi-user-manual-browser-workflow/reuse.md). CLI validation does not verify these claims or replace independent fidelity/simplicity review recorded by the release owner in `completion.review`.
 
-Mandatory product checks remain NOT RUN. A real-version upstream update rehearsal is conditional and N/A for initial release until an actual additional candidate is selected; baseline and synthetic compatibility tests are mandatory implementation work.
+## Immutable original inputs
 
-## Source integrity
+The three bundled originals remain byte-for-byte unchanged:
 
-SHA-256 of the included original inputs:
+| File | SHA-256 |
+| --- | --- |
+| `FoxProfile_Stealth_Configuration.md` | `3e6798a88b30ff2cde661130fb04c126e9dd193e00044312e4e3e5ae36af4f16` |
+| `FoxProfile_User_Access_Spec.md` | `7d66bbe8693f30f9fef5088364516573618e102cb8ef61708d283d67ef1df14f` |
+| `FoxProfile_noVNC_Manual_Handoff.md` | `59a3904023c11b0d8b6daa36f543fe319909ba76b5ac9ada6cad86d6eca9cc73` |
 
-- `FoxProfile_Stealth_Configuration.md`: `3e6798a88b30ff2cde661130fb04c126e9dd193e00044312e4e3e5ae36af4f16`
-- `FoxProfile_User_Access_Spec.md`: `7d66bbe8693f30f9fef5088364516573618e102cb8ef61708d283d67ef1df14f`
-- `FoxProfile_noVNC_Manual_Handoff.md`: `59a3904023c11b0d8b6daa36f543fe319909ba76b5ac9ada6cad86d6eca9cc73`
+## Document and deployment-input integrity
 
-## Source audit scope
+Root `MANIFEST.sha256` lists **51 files** and covers the OpenSpec delivery documents, original inputs, canonical handoff and listed deployment/configuration/packaging inputs. Its scope is the paths it lists, excluding itself. It is neither a complete repository/source inventory nor a hash of the final built distributions or dependency environment. The canonical handoff records the exact tested d20bf66 release, wheel/sdist/dependency/schema digests and external installed-artifact receipts. A later documentation-only completion commit does not change that tested release identity. No new ZIP archive is claimed.
 
-The actual repository was checked out and inspected at commit `530b993ff3a7d211aaa0904fba0817b77c75d4c9` (declared FoxProfile version 2.4.0); review checkout `64b3cabfe741bf2d2955849aba4b03a50d94a6f7` adds documentation only. Pinned source links and observed integration details are in [upstream-audit.md](openspec/changes/add-multi-user-manual-browser-workflow/references/upstream-audit.md) and [reuse.md](openspec/changes/add-multi-user-manual-browser-workflow/reuse.md).
-
-The full supplied source-grounded OpenSpec skill archive was installed; its `SKILL.md` matches the earlier supplied document byte-for-byte. The post-fix independent Stage 5 source-fidelity review and Stage 6 simplicity/reuse review are recorded in `completion.review`. CLI validation does not establish reuse provenance or replace those reviews. Stage 6 inspected existing FoxProfile source and cited tests; those tests were not run. Product implementation and live acceptance remain `NOT RUN`.
-
-This was a source audit, not a running-browser audit. The production revision and host configuration have not been asserted or inspected. No fork feature was implemented, no real server was deployed or migrated, and no real browser/stealth/performance/acceptance result is claimed.
-
-## Archive integrity
-
-`MANIFEST.sha256` records every delivered file other than itself. The packaging step checks ZIP CRC integrity and verifies each extracted file against that manifest. The archive contains only this OpenSpec package and its included sources, not the upstream repository, temporary research checkout, installed CLI, credentials, or browser data.
-
-From the extracted `foxprofile-openspec` directory on systems providing the standard tool, contents can be checked with:
+Verify listed files from the repository root, and regenerate their digests after any subsequent release-owner edits:
 
 ```bash
 sha256sum -c MANIFEST.sha256
 ```
+
+No real host, service configuration, credentials, browser data, proxy/session details or operational backups are included. Required live Camoufox/Chrome, native-isolation, geometry, proxy/WebRTC and ARM64/x86-64 load evidence remains NOT RUN.

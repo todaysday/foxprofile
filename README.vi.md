@@ -41,6 +41,7 @@ FoxProfile miễn phí, mã nguồn mở, được làm vào thời gian rảnh 
 - [Bắt đầu nhanh](#bắt-đầu-nhanh)
 - [Timezone, locale và Kiểm tra IP](#timezone-locale-và-kiểm-tra-ip)
 - [Chế độ server và web panel](#chế-độ-server-và-web-panel)
+- [Chế độ multi-user được bảo vệ](#chế-độ-multi-user-được-bảo-vệ)
 - [MCP: cho AI điều khiển trình duyệt](#mcp-cho-ai-điều-khiển-trình-duyệt)
 - [Engine Chrome](#engine-chrome)
 - [Cookie và fingerprint](#cookie-và-fingerprint)
@@ -126,7 +127,7 @@ Mở `http://<địa-chỉ>:8000/` để vào **web panel**: cùng bảng profil
 | --- | --- |
 | ![Web panel](docs/images/panel.png) | ![Xem màn hình từ xa](docs/images/panel-viewer.png) |
 
-**Bảo mật:** khi nghe ngoài `127.0.0.1`, server **từ chối khởi động** nếu chưa đặt `FOXPROFILE_API_TOKEN` (tối thiểu 24 ký tự). Web panel, REST API và MCP đều dùng chung token này.
+**Bảo mật:** khi nghe ngoài `127.0.0.1`, server **từ chối khởi động** nếu chưa đặt `FOXPROFILE_API_TOKEN` (tối thiểu 24 ký tự). Ở chế độ legacy mặc định, web panel, REST API và MCP dùng chung token này. Chế độ được bảo vệ bên dưới dùng session cá nhân cho panel và service credential riêng.
 
 ```bash
 # Tạo token ngẫu nhiên
@@ -136,6 +137,18 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 Khi đưa lên VPS, nên đặt server sau reverse proxy có HTTPS (Caddy, Nginx) để token không bị gửi đi dưới dạng chữ thường. Trên Linux không có màn hình, đặt `FOXPROFILE_HEADLESS=virtual` (cần cài `xvfb`) để trình duyệt chạy trên màn hình ảo, khó bị phát hiện hơn chế độ headless thường.
 
 Hướng dẫn triển khai đầy đủ (Ubuntu, systemd, nginx, HTTPS): [docs/DEPLOY.md](docs/DEPLOY.md).
+
+## Chế độ multi-user được bảo vệ
+
+Chế độ được bảo vệ là tùy chọn, mặc định tắt. Chế độ này thêm tài khoản cá nhân admin/user, quyền truy cập profile được gán, managed transfer và một giới hạn trình duyệt đang hoạt động dùng chung (mặc định 10, gồm cả browser-backed helper). Admin quản lý user, assignment và capacity; user thường giữ các thao tác được phép trên profile của mình. Service credential cho MCP/API được tách riêng, chỉ giữ phía server; đăng nhập cá nhân không nhận token này.
+
+Với Camoufox virtual run được hỗ trợ trên Linux, **Mở trong noVNC** dùng Viewer hiện tại và browser/display đang chạy. Mỗi installation chỉ có một manual session tạm thời. **Quay lại** đóng quyền điều khiển thủ công, nhả phím/nút đang giữ và khôi phục Viewer thường, đồng thời giữ browser. Phát hiện mất kết nối và cleanup dùng chung tối đa 60 giây (20 giây phát hiện, 40 giây cleanup). FoxProfile không gửi thông điệp cho agent, không đánh giá kết quả CAPTCHA và không thêm Pause/Resume; hãy tự báo agent khi sẵn sàng. Chrome giữ các thao tác quản lý được cấp quyền và capacity; chưa hỗ trợ noVNC thủ công.
+
+Để bật, cần cài Python dependency tùy chọn, migrate sidecar database và bootstrap admin đầu tiên ngay trên server. Linux runtime còn cần browser build đã xác minh, bubblewrap, Xvfb/xauth, x11vnc được ghim hash và HTTPS/WSS cùng origin. Mỗi installation chỉ dùng một lifecycle manager và một ASGI worker. Đặt `FOXPROFILE_EXT_ENABLED=true` và `FOXPROFILE_HEADLESS=virtual` trước startup; làm theo đầy đủ bước cấu hình, cấp secret và backup/restore trong [hướng dẫn triển khai được bảo vệ](docs/EXTENSION_DEPLOY.vi.md), không tự thêm cấu hình vào dataset đang hoạt động khi chưa migrate.
+
+Fixture dùng một lần được đóng gói sẵn gồm admin0/A/B, service access riêng, 11 profile và trang kiểm tra input; xem [hướng dẫn staging smoke](docs/EXTENSION_ACCEPTANCE.vi.md).
+
+Camoufox profile mới trong chế độ được bảo vệ mặc định dùng Linux; identity và geometry đã lưu được giữ nguyên, gồm `humanize=True`. Release candidate chính xác đã đạt 1049 kiểm thử offline, bật fixture native-X và UI; distribution cùng 92 dependency wheel được lưu giữ và đã xác minh. Live acceptance cho Camoufox/Chrome thật về proxy, WebRTC, persistence, geometry và hai host ARM64/x86-64 vẫn **NOT RUN**; một agent riêng phụ trách triển khai cuối cùng. Xem [bằng chứng triển khai và handoff](openspec/changes/add-multi-user-manual-browser-workflow/references/implementation-handoff.md).
 
 ## MCP: cho AI điều khiển trình duyệt
 

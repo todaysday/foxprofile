@@ -41,6 +41,7 @@ FoxProfile is free and open source, built in my spare time, and will stay that w
 - [Quick start](#quick-start)
 - [Timezone, locale and Check IP](#timezone-locale-and-check-ip)
 - [Server mode and web panel](#server-mode-and-web-panel)
+- [Protected multi-user mode](#protected-multi-user-mode)
 - [MCP: let AI agents drive the browser](#mcp-let-ai-agents-drive-the-browser)
 - [Chrome engine](#chrome-engine)
 - [Cookies and fingerprints](#cookies-and-fingerprints)
@@ -126,7 +127,7 @@ Open `http://<host>:8000/` for the **web panel**: the same profile table, filter
 | --- | --- |
 | ![Web panel](docs/images/en/panel.png) | ![Remote screen view](docs/images/en/panel-viewer.png) |
 
-**Security:** when listening on anything but `127.0.0.1`, the server **refuses to start** without `FOXPROFILE_API_TOKEN` (24+ characters). The panel, the REST API and MCP share that token.
+**Security:** when listening on anything but `127.0.0.1`, the server **refuses to start** without `FOXPROFILE_API_TOKEN` (24+ characters). In default legacy mode, the panel, REST API and MCP share that token. Protected mode below uses personal panel sessions and a separate service credential.
 
 ```bash
 # Generate a random token
@@ -136,6 +137,18 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 On a VPS, put the server behind an HTTPS reverse proxy (Caddy, Nginx) so the token is never sent in clear text. On a display-less Linux box, `FOXPROFILE_HEADLESS=virtual` (needs `xvfb`) runs browsers on a virtual display, which is harder to detect than plain headless.
 
 Full deployment guide (Ubuntu, systemd, nginx, HTTPS; in Vietnamese): [docs/DEPLOY.md](docs/DEPLOY.md).
+
+## Protected multi-user mode
+
+Protected mode is optional and disabled by default. It adds personal admin/user accounts, assigned-profile access, managed transfers and one shared active-browser limit (default 10, including browser-backed helpers). Administrators manage users, assignments and capacity; ordinary users retain the permitted controls for their profiles. The MCP/API service credential remains separate and stays server-side; personal login does not receive it.
+
+On supported Linux Camoufox virtual runs, **Open in noVNC** uses the current Viewer and existing browser/display. One temporary manual session is allowed per installation. **Back** removes manual access, releases held input and restores the ordinary Viewer while preserving the browser. Disconnect detection and cleanup share a maximum 60-second budget (20 seconds detection, 40 seconds cleanup). FoxProfile sends no agent messages, judges no CAPTCHA result and adds no Pause/Resume operation; tell your agent separately when ready. Chrome keeps its authorized management and capacity behavior; manual noVNC is unsupported.
+
+Activation requires the optional Python dependencies, a migrated sidecar database and local first-admin bootstrap. Linux runtime additionally needs verified browser builds, bubblewrap, Xvfb/xauth, a pinned x11vnc binary and same-origin HTTPS/WSS. Use one lifecycle manager and one ASGI worker per installation. Set `FOXPROFILE_EXT_ENABLED=true` and `FOXPROFILE_HEADLESS=virtual` before startup; follow the complete configuration, secret delivery and backup/restore steps in [the protected deployment guide](docs/EXTENSION_DEPLOY.md), rather than adding these settings to an existing working dataset without migration.
+
+A packaged disposable fixture supplies admin0/A/B, separate service access, 11 profiles and a controlled input page; see [staging smoke instructions](docs/EXTENSION_ACCEPTANCE.md).
+
+New protected Camoufox profiles default to Linux; saved identities and geometry are preserved, including `humanize=True`. The exact release candidate passed 1049 offline tests with native-X and UI fixtures enabled; distributions and all 92 retained dependency wheels are verified. Actual Camoufox/Chrome proxy, WebRTC, persistence, geometry and ARM64/x86-64 live acceptance remain **NOT RUN**; deployment is assigned to a separate final agent. See [implementation evidence and deployment handoff](openspec/changes/add-multi-user-manual-browser-workflow/references/implementation-handoff.md).
 
 ## MCP: let AI agents drive the browser
 

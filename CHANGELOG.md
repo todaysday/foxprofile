@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+### Added / Thêm
+- Optional protected multi-user mode: personal accounts and revocable sessions, stable local profile identities and assignments, managed transfers, shared durable capacity admission and confined process lifecycle. / Chế độ multi-user tùy chọn với tài khoản cá nhân, session có thể thu hồi, profile ID và assignment ổn định, managed transfer, capacity admission dùng chung và process lifecycle được cách ly.
+- Temporary noVNC in the existing Viewer for supported Linux Camoufox virtual runs; Back preserves the browser and restores ordinary controls. One manual session per installation, no agent messages or Pause/Resume. / noVNC tạm thời trong Viewer hiện tại cho Camoufox virtual run trên Linux; Quay lại giữ browser và khôi phục điều khiển thường. Mỗi installation một manual session, không gửi thông điệp agent hay thêm Pause/Resume.
+- Protected web/Flet entry and administrator controls, local noVNC assets, compatibility gates, packaging checks, disposable acceptance fixtures and offline backup/migration/restore tooling with deployment templates. / Thêm đăng nhập và công cụ admin cho web/Flet, noVNC asset nội bộ, compatibility gate, kiểm tra package, acceptance fixture dùng một lần và công cụ backup/migration/restore offline cùng template triển khai.
+
+### Validation status / Trạng thái kiểm thử
+- Exact d20bf66 passed the native-enabled full offline suite (1049 passed, 24 deselected, zero skips/failures); distributions and all 92 retained dependency wheels passed isolated/offline installation checks. Independent UI review is closed and a separate deployment agent has verified and accepted the offline handoff. Real Camoufox/Chrome proxy, WebRTC, persistence, geometry, resource measurements and ARM64/x86-64 live acceptance remain NOT RUN. Slice 09 belongs to a separate deployment agent; this change is not archived. / d20bf66 đã đạt full offline suite có native fixture (1049 passed, 24 deselected, không skip/fail); distribution và 92 dependency wheel lưu giữ đã qua kiểm tra cài đặt isolated/offline. UI review độc lập đã đóng; agent triển khai riêng đã xác minh và nhận handoff offline. Live acceptance và đo tài nguyên trên ARM64/x86-64 vẫn NOT RUN; agent triển khai riêng phụ trách slice 09, chưa archive change.
+
 ## [2.4.0] - 2026-10-30
 
 ### Thay đổi

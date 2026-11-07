@@ -4,7 +4,7 @@
 
 **Position:** the final slice, after implementation slices/sections 1–8 and all offline/CI gates. The implementation agent may prepare scripts, fixtures, and this handoff; it does not perform this slice's live operations.
 
-**Current status:** **INCOMPLETE.** Target architectures are selected and the separate deployment agent has begun isolated x86-64 staging. A real browser reached readiness, then failed its first control action; a corrected immutable candidate is being revalidated. ARM64 follows x86-64. No production rollout, full acceptance matrix, load matrix or restore acceptance is established.
+**Current status:** **INCOMPLETE.** The separate deployment agent completed bounded isolated x86-64 browser/noVNC/isolation/capacity and short 1/5/10-resource checks. Corrected checkpoint `0710c0b` passed actual Back/ordinary-control/cleanup revalidation and 1113 native-enabled non-browser tests. ARM64 follows x86-64 and is pending. Complete source/native-renderer acceptance, production rollout and matched operational restore remain open.
 
 ## Objective and scope
 

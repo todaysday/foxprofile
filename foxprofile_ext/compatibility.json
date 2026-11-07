@@ -5,9 +5,9 @@
     "version": "2.4.0"
   },
   "candidate": {
-    "commit": "d794dc67b613f38d00a97654a9d47ed365f5cfeb",
+    "commit": "0710c0bca98e91375fb7117ea33cc87e867e3afd",
     "status": "locked",
-    "note": "Immutable runtime-source checkpoint after system-shell, private-cache and control-header corrections. Definitive non-browser regression and installed distribution gate passed; later evidence-only metadata does not change this Python source. Full real two-host acceptance remains incomplete."
+    "note": "Immutable runtime-source checkpoint after system-shell, private-cache, control-header and manual-status corrections. Definitive non-browser regression, installed artifacts and bounded real x86 checks passed. Later evidence metadata does not change this Python/JavaScript source. Full two-host acceptance remains incomplete."
   },
   "schema": {
     "version": 5,
@@ -16,7 +16,7 @@
     "sql_sha256": "3d078a14687be573088ff700d6234687e5243bc48548ee3f98e7693b01d1898b"
   },
   "offline_evidence": {
-    "status": "PASS; focused offline scope only",
+    "status": "PASS; definitive non-browser regression and installed-artifact scope; full live acceptance incomplete",
     "commands": [
       {
         "command": "python -m pytest -q tests/test_ext_compatibility_gate.py",
@@ -44,7 +44,7 @@
       },
       {
         "command": "pytest -q -rs -m 'not browser' --maxfail=5",
-        "result": "1110 passed, 24 deselected, 3 warnings, 385.03 seconds; no failures or skips. Pristine archive d794dc67b613f38d00a97654a9d47ed365f5cfeb; Python 3.12.3; native X and isolated Chromium enabled; trusted resolver mount namespace; DAC override/read-search capabilities dropped. All 402 archive blobs unchanged. Log SHA-256 53e3804f1b194c0e34653124cc9e69e64abd5c5c06bc4a1b1b17ffb66e01f4b5. Offline evidence does not establish full live acceptance."
+        "result": "1113 passed, 24 deselected, 3 warnings, 385.45 seconds; no failures or skips. Pristine archive 0710c0bca98e91375fb7117ea33cc87e867e3afd; Python 3.12.3; native X and isolated Chromium enabled; trusted resolver mount namespace; DAC override/read-search capabilities dropped. All 402 archive blobs unchanged. Log SHA-256 35202734fc91f91b528501b7a395add344173940a2969cdd623e33a82a86b4e4. Offline evidence does not establish full live acceptance."
       }
     ],
     "artifact_sha256": {
@@ -52,10 +52,10 @@
       "tests/test_ext_compatibility_gate.py": "87d446fbe02753de8875697a70b09fedaffc6299ab53eccb705a55d01e336cad",
       "tools/check_extension_compatibility.py": "e4ff5ef99a001481741c0c82b44e4a35b7d73ad1a76af87391ad2cbaa7e17b76"
     },
-    "limits": "No additional upstream candidate selected. Twenty-four actual-engine pytest cases are outside the definitive non-browser suite. Full two-host acceptance remains incomplete; private x86 staging is underway and ARM64 follows x86-64. AST checks enforce finite adapter contracts; behavioral security checks remain required."
+    "limits": "No additional upstream candidate selected. Twenty-four actual Chromium-engine cases are blocked by host sandbox prerequisites and are not part of the passing non-browser suite. Bounded real x86 staging completed; full source acceptance and native renderer proof remain incomplete. ARM64 follows x86-64."
   },
   "live_evidence": {
-    "status": "INCOMPLETE; x86 isolated staging underway, ARM64 deferred until x86 phase completes",
+    "status": "INCOMPLETE; bounded x86 browser/manual/isolation/capacity/resource checks executed; ARM64 pending",
     "owner": "separate deployment agent; both target architectures"
   },
   "hooks": [
@@ -4311,7 +4311,7 @@
     "src/core/container.py:Container.shutdown"
   ],
   "runtime": {
-    "python": "3.12.14",
+    "python": "3.12.3",
     "libraries": {
       "camoufox": "0.5.9",
       "playwright": "1.62.0",
@@ -4320,10 +4320,10 @@
       "argon2-cffi": "25.1.0",
       "websockets": "17.4"
     },
-    "camoufox_browser": "NOT RUN; no live browser version claimed",
+    "camoufox_browser": "x86 stage: 156.0.1-beta.36 build 72637885; actual ready/navigation/manual/stop checked; ARM64 pending",
     "novnc": "63107bd06d9e1f6136ff21aeda8cd62cbf0d433e",
-    "vnc_adapter": "x11vnc 0.9.17-1 amd64; offline native binary SHA-256 249bdc17e09fd96ea73ca7fbec2d8f3cd9ff411d0bbfb634d99431548fb77132; target-host and ARM64 acceptance NOT RUN",
-    "confinement": "Linux bubblewrap 0.12.0 in offline environment; live two-host validation NOT RUN"
+    "vnc_adapter": "x86 stage: independently identified x11vnc 0.9.16-10, SHA-256 4954921ae9c4e2bf7061603eb6a2d52c2292a0973eb2da5d6f48a9bd49570ffc; bounded native input/Back checked, full N/X matrix incomplete. Earlier offline 0.9.17-1 fixture is historical, not an identical-version requirement. ARM64 pending.",
+    "confinement": "x86 stage bubblewrap 0.9.0; trusted resolver bind is private to its mount namespace, prepared GeoIP is read-only and dynamic XDG cache private; earlier offline bubblewrap 0.12.0 receipt is historical. Full two-host validation incomplete."
   },
   "deployment": {
     "topology": "Single host, one lifecycle manager and one ASGI worker per installation; shared SQLite admission does not supply cross-worker gateway/backend IPC; exact run supervisor owns child group.",
@@ -4331,16 +4331,16 @@
     "offline_host": "Linux/x86_64",
     "live_hosts": {
       "linux_arm64": "NOT RUN",
-      "linux_x86_64": "INCOMPLETE; isolated staging underway; full acceptance matrix pending"
+      "linux_x86_64": "PARTIAL: actual browser control, noVNC input/Back, A/B isolation, capacity-ten denial and short 1/5/10 samples executed; native renderer and complete source acceptance unresolved"
     }
   },
   "release_inputs": {
     "dependency_report": "deploy/extension/dependencies-tested-py312-linux.txt",
     "dependency_report_sha256": "56a45b7ce21c1a2cce32067d4b408e2ca394dd19e81f7bd675cd68877ed74127",
     "dependency_report_scope": "Observed Linux Python 3.12.14 development/test environment; pip freeze --all includes test/build tools, no private URLs/paths, not a production-only artifact lock. Matching dependency wheels/image remain separate release inputs.",
-    "final_packaged_release_revision": "d794dc67b613f38d00a97654a9d47ed365f5cfeb; immutable runtime-source test candidate; later evidence metadata is separate",
-    "final_distribution_sha256": "Runtime-source checkpoint d794dc6 only: wheel 073fe74e095f093547ada2da37186b7af9622a54b74a82afb7bcdd60baa324e1; sdist 8752c9620c648e7301ae83c2e58772044a2ae9bcdbe5af62659ea11b135066d5. Later rebuilt artifacts require their own digests.",
-    "definitive_full_regression": "d794dc6: 1110 passed,24 browser cases deselected,3 warnings,no failures or skips; completion.review records exact command and log digest",
-    "post_lock_verification": "225 installed runtime files byte-verified; installed source and assembled-route gate passed for d794dc6; later register/packaging gate:29 passed, including rebuilt distribution payloads. Later artifacts are separate from d794dc6 distribution hashes."
+    "final_packaged_release_revision": "0710c0bca98e91375fb7117ea33cc87e867e3afd; immutable runtime-source test candidate; later evidence metadata is separate",
+    "final_distribution_sha256": "Exact 0710c0b only: wheel 9a26bbd644b03f2200f587b3023c30620bd8cbac9df4732ce617a5d5c7e7ca48; sdist e9d2fd4385d38cf55aca301a6bdaf96b3c2834f477f76b780d6b6a8e55caefd4. Later rebuilt artifacts require their own digests.",
+    "definitive_full_regression": "0710c0b:1113 passed,24 actual Chromium-engine cases deselected,3 warnings,no failures or skips; completion.review records command and log digest",
+    "post_lock_verification": "225 installed runtime files byte-verified; installed source and assembled-route gate passed for 0710c0b; later register/distribution gate:29 passed in24.87seconds, including complete rebuilt wheel/sdist payloads. Later artifacts are separate from0710c0b hashes."
   }
 }

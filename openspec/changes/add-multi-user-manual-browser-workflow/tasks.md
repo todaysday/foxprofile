@@ -2,7 +2,7 @@
 
 **Change:** `add-multi-user-manual-browser-workflow`  
 **Architecture priority:** Pragmatic DDD (DAO/DTO) → SRP → KISS/YAGNI → DRY.  
-**State:** slices 1–8 and the offline handoff are complete. The subsequent fork review recovered all 51 original agent reports and passed 1110 tests on its immutable source. Actual x86-64 disposable staging has begun and exposed runtime integration defects; corrections and failed/superseding evidence are in `completion.review`. ARM64 testing follows x86-64. Full live acceptance remains incomplete and all slice-09 tasks remain open.
+**State:** slices 1–8 and the offline handoff are complete. The subsequent review recovered all 51 original agent reports; corrected immutable runtime checkpoint `0710c0b` passed 1113 tests with native fixtures and isolated Chromium, 24 actual Chromium-engine cases deselected. Separate real x86 staging completed bounded browser/manual/isolation/capacity and short resource checks; ARM64 follows that phase. Full source acceptance, renderer proof and production rollout remain incomplete. `completion.review` records failed/superseding evidence; all slice-09 tasks remain open.
 
 Checked tasks record implementation plus focused offline verification, not live acceptance. Current evidence, limits and immutable release lock are in [implementation-handoff.md](references/implementation-handoff.md). Final slice 09 remains owned by a separate deployment agent.
 

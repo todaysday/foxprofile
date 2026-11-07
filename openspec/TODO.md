@@ -31,7 +31,7 @@
 
 ## Fork review follow-ups (2026-11-07)
 
-- [ ] Complete the uncapped `xhigh --fix` review, independent gap sweep and regression checks for the updated candidate; record every confirmed correction in `completion.review`.
+- [x] Complete the uncapped `xhigh --fix` review, independent gap sweep and regression checks. All 51 original subagent reports recovered; reviewed source `2e42a93` passed 1110 tests with native fixtures and isolated Chromium, 24 real-engine cases deselected. Corrections and failed/superseding evidence are recorded in `completion.review`.
 - [ ] During slice 9, audit ownership, permissions and traversable parent directories of migrated profile data. The supplied service uses `UMask=0077` for new files; existing data is not retroactively made private by migration.
 - [ ] Resolve the deployment policy for authenticated import disk consumption, including staging copies, expanded data and concurrent requests. Streaming extraction bounds member memory, but does not impose a total archive or disk quota; supported large imports must remain consistent across API and proxy.
 - [ ] Resolve whether the intended tenant trust model needs network egress isolation. Ordinary profile navigation currently retains host-reachable HTTP(S), including private destinations; no new URL-denial policy was selected in this review.
@@ -39,3 +39,4 @@
 - [ ] Execute native Windows lock-contention and portable-platform CI checks for the revised candidate; mocked Windows primitive checks on Linux do not establish native Windows execution.
 - [ ] Measure the retained single authorized fingerprint-stat scan per 120 ms desktop poll on the intended catalog sizes before selecting any further optimization; a lighter snapshot must preserve session, assignment and lifecycle reconciliation.
 - [ ] Verify resolver-file ownership and modes during deployment preflight: the confinement contract accepts only root/service-owned resolver files without group/other write permission. Local namespace-fixture success does not establish that a target's resolver satisfies this contract.
+- [ ] Before a future deployment, refresh retained distribution artifacts and the deployment handoff for the reviewed revision; the earlier d20bf66 artifact hashes remain historical and must not be assigned to the revised source.

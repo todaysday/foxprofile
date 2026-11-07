@@ -5,9 +5,9 @@
     "version": "2.4.0"
   },
   "candidate": {
-    "commit": "e959a26e11c9e10a241754096a46c28ee1f295f7",
-    "status": "uncommitted-draft",
-    "note": "Fork review fixes supersede the prior runtime-source checkpoint named here. This draft is not an accepted release. The exact reviewed commit and executed verification results are recorded in completion.review and the implementation handoff after commit."
+    "commit": "2e42a93e0b4441511ec4516941cc0217cc31a898",
+    "status": "locked",
+    "note": "Immutable fork-review source checkpoint. Its pristine Git archive passed 1110 offline tests with native X and isolated Chromium enabled; 24 actual engine browser cases were deselected. The following audit-metadata commit does not change tested Python source. Prior d20bf66 distribution digests remain historical; new deployment artifacts require separate release preparation."
   },
   "schema": {
     "version": 5,
@@ -41,6 +41,10 @@
       {
         "command": "python -m ruff format --check foxprofile_ext/compatibility.py tests/test_ext_compatibility_gate.py tools/check_extension_compatibility.py",
         "result": "PASS"
+      },
+      {
+        "command": "pytest -q -rs -m 'not browser' --maxfail=5",
+        "result": "1110 passed, 24 deselected, 3 warnings, 385.96 seconds; no failures or skips. Pristine archive 2e42a93e0b4441511ec4516941cc0217cc31a898; Python 3.12.3; native X and isolated Chromium enabled; private mount namespace supplies a trusted resolver fixture; DAC override capabilities dropped for permission-failure fixtures. Log SHA-256 40b8d97bcf259f990d752e0cd8f1d04b131539b8b2fefbf929568a69c5e2a59d. This is offline code-review evidence, not live acceptance."
       }
     ],
     "artifact_sha256": {

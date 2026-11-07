@@ -4,6 +4,12 @@
 
 This is the canonical implementation evidence and handoff record. [tasks.md](../tasks.md) tracks completion; [acceptance-plan.md](acceptance-plan.md) retains the acceptance inventory and live result cells. [VALIDATION.md](../../../../VALIDATION.md) records document checks, not product acceptance. Do not create a second implementation ledger or archive this change before slice 09 closes its required cases.
 
+## Subsequent fork code review
+
+The uncapped `xhigh --fix` review recovered all 51 original subagent reports, independently checked the correction groups, and preserved upstream geo-normalization behavior after an integrated regression exposed an overstrict new import check. Reviewed source **`2e42a93e0b4441511ec4516941cc0217cc31a898`** passed **1110 tests, 24 actual-engine browser cases deselected, three warnings, no failures or skips**, 385.96 seconds. This used its pristine Git archive, Python 3.12.3, native X fixtures and isolated Playwright Chromium. A private mount namespace supplied a trusted resolver fixture; the host resolver and production guard were unchanged. All 402 tracked archive blobs still matched Git after the run. The full-run log SHA-256 is `40b8d97bcf259f990d752e0cd8f1d04b131539b8b2fefbf929568a69c5e2a59d`; raw receipts remain outside Git.
+
+Root `completion.review` records the findings, original agent continuity, failed first integrated attempt, corrective checks and remaining limitations. The compatibility register identifies this reviewed runtime-source checkpoint; later audit metadata does not change its Python source. Distribution and deployment-agent receipts below remain historical. Refresh release artifacts before any future deployment; this review performs no live operation or archive and does not close slice 9.
+
 ## Release identity and integrity
 
 The release and distribution rows below describe the earlier implementation checkpoint. Subsequent fork-review corrections supersede that source; the review receipt in root `completion.review` identifies the revised candidate and its executed checks. Earlier artifact hashes and test counts must not be attributed to the revised source. No live acceptance or archive is established by this code review.

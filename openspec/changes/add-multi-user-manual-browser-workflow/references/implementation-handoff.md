@@ -10,6 +10,14 @@ The uncapped `xhigh --fix` review recovered all 51 original subagent reports, in
 
 Root `completion.review` records the findings, original agent continuity, failed first integrated attempt, corrective checks and remaining limitations. The compatibility register identifies this reviewed runtime-source checkpoint; later audit metadata does not change its Python source. Distribution and deployment-agent receipts below remain historical. Refresh release artifacts before any future deployment; this review performs no live operation or archive and does not close slice 9.
 
+## Current x86 staging candidate
+
+Real disposable x86 staging exposed three application integration defects after the original review: the default system-shell mount was missing, fontconfig attempted a write under a shared read-only cache, and the protected supervisor used a different control-token header from the core controller. Each correction preserves the selected isolation/authentication boundary and adds or strengthens an existing regression. `completion.review` retains failed and superseding evidence.
+
+Current immutable runtime-source candidate **`d794dc67b613f38d00a97654a9d47ed365f5cfeb`** passed **1110 tests, 24 actual-engine browser cases deselected, three warnings, no failures or skips**, 385.03 seconds. All 402 archive blobs remained identical. Log SHA-256: `53e3804f1b194c0e34653124cc9e69e64abd5c5c06bc4a1b1b17ffb66e01f4b5`. Native-X fixtures, isolated Chromium and the trusted resolver namespace were enabled; this is not full target acceptance.
+
+Its wheel SHA-256 is `073fe74e095f093547ada2da37186b7af9622a54b74a82afb7bcdd60baa324e1`; sdist SHA-256 is `8752c9620c648e7301ae83c2e58772044a2ae9bcdbe5af62659ea11b135066d5`. All 225 installed payload files and the installed source/route gate passed verification. These hashes identify that exact candidate, including its then-current register; later evidence metadata requires a new artifact digest if repackaged. The separate deployment agent owns its real staging checks. ARM64 follows the x86 phase; all slice-09 tasks remain open.
+
 ## Release identity and integrity
 
 The release and distribution rows below describe the earlier implementation checkpoint. Subsequent fork-review corrections supersede that source; the review receipt in root `completion.review` identifies the revised candidate and its executed checks. Earlier artifact hashes and test counts must not be attributed to the revised source. No live acceptance or archive is established by this code review.

@@ -2,7 +2,7 @@
 
 **Change:** `add-multi-user-manual-browser-workflow`  
 **Architecture priority:** Pragmatic DDD (DAO/DTO) → SRP → KISS/YAGNI → DRY.  
-**State:** slices 1–8 are complete and the separate deployment agent accepted the offline handoff. Exact candidate d20bf66 passed 1049 tests with native fixtures enabled; distributions, installed compatibility, schema and all 92 retained dependency wheels are verified. Maintenance review findings are closed; independent UI review is closed and a separate deployment agent has verified and accepted the offline handoff. Live acceptance is NOT RUN.
+**State:** slices 1–8 and the offline handoff are complete. The subsequent fork review recovered all 51 original agent reports and passed 1110 tests on its immutable source. Actual x86-64 disposable staging has begun and exposed runtime integration defects; corrections and failed/superseding evidence are in `completion.review`. ARM64 testing follows x86-64. Full live acceptance remains incomplete and all slice-09 tasks remain open.
 
 Checked tasks record implementation plus focused offline verification, not live acceptance. Current evidence, limits and immutable release lock are in [implementation-handoff.md](references/implementation-handoff.md). Final slice 09 remains owned by a separate deployment agent.
 

@@ -4,7 +4,7 @@
 
 **Position:** the final slice, after implementation slices/sections 1–8 and all offline/CI gates. The implementation agent may prepare scripts, fixtures, and this handoff; it does not perform this slice's live operations.
 
-**Current status:** **NOT RUN.** No real-server deployment, backup, migration, browser test, load measurement, or restore has been performed by this specification package.
+**Current status:** **INCOMPLETE.** Target architectures are selected and the separate deployment agent has begun isolated x86-64 staging. A real browser reached readiness, then failed its first control action; a corrected immutable candidate is being revalidated. ARM64 follows x86-64. No production rollout, full acceptance matrix, load matrix or restore acceptance is established.
 
 ## Objective and scope
 

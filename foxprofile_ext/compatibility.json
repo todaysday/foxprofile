@@ -5,9 +5,9 @@
     "version": "2.4.0"
   },
   "candidate": {
-    "commit": "4a4b7044b254c97a2d66258c82018a0a2002b266",
-    "status": "uncommitted-draft",
-    "note": "Previous immutable x86 test candidate. The subsequent private-XDG/readonly-GeoIP mapping correction passed scoped native isolation checks and independent review; real Camoufox and final integrated validation remain pending. Exact test commits and outcomes are recorded in completion.review and private release receipts."
+    "commit": "d794dc67b613f38d00a97654a9d47ed365f5cfeb",
+    "status": "locked",
+    "note": "Immutable runtime-source checkpoint after system-shell, private-cache and control-header corrections. Definitive non-browser regression and installed distribution gate passed; later evidence-only metadata does not change this Python source. Full real two-host acceptance remains incomplete."
   },
   "schema": {
     "version": 5,
@@ -44,7 +44,7 @@
       },
       {
         "command": "pytest -q -rs -m 'not browser' --maxfail=5",
-        "result": "1110 passed, 24 deselected, 3 warnings, 385.96 seconds; no failures or skips. Pristine archive 2e42a93e0b4441511ec4516941cc0217cc31a898; Python 3.12.3; native X and isolated Chromium enabled; private mount namespace supplies a trusted resolver fixture; DAC override capabilities dropped for permission-failure fixtures. Log SHA-256 40b8d97bcf259f990d752e0cd8f1d04b131539b8b2fefbf929568a69c5e2a59d. This is offline code-review evidence, not live acceptance."
+        "result": "1110 passed, 24 deselected, 3 warnings, 385.03 seconds; no failures or skips. Pristine archive d794dc67b613f38d00a97654a9d47ed365f5cfeb; Python 3.12.3; native X and isolated Chromium enabled; trusted resolver mount namespace; DAC override/read-search capabilities dropped. All 402 archive blobs unchanged. Log SHA-256 53e3804f1b194c0e34653124cc9e69e64abd5c5c06bc4a1b1b17ffb66e01f4b5. Offline evidence does not establish full live acceptance."
       }
     ],
     "artifact_sha256": {
@@ -52,10 +52,10 @@
       "tests/test_ext_compatibility_gate.py": "87d446fbe02753de8875697a70b09fedaffc6299ab53eccb705a55d01e336cad",
       "tools/check_extension_compatibility.py": "e4ff5ef99a001481741c0c82b44e4a35b7d73ad1a76af87391ad2cbaa7e17b76"
     },
-    "limits": "No additional real upstream candidate selected. Live browser/native two-host acceptance remains NOT RUN. AST checks enforce finite adapter contracts; focused behavioral security tests remain required."
+    "limits": "No additional upstream candidate selected. Twenty-four actual-engine pytest cases are outside the definitive non-browser suite. Full two-host acceptance remains incomplete; private x86 staging is underway and ARM64 follows x86-64. AST checks enforce finite adapter contracts; behavioral security checks remain required."
   },
   "live_evidence": {
-    "status": "NOT RUN",
+    "status": "INCOMPLETE; x86 isolated staging underway, ARM64 deferred until x86 phase completes",
     "owner": "separate deployment agent; both target architectures"
   },
   "hooks": [
@@ -4331,16 +4331,16 @@
     "offline_host": "Linux/x86_64",
     "live_hosts": {
       "linux_arm64": "NOT RUN",
-      "linux_x86_64": "NOT RUN"
+      "linux_x86_64": "INCOMPLETE; isolated staging underway; full acceptance matrix pending"
     }
   },
   "release_inputs": {
     "dependency_report": "deploy/extension/dependencies-tested-py312-linux.txt",
     "dependency_report_sha256": "56a45b7ce21c1a2cce32067d4b408e2ca394dd19e81f7bd675cd68877ed74127",
     "dependency_report_scope": "Observed Linux Python 3.12.14 development/test environment; pip freeze --all includes test/build tools, no private URLs/paths, not a production-only artifact lock. Matching dependency wheels/image remain separate release inputs.",
-    "final_packaged_release_revision": "PENDING external handoff after release-input commit",
-    "final_distribution_sha256": "PENDING",
-    "definitive_full_regression": "PENDING root receipt on exact release-input candidate after these metadata inputs are committed",
-    "post_lock_verification": "PENDING definitive full suite, compatibility and installed-artifact checks on exact release-input candidate"
+    "final_packaged_release_revision": "d794dc67b613f38d00a97654a9d47ed365f5cfeb; immutable runtime-source test candidate; later evidence metadata is separate",
+    "final_distribution_sha256": "Runtime-source checkpoint d794dc6 only: wheel 073fe74e095f093547ada2da37186b7af9622a54b74a82afb7bcdd60baa324e1; sdist 8752c9620c648e7301ae83c2e58772044a2ae9bcdbe5af62659ea11b135066d5. Later rebuilt artifacts require their own digests.",
+    "definitive_full_regression": "d794dc6: 1110 passed,24 browser cases deselected,3 warnings,no failures or skips; completion.review records exact command and log digest",
+    "post_lock_verification": "225 installed runtime files byte-verified; installed source and assembled-route gate passed for d794dc6; later register/packaging gate:29 passed, including rebuilt distribution payloads. Later artifacts are separate from d794dc6 distribution hashes."
   }
 }

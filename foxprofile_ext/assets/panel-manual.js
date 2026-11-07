@@ -25,7 +25,7 @@ export function createManualViewer(ctx) {
     open.classList.toggle("hidden", value);
     back.classList.toggle("hidden", !value);
   }
-  function close(restore = true) {
+  function close(restore = true, intent = "automatic") {
     if (closing) return closing;
     if (!current) return Promise.resolve();
     const version = ++generation, operation = current;
@@ -37,7 +37,7 @@ export function createManualViewer(ctx) {
       try {
         session ||= await operation.opening;
         await operation.request("DELETE", `/ext/manual-sessions/${encodeURIComponent(session.session_id)}`, { browser_run_id: session.browser_run_id });
-        if (version === generation) status.textContent = t("manual_disconnected");
+        if (version === generation && intent === "back") status.textContent = t("manual_disconnected");
       } catch (error) {
         if (version === generation && error.status !== 401) status.textContent = error.message;
       } finally {
@@ -91,7 +91,7 @@ export function createManualViewer(ctx) {
     }
   }
   open.onclick = start;
-  back.onclick = () => close();
+  back.onclick = () => close(true, "back");
   return {
     close, labels,
     reset() {

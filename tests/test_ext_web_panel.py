@@ -567,6 +567,36 @@ def test_manual_back_updates_status_only_after_successful_close(panel_page):
     )
 
 
+def test_manual_security_failure_keeps_error_after_successful_cleanup(panel_page):
+    page, state = panel_page
+    page.route(
+        "**/assets/ext/novnc/core/rfb.js",
+        lambda route: route.fulfill(
+            content_type="application/javascript",
+            body="""
+                export default class {
+                  constructor() { window.fixtureRfb = this; this.listeners = {}; }
+                  addEventListener(name, handler) { this.listeners[name] = handler; }
+                  dispatch(name) { this.listeners[name](); }
+                  focus() {}
+                  disconnect() {}
+                }
+            """,
+        ),
+    )
+    login(page, "user")
+    page.get_by_role("button", name="View screen: Fixture A", exact=True).click()
+    page.locator("#manual-open").click()
+    page.wait_for_function("window.fixtureRfb !== undefined")
+    page.evaluate("window.fixtureRfb.dispatch('securityfailure')")
+    page.locator("#v-screen").wait_for(state="visible")
+    assert page.locator("#manual-status").inner_text() == "Cannot connect manual control."
+    assert any(
+        request[0] == "DELETE" and request[1] == "ext/manual-sessions/session-1"
+        for request in state.requests
+    )
+
+
 def test_manual_back_preserves_failed_close_error(panel_page):
     page, state = panel_page
     login(page, "user")
@@ -970,6 +1000,7 @@ def test_manual_pending_back_and_repeated_close_wait_for_exact_cleanup(panel_pag
         before = sum(req[1].endswith("/screenshot") for req in state.requests)
         state.block_close.set()
         page.locator("#v-screen").wait_for(state="visible")
+        page.locator("#manual-status").filter(has_text="Manual control ended").wait_for()
         page.wait_for_function("document.querySelector('#v-screen').src.startsWith('blob:')")
         assert sum(req[1].endswith("/screenshot") for req in state.requests) == before + 1
         assert sum(req[0] == "DELETE" for req in state.requests) == 1

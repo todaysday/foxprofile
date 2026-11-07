@@ -5,7 +5,7 @@
 ## [Unreleased]
 
 ### Fixed / Sửa
-- Returning from noVNC updates the connection status after successful cleanup and preserves close errors. / Khi trở lại từ noVNC, trạng thái kết nối được cập nhật sau cleanup thành công và lỗi đóng vẫn được giữ lại.
+- Returning from noVNC updates the connection status after successful cleanup and preserves connection and close errors. / Khi trở lại từ noVNC, trạng thái kết nối được cập nhật sau cleanup thành công và lỗi kết nối hoặc đóng vẫn được giữ lại.
 - Protected browser controls use the existing authenticated core control header. / Điều khiển browser được bảo vệ dùng header xác thực hiện có của core.
 - Protected Linux runtime exposes the system shell, keeps generated fontconfig in a private writable cache and mounts only the prepared GeoIP leaf read-only; deployment explicitly preloads the pinned fingerprint model. / Protected runtime Linux cung cấp system shell, giữ fontconfig sinh ra trong cache ghi được riêng và chỉ mount GeoIP leaf đã chuẩn bị ở chế độ chỉ đọc; deployment preload model fingerprint đã khóa.
 - Corrected protected launch readiness, cancellation and cleanup, archive validation and streaming, desktop state refresh and bulk deletion, MCP profile defaults, Windows catalog-lock waiting and acceptance-session cleanup. / Sửa readiness, cancellation và cleanup khi launch được bảo vệ, validation và streaming archive, refresh trạng thái và xóa hàng loạt trên desktop, mặc định profile MCP, chờ catalog lock trên Windows và cleanup session kiểm thử.

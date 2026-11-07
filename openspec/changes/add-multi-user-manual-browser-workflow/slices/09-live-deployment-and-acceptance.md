@@ -4,7 +4,7 @@
 
 **Position:** the final slice, after implementation slices/sections 1–8 and all offline/CI gates. The implementation agent may prepare scripts, fixtures, and this handoff; it does not perform this slice's live operations.
 
-**Current status:** **INCOMPLETE.** The separate deployment agent completed bounded isolated x86-64 browser/noVNC/isolation/capacity and short 1/5/10-resource checks. Corrected checkpoint `a37cd81` passed actual Back/ordinary-control/cleanup revalidation and 1113 native-enabled non-browser tests. ARM64 follows x86-64 and is pending. Complete source/native-renderer acceptance, production rollout and matched operational restore remain open.
+**Current status:** **INCOMPLETE.** The separate deployment agent completed bounded isolated x86-64 browser/noVNC/isolation/capacity and short 1/5/10-resource checks. Corrected checkpoint `a37cd81` passed actual Back/ordinary-control/cleanup revalidation and 1113 native-enabled non-browser tests. ARM followed x86 and completed bounded dedicated-UID noVNC, authorization and synchronized last-slot checks. x86 non-root confinement is blocked by host policy. Current review work is limited to fork changes; complete original package acceptance, production rollout and matched operational restore remain open.
 
 ## Objective and scope
 

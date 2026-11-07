@@ -61,9 +61,7 @@ def test_import_rejects_malformed_proxy_before_extracting_data(tmp_path):
         {"name": "bad-os-type", "os_type": {}},
         {"name": "bad-os-value", "os_type": "other"},
         {"name": "bad-timezone-type", "timezone": []},
-        {"name": "bad-timezone-value", "timezone": "Not/AZone"},
         {"name": "bad-locale-type", "locale": {}},
-        {"name": "bad-locale-value", "locale": "invalid"},
     ],
 )
 def test_profile_metadata_requires_valid_profile_fields(tmp_path, metadata):

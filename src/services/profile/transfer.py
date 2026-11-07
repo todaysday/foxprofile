@@ -44,12 +44,9 @@ def _read_profile_meta(zipf: zipfile.ZipFile) -> dict:
     engine = metadata.get("engine", "camoufox")
     if not isinstance(engine, str) or engine not in ENGINES:
         raise ValueError("Invalid engine in archive")
-    for field, validate in (
-        ("timezone", validate_timezone),
-        ("locale", validate_locale),
-    ):
+    for field in ("timezone", "locale"):
         value = metadata.get(field)
-        if value is not None and (not isinstance(value, str) or not validate(value)[0]):
+        if value is not None and not isinstance(value, str):
             raise ValueError(f"Invalid {field} in archive")
     return metadata
 

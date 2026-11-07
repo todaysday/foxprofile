@@ -43,6 +43,7 @@ def panel_server():
         block_screenshot=None,
         manual_error=None,
         close_manual=None,
+        close_error=None,
         batch_failure=None,
     )
     profiles = [
@@ -211,6 +212,11 @@ def panel_server():
             if request.method == "DELETE":
                 if state.block_close:
                     await asyncio.to_thread(state.block_close.wait, 5)
+                if state.close_error:
+                    return JSONResponse(
+                        {"detail": {"code": "MANUAL_SESSION_BUSY", "message": state.close_error}},
+                        status_code=409,
+                    )
                 state.manual["state"] = "closed"
                 if state.close_manual:
                     await asyncio.to_thread(state.close_manual)
@@ -544,6 +550,38 @@ def test_manual_failure_restores_ordinary_viewer_and_local_rfb_module(panel_page
     assert sum(request[1].endswith("/keyboard") for request in state.requests) == 1
 
 
+def test_manual_back_updates_status_only_after_successful_close(panel_page):
+    page, state = panel_page
+    login(page, "user")
+    page.get_by_role("button", name="View screen: Fixture A", exact=True).click()
+    page.locator("#manual-open").click()
+    page.locator("#manual-back").wait_for(state="visible")
+    page.locator("#manual-status").evaluate(
+        "element => element.textContent = 'Manual control connected'"
+    )
+    page.locator("#manual-back").click()
+    page.locator("#manual-status").filter(has_text="Manual control ended").wait_for()
+    assert any(
+        request[0] == "DELETE" and request[1] == "ext/manual-sessions/session-1"
+        for request in state.requests
+    )
+
+
+def test_manual_back_preserves_failed_close_error(panel_page):
+    page, state = panel_page
+    login(page, "user")
+    page.get_by_role("button", name="View screen: Fixture A", exact=True).click()
+    state.close_error = "Close failed"
+    page.locator("#manual-open").click()
+    page.locator("#manual-back").wait_for(state="visible")
+    page.locator("#manual-status").evaluate(
+        "element => element.textContent = 'Manual control connected'"
+    )
+    page.locator("#manual-back").click()
+    page.locator("#manual-status").filter(has_text="Manual access is busy").wait_for()
+    assert page.locator("#manual-status").inner_text() != "Manual control ended"
+
+
 def test_native_novnc_input_and_back_preserve_display(panel_page, native, monkeypatch):
     """Real noVNC -> binary WebSocket -> isolated x11vnc/Xvfb, without a browser profile."""
     from tests.test_ext_vnc_backend import XInputProbe, eventually, start
@@ -587,6 +625,7 @@ def test_native_novnc_input_and_back_preserve_display(panel_page, native, monkey
         )
         page.locator("#manual-back").click()
         page.locator("#v-screen").wait_for(state="visible")
+        page.locator("#manual-status").filter(has_text="Manual control ended").wait_for()
         page.wait_for_function("!document.querySelector('#v-screen').src.endsWith('/')")
         assert native.process.poll() is None
         probe.ordinary_click()

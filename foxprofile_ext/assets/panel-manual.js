@@ -37,6 +37,7 @@ export function createManualViewer(ctx) {
       try {
         session ||= await operation.opening;
         await operation.request("DELETE", `/ext/manual-sessions/${encodeURIComponent(session.session_id)}`, { browser_run_id: session.browser_run_id });
+        if (version === generation) status.textContent = t("manual_disconnected");
       } catch (error) {
         if (version === generation && error.status !== 401) status.textContent = error.message;
       } finally {

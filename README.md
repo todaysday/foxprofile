@@ -5,17 +5,14 @@
   <p>Per-profile device fingerprint, cookies and proxy · Two engines: Camoufox (Firefox) and Chrome · English and Vietnamese UI · REST API and MCP for automation</p>
 
   <p>
-    <a href="https://github.com/chienbm98/foxprofile/actions/workflows/ci.yml"><img src="https://github.com/chienbm98/foxprofile/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-    <a href="https://github.com/chienbm98/foxprofile/releases/latest"><img src="https://img.shields.io/github/v/release/chienbm98/foxprofile" alt="Release" /></a>
     <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+" />
-    <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" alt="Windows | macOS | Linux" />
-    <a href="LICENSE"><img src="https://img.shields.io/github/license/chienbm98/foxprofile" alt="MIT License" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/github/license/todaysday/foxprofile" alt="MIT License" /></a>
     <a href="https://buymeacoffee.com/chienbm98"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-%E2%98%95-FFDD00?logo=buymeacoffee&logoColor=black" alt="Buy me a coffee" /></a>
   </p>
 
   <p>English · <a href="README.vi.md">Tiếng Việt</a></p>
   <p>
-    <a href="#quick-start">Quick start</a> ·
+    <a href="#quick-start-basic-mode">Quick start</a> ·
     <a href="#features">Features</a> ·
     <a href="#rest-api">REST API</a> ·
     <a href="#mcp-let-ai-agents-drive-the-browser">MCP</a> ·
@@ -25,20 +22,28 @@
 
 ![FoxProfile](docs/images/en/main.png)
 
-FoxProfile manages anti-detect browser profiles: each profile is a separate identity with its own device fingerprint, cookies, proxy, timezone and locale. The default browser is [Camoufox](https://github.com/daijro/camoufox), a Firefox build that spoofs fingerprints at the engine level; a Chrome engine based on [fingerprint-chromium](https://github.com/adryfish/fingerprint-chromium) is also available. It is a self-hosted alternative, on your machine or a VPS, to paid anti-detect browsers such as GoLogin, GPM or MoreLogin.
+## About this fork
 
-## Support
+This repository is a personal fork of [FoxProfile](https://github.com/chienbm98/foxprofile), maintained under [todaysday/foxprofile](https://github.com/todaysday/foxprofile). The upstream project provides the desktop app, web panel, REST API, MCP server, and Camoufox and Chrome engines. This fork adds an optional protected multi-user server mode and manual noVNC access for supported Linux Camoufox runs. The feature comparison uses upstream baseline [commit `530b993`](https://github.com/chienbm98/foxprofile/commit/530b993ff3a7d211aaa0904fba0817b77c75d4c9).
 
-FoxProfile is free and open source, built in my spare time, and will stay that way. If it saves you time or money, you can buy me a coffee; it goes toward bug fixes, keeping up with upstream browser releases and faster replies on issues.
+| Upstream FoxProfile | This fork |
+| --- | --- |
+| Desktop profile manager, web panel, REST API, MCP, Camoufox and Chrome | Retains the upstream app and adds optional personal accounts, assigned-profile access, managed transfers, and one global active-browser limit (default 10) |
+| Desktop app supports Windows, macOS and Linux | Protected server mode currently targets Linux; manual noVNC access is limited to virtual Camoufox runs |
+
+## Support the upstream project
+
+The coffee link supports the upstream project maintainer at `chienbm98`. It does not fund or represent this personal fork.
 
 <a href="https://buymeacoffee.com/chienbm98"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-%E2%98%95-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy me a coffee" /></a>
 
 ## Contents
 
-- [Support](#support)
+- [About this fork](#about-this-fork)
+- [Support the upstream project](#support-the-upstream-project)
 - [Features](#features)
 - [Requirements](#requirements)
-- [Quick start](#quick-start)
+- [Quick start (basic mode)](#quick-start-basic-mode)
 - [Timezone, locale and Check IP](#timezone-locale-and-check-ip)
 - [Server mode and web panel](#server-mode-and-web-panel)
 - [Protected multi-user mode](#protected-multi-user-mode)
@@ -73,24 +78,40 @@ FoxProfile is free and open source, built in my spare time, and will stay that w
 ## Requirements
 
 - Python 3.10+
-- Windows, macOS or Linux (CI tests all three)
 - A few hundred MB of free disk space for Camoufox and the GeoIP database, plus ~140-190 MB for the Chrome engine if you use it
 
-## Quick start
+## Quick start (basic mode)
+
+This starts the standard desktop app with protected multi-user mode off. For this fork's optional protected server setup, see [Protected multi-user mode](#protected-multi-user-mode) and its [deployment guide](docs/EXTENSION_DEPLOY.md).
 
 ```bash
-git clone https://github.com/chienbm98/foxprofile.git
+git clone --branch codex/openspec-multi-user-manual-browser-workflow https://github.com/todaysday/foxprofile.git
 cd foxprofile
-
 python -m venv .venv
-.venv\Scripts\activate          # Windows
-source .venv/bin/activate       # Linux/macOS
+```
 
+Activate the environment in the terminal you use:
+
+**Windows PowerShell:**
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+**Linux/macOS:**
+
+```bash
+source .venv/bin/activate
+```
+
+Then install the base app and browser:
+
+```bash
 pip install -r requirements.txt
 python -m camoufox fetch
 ```
 
-`camoufox fetch` downloads the Camoufox browser and the checksum-pinned fpgen fingerprint model from their upstream GitHub releases. Prepare both before protected runtimes mount dependencies read-only. The first profile launch also downloads the GeoIP database.
+`camoufox fetch` downloads the Camoufox browser and the checksum-pinned fpgen fingerprint model from their upstream GitHub releases. The first profile launch also downloads the GeoIP database.
 
 Run the app:
 
@@ -140,15 +161,48 @@ Full deployment guide (Ubuntu, systemd, nginx, HTTPS; in Vietnamese): [docs/DEPL
 
 ## Protected multi-user mode
 
-Protected mode is optional and disabled by default. It adds personal admin/user accounts, assigned-profile access, managed transfers and one shared active-browser limit (default 10, including browser-backed helpers). Administrators manage users, assignments and capacity; ordinary users retain the permitted controls for their profiles. The MCP/API service credential remains separate and stays server-side; personal login does not receive it.
+Protected mode is an optional fork addition and is disabled by default. It adds personal admin/user accounts, assigned-profile access, managed transfers and one installation-wide active-browser limit (default 10, including browser-backed helpers). Administrators create accounts, assign profiles and set capacity; ordinary users sign in with personal accounts and can use only their assigned profiles. The MCP/API service credential stays separate on the server; personal logins do not receive it.
 
-On supported Linux Camoufox virtual runs, **Open in noVNC** uses the current Viewer and existing browser/display. One temporary manual session is allowed per installation. **Back** removes manual access, releases held input and restores the ordinary Viewer while preserving the browser. Disconnect detection and cleanup share a maximum 60-second budget (20 seconds detection, 40 seconds cleanup). FoxProfile sends no agent messages, judges no CAPTCHA result and adds no Pause/Resume operation; tell your agent separately when ready. Chrome keeps its authorized management and capacity behavior; manual noVNC is unsupported.
+On supported Linux virtual Camoufox runs, **Open in noVNC** reuses the current Viewer and the already-running browser/display. One temporary manual session is allowed per installation. **Back** removes manual access, releases held input and restores the ordinary Viewer while leaving the browser running. Disconnect detection and cleanup share a maximum 60-second budget (20 seconds detection, 40 seconds cleanup). FoxProfile sends no agent messages, judges no CAPTCHA result and adds no Pause/Resume operation; tell your agent separately when ready. Chrome keeps its authorized management and capacity behavior; manual noVNC is unsupported.
 
-Activation requires the optional Python dependencies, a migrated sidecar database and local first-admin bootstrap. Linux runtime additionally needs verified browser builds, bubblewrap, Xvfb/xauth, a pinned x11vnc binary and same-origin HTTPS/WSS. Use one lifecycle manager and one ASGI worker per installation. Set `FOXPROFILE_EXT_ENABLED=true` and `FOXPROFILE_HEADLESS=virtual` before startup; follow the complete configuration, secret delivery and backup/restore steps in [the protected deployment guide](docs/EXTENSION_DEPLOY.md), rather than adding these settings to an existing working dataset without migration.
+Set up protected mode in this order:
 
-A packaged disposable fixture supplies admin0/A/B, separate service access, 11 profiles and a controlled input page; see [staging smoke instructions](docs/EXTENSION_ACCEPTANCE.md).
+1. Install the optional Python dependencies in the dedicated environment:
 
-New protected Camoufox profiles default to Linux; saved identities and geometry are preserved, including `humanize=True`. The exact release candidate passed 1049 offline tests with native-X and UI fixtures enabled; distributions and all 92 retained dependency wheels are verified. Actual Camoufox/Chrome proxy, WebRTC, persistence, geometry and ARM64/x86-64 live acceptance remain **NOT RUN**; deployment is assigned to a separate final agent. See [implementation evidence and deployment handoff](openspec/changes/add-multi-user-manual-browser-workflow/references/implementation-handoff.md).
+   ```bash
+   pip install -r requirements-extension.txt
+   ```
+
+2. Prepare the Linux host and private service configuration.
+
+   - Install and verify browser builds and model data, bubblewrap with working user/PID namespaces, Xvfb, xauth, tzdata, and an x11vnc binary whose SHA-256 you verified independently. Configure same-origin HTTPS/WSS.
+   - Copy `deploy/extension/runtime.env.example` and `deploy/extension/secrets.env.example` to a private service config directory (directory mode `0700`, files `0600`). These are templates, not ready-to-run deployment files: resolve every path and `LOCKED_COMMIT`, and replace the x11vnc digest placeholder with the verified hash.
+   - Set the following in `runtime.env` before Python imports `src.core.config`:
+
+   ```dotenv
+   FOXPROFILE_EXT_ENABLED=true
+   FOXPROFILE_EXT_DB=/srv/foxprofile-extension/state.sqlite3
+   FOXPROFILE_DATA_DIR=/srv/foxprofile-extension/profiles
+   FOXPROFILE_PROFILES_FILE=/srv/foxprofile-extension/catalog.json
+   FOXPROFILE_HEADLESS=virtual
+   ```
+
+   The paths above come from the shipped template and must be resolved for your host. Set `FOXPROFILE_API_TOKEN` in the separate private `secrets.env` file.
+
+3. Follow the [protected deployment guide](docs/EXTENSION_DEPLOY.md) for clean installation or existing-data migration. An existing dataset requires the guide's complete stopped, backup, staging, and production-migration sequence. Do not enable protected mode on live or unmigrated data, or disable it to operate on managed data. When the guide reaches first-admin bootstrap, set `FOXPROFILE_EXT_DB` in a local interactive terminal to the same resolved path from `runtime.env`:
+
+   ```bash
+   export FOXPROFILE_EXT_DB=/srv/foxprofile-extension/state.sqlite3
+   python -m foxprofile_ext.bootstrap \
+     --database "$FOXPROFILE_EXT_DB" \
+     --username admin0
+   ```
+
+   The command prompts for the password and confirmation; it does not take a password argument.
+
+4. Start the resolved single-manager service using `deploy/extension/foxprofile-extension.service.example`; its command runs `python -m src.server`. Keep one lifecycle manager and one ASGI worker per installation. Open the configured HTTPS web panel, sign in as the administrator, then create accounts, assign profiles, and set capacity.
+
+Current live acceptance is partial: selected authentication and noVNC checks passed on Linux x86-64 and ARM64; full isolation and failure-handling acceptance remains open. See the [implementation handoff](openspec/changes/add-multi-user-manual-browser-workflow/references/implementation-handoff.md) and [open work list](openspec/TODO.md) for current evidence and remaining work.
 
 ## MCP: let AI agents drive the browser
 
@@ -277,7 +331,7 @@ Prefix `/api/v1`. The full reference is at `/docs` while the app is running.
 | `POST` / `DELETE` | `/browser/{name}/page/tabs/{index}/select` · `/page/tabs/{index}` | Select / close a tab |
 | `GET` | `/mcp/setup?base_url=...` | MCP configs for each AI app (used by the Connect AI dialog) |
 
-With `FOXPROFILE_API_TOKEN` set, every request except `/health` and `/info` needs `Authorization: Bearer <token>`.
+When `FOXPROFILE_API_TOKEN` is configured, trusted service clients use `Authorization: Bearer <token>` for protected REST data routes; `/health` and `/info` remain public. In basic mode, this shared token also protects the web panel and MCP. In protected mode, people use personal panel accounts and sessions with CSRF protection; the service credential stays in `secrets.env` for trusted API/MCP clients and is not given to users.
 
 Examples:
 
@@ -310,12 +364,12 @@ Project layout, code conventions and the PR process are in [CONTRIBUTING.md](CON
 
 Contributions of all kinds are welcome: bug reports, feature ideas, docs, translations and code.
 
-- Bugs and ideas: open an [issue](https://github.com/chienbm98/foxprofile/issues/new/choose) from a template.
+- Upstream bugs and ideas: open an [issue](https://github.com/chienbm98/foxprofile/issues/new/choose) from a template.
 - Code: read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 - Security issues: **do not** open a public issue, see [SECURITY.md](SECURITY.md).
 - Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
-If FoxProfile is useful to you, consider giving it a ⭐ on GitHub.
+If the upstream project is useful to you, consider giving it a ⭐ on GitHub.
 
 ## Responsible use
 
@@ -327,6 +381,7 @@ Released under the [MIT License](LICENSE). Copyright (c) 2026 chienbm98.
 
 ## Acknowledgements
 
+- [FoxProfile](https://github.com/chienbm98/foxprofile) by chienbm98, the upstream project this fork builds on.
 - The [Camoufox](https://github.com/daijro/camoufox) browser by daijro.
 - [fingerprint-chromium](https://github.com/adryfish/fingerprint-chromium) by adryfish for the Chrome engine (BSD-3).
 - The [Be Vietnam Pro](https://github.com/bettergui/BeVietnamPro) and [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) fonts, SIL Open Font License (`src/assets/fonts/`).

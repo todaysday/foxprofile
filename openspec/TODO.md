@@ -2,9 +2,10 @@
 
 ## `add-multi-user-manual-browser-workflow`
 
+- [x] Clarify upstream provenance, fork additions, basic versus protected setup and current support limits in the English and Vietnamese READMEs; verify local navigation and documented shell examples.
 - [x] Complete implementation and offline verification slices 1–8. Immutable candidate `d20bf661a7fff42211dff0d62fe21c88746393e5`: 1049 passed, 24 browser tests deselected; release artifacts and installed distributions verified.
 - [x] Hand off to a separate deployment agent. IND901 accepted the verified offline delivery; independent UI correction review passed six Chromium cases.
-- [ ] Complete slice 9 on the selected ARM64/x86-64 hosts, in user-selected order: x86-64 first, then ARM64. Bounded real x86 browser/manual/isolation/capacity and short resource checks are complete after source corrections; ARM staging follows. Pinned-model cold launch is verified on x86; complete two-host source acceptance remains pending. Keep actual host/access/configuration details outside Git.
+- [ ] Complete slice 9 on the selected ARM64/x86-64 hosts, in user-selected order: x86-64 first, then ARM64. Bounded fork authorization/noVNC checks ran on both hosts; ARM synchronized last-slot admission and native file-read boundaries were verified. x86 non-root confinement, ARM native save/process-environment checks and remaining manual-failure assertions stay open. Keep actual host/access/configuration details outside Git.
 - [ ] Keep live acceptance open and do not archive this change until required acceptance is complete.
 - [x] Finish compatibility/startup gates, protected gateway composition, web/Flet integration, distribution verification and the offline deployment handoff.
 - [x] Verify CI dependency installation and separate Linux native contracts from portable checks. Fresh-environment categories passed (163 passed, 18 opt-in skips); the native selection passed 89 without skips. Windows/macOS and Python 3.10 execution remains unverified locally.

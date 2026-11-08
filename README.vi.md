@@ -5,17 +5,14 @@
   <p>Mỗi profile có fingerprint thiết bị, cookie và proxy riêng · Hai engine: Camoufox (Firefox) và Chrome · Giao diện tiếng Anh và tiếng Việt · REST API và MCP cho tự động hóa</p>
 
   <p>
-    <a href="https://github.com/chienbm98/foxprofile/actions/workflows/ci.yml"><img src="https://github.com/chienbm98/foxprofile/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-    <a href="https://github.com/chienbm98/foxprofile/releases/latest"><img src="https://img.shields.io/github/v/release/chienbm98/foxprofile" alt="Release" /></a>
     <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+" />
-    <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" alt="Windows | macOS | Linux" />
-    <a href="LICENSE"><img src="https://img.shields.io/github/license/chienbm98/foxprofile" alt="MIT License" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/github/license/todaysday/foxprofile" alt="MIT License" /></a>
     <a href="https://buymeacoffee.com/chienbm98"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-%E2%98%95-FFDD00?logo=buymeacoffee&logoColor=black" alt="Buy me a coffee" /></a>
   </p>
 
   <p><a href="README.md">English</a> · Tiếng Việt</p>
   <p>
-    <a href="#bắt-đầu-nhanh">Bắt đầu nhanh</a> ·
+    <a href="#bắt-đầu-nhanh-chế-độ-cơ-bản">Bắt đầu nhanh</a> ·
     <a href="#tính-năng">Tính năng</a> ·
     <a href="#rest-api">REST API</a> ·
     <a href="#mcp-cho-ai-điều-khiển-trình-duyệt">MCP</a> ·
@@ -25,20 +22,28 @@
 
 ![FoxProfile](docs/images/main.png)
 
-FoxProfile quản lý các profile trình duyệt chống phát hiện: mỗi profile là một danh tính riêng với fingerprint thiết bị, cookie, proxy, timezone và locale của nó. Trình duyệt mặc định là [Camoufox](https://github.com/daijro/camoufox), một bản Firefox được chỉnh sửa ở tầng mã nguồn để giả lập fingerprint; ngoài ra có engine Chrome dựa trên [fingerprint-chromium](https://github.com/adryfish/fingerprint-chromium). FoxProfile là lựa chọn tự host, chạy trên máy bạn hoặc VPS, thay cho các antidetect browser trả phí như GoLogin, GPM hay MoreLogin.
+## Về fork này
 
-## Ủng hộ
+Đây là fork cá nhân của [FoxProfile](https://github.com/chienbm98/foxprofile), được duy trì tại [todaysday/foxprofile](https://github.com/todaysday/foxprofile). Dự án upstream cung cấp desktop app, web panel, REST API, MCP server cùng engine Camoufox và Chrome. Fork này bổ sung protected multi-user server mode tùy chọn và truy cập noVNC thủ công cho các lượt Camoufox được hỗ trợ trên Linux. So sánh tính năng dựa trên upstream baseline [commit `530b993`](https://github.com/chienbm98/foxprofile/commit/530b993ff3a7d211aaa0904fba0817b77c75d4c9).
 
-FoxProfile miễn phí, mã nguồn mở, được làm vào thời gian rảnh và sẽ luôn như vậy. Nếu nó tiết kiệm cho bạn thời gian hay chi phí, bạn có thể mời mình một ly cà phê; cà phê sẽ thành bug fix, cập nhật theo bản mới của Camoufox và Chrome, và trả lời issue nhanh hơn.
+| FoxProfile upstream | Fork này |
+| --- | --- |
+| Desktop profile manager, web panel, REST API, MCP, Camoufox và Chrome | Giữ ứng dụng upstream, bổ sung tài khoản cá nhân, quyền profile được gán, managed transfer và một giới hạn browser đang chạy dùng chung (mặc định 10) |
+| Desktop app hỗ trợ Windows, macOS và Linux | Protected server mode hiện dành cho Linux; noVNC thủ công chỉ dùng với virtual Camoufox |
+
+## Ủng hộ dự án upstream
+
+Link mời cà phê hỗ trợ maintainer upstream tại `chienbm98`. Link này không tài trợ hay đại diện cho fork cá nhân này.
 
 <a href="https://buymeacoffee.com/chienbm98"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-%E2%98%95-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy me a coffee" /></a>
 
 ## Mục lục
 
-- [Ủng hộ](#ủng-hộ)
+- [Về fork này](#về-fork-này)
+- [Ủng hộ dự án upstream](#ủng-hộ-dự-án-upstream)
 - [Tính năng](#tính-năng)
 - [Yêu cầu](#yêu-cầu)
-- [Bắt đầu nhanh](#bắt-đầu-nhanh)
+- [Bắt đầu nhanh (chế độ cơ bản)](#bắt-đầu-nhanh-chế-độ-cơ-bản)
 - [Timezone, locale và Kiểm tra IP](#timezone-locale-và-kiểm-tra-ip)
 - [Chế độ server và web panel](#chế-độ-server-và-web-panel)
 - [Chế độ multi-user được bảo vệ](#chế-độ-multi-user-được-bảo-vệ)
@@ -73,24 +78,40 @@ FoxProfile miễn phí, mã nguồn mở, được làm vào thời gian rảnh 
 ## Yêu cầu
 
 - Python 3.10 trở lên
-- Windows, macOS hoặc Linux (CI chạy test trên cả ba)
 - Vài trăm MB dung lượng trống cho Camoufox và cơ sở dữ liệu GeoIP, thêm ~140-190 MB nếu dùng engine Chrome
 
-## Bắt đầu nhanh
+## Bắt đầu nhanh (chế độ cơ bản)
+
+Cách này chạy desktop app tiêu chuẩn, protected multi-user mode vẫn tắt. Để cấu hình protected server tùy chọn của fork, xem [Chế độ multi-user được bảo vệ](#chế-độ-multi-user-được-bảo-vệ) và [hướng dẫn triển khai](docs/EXTENSION_DEPLOY.vi.md).
 
 ```bash
-git clone https://github.com/chienbm98/foxprofile.git
+git clone --branch codex/openspec-multi-user-manual-browser-workflow https://github.com/todaysday/foxprofile.git
 cd foxprofile
-
 python -m venv .venv
-.venv\Scripts\activate          # Windows
-source .venv/bin/activate       # Linux/macOS
+```
 
+Kích hoạt môi trường bằng terminal bạn đang dùng:
+
+**Windows PowerShell:**
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+**Linux/macOS:**
+
+```bash
+source .venv/bin/activate
+```
+
+Cài ứng dụng cơ bản và browser:
+
+```bash
 pip install -r requirements.txt
 python -m camoufox fetch
 ```
 
-`camoufox fetch` tải browser Camoufox và model fingerprint fpgen được khóa checksum từ GitHub release upstream tương ứng. Chuẩn bị cả hai trước khi protected runtime mount dependency ở chế độ chỉ đọc. Lần mở profile đầu tiên tải thêm cơ sở dữ liệu GeoIP.
+`camoufox fetch` tải browser Camoufox và model fingerprint fpgen được khóa checksum từ GitHub release upstream tương ứng. Lần mở profile đầu tiên tải thêm cơ sở dữ liệu GeoIP.
 
 Chạy ứng dụng:
 
@@ -140,15 +161,48 @@ Hướng dẫn triển khai đầy đủ (Ubuntu, systemd, nginx, HTTPS): [docs/
 
 ## Chế độ multi-user được bảo vệ
 
-Chế độ được bảo vệ là tùy chọn, mặc định tắt. Chế độ này thêm tài khoản cá nhân admin/user, quyền truy cập profile được gán, managed transfer và một giới hạn trình duyệt đang hoạt động dùng chung (mặc định 10, gồm cả browser-backed helper). Admin quản lý user, assignment và capacity; user thường giữ các thao tác được phép trên profile của mình. Service credential cho MCP/API được tách riêng, chỉ giữ phía server; đăng nhập cá nhân không nhận token này.
+Protected mode là tính năng fork bổ sung, tùy chọn và mặc định tắt. Chế độ này thêm tài khoản cá nhân admin/user, quyền truy cập profile được gán, managed transfer và một giới hạn browser đang chạy dùng chung cho installation (mặc định 10, gồm cả browser-backed helper). Admin tạo tài khoản, gán profile và đặt capacity; user thường đăng nhập bằng tài khoản riêng, chỉ dùng profile được gán. Service credential cho MCP/API được giữ riêng ở server; đăng nhập cá nhân không nhận credential này.
 
-Với Camoufox virtual run được hỗ trợ trên Linux, **Mở trong noVNC** dùng Viewer hiện tại và browser/display đang chạy. Mỗi installation chỉ có một manual session tạm thời. **Quay lại** đóng quyền điều khiển thủ công, nhả phím/nút đang giữ và khôi phục Viewer thường, đồng thời giữ browser. Phát hiện mất kết nối và cleanup dùng chung tối đa 60 giây (20 giây phát hiện, 40 giây cleanup). FoxProfile không gửi thông điệp cho agent, không đánh giá kết quả CAPTCHA và không thêm Pause/Resume; hãy tự báo agent khi sẵn sàng. Chrome giữ các thao tác quản lý được cấp quyền và capacity; chưa hỗ trợ noVNC thủ công.
+Với virtual Camoufox run được hỗ trợ trên Linux, **Mở trong noVNC** dùng Viewer hiện tại cùng browser/display đang chạy. Mỗi installation chỉ có một manual session tạm thời. **Quay lại** đóng quyền điều khiển thủ công, nhả phím/nút đang giữ và khôi phục Viewer thường, đồng thời để browser tiếp tục chạy. Phát hiện mất kết nối và cleanup dùng chung tối đa 60 giây (20 giây phát hiện, 40 giây cleanup). FoxProfile không gửi thông điệp cho agent, không đánh giá kết quả CAPTCHA và không thêm Pause/Resume; hãy tự báo agent khi sẵn sàng. Chrome vẫn có các thao tác quản lý được cấp quyền và capacity; chưa hỗ trợ noVNC thủ công.
 
-Để bật, cần cài Python dependency tùy chọn, migrate sidecar database và bootstrap admin đầu tiên ngay trên server. Linux runtime còn cần browser build đã xác minh, bubblewrap, Xvfb/xauth, x11vnc được ghim hash và HTTPS/WSS cùng origin. Mỗi installation chỉ dùng một lifecycle manager và một ASGI worker. Đặt `FOXPROFILE_EXT_ENABLED=true` và `FOXPROFILE_HEADLESS=virtual` trước startup; làm theo đầy đủ bước cấu hình, cấp secret và backup/restore trong [hướng dẫn triển khai được bảo vệ](docs/EXTENSION_DEPLOY.vi.md), không tự thêm cấu hình vào dataset đang hoạt động khi chưa migrate.
+Thiết lập protected mode theo thứ tự sau:
 
-Fixture dùng một lần được đóng gói sẵn gồm admin0/A/B, service access riêng, 11 profile và trang kiểm tra input; xem [hướng dẫn staging smoke](docs/EXTENSION_ACCEPTANCE.vi.md).
+1. Cài Python dependency tùy chọn trong environment riêng:
 
-Camoufox profile mới trong chế độ được bảo vệ mặc định dùng Linux; identity và geometry đã lưu được giữ nguyên, gồm `humanize=True`. Release candidate chính xác đã đạt 1049 kiểm thử offline, bật fixture native-X và UI; distribution cùng 92 dependency wheel được lưu giữ và đã xác minh. Live acceptance cho Camoufox/Chrome thật về proxy, WebRTC, persistence, geometry và hai host ARM64/x86-64 vẫn **NOT RUN**; một agent riêng phụ trách triển khai cuối cùng. Xem [bằng chứng triển khai và handoff](openspec/changes/add-multi-user-manual-browser-workflow/references/implementation-handoff.md).
+   ```bash
+   pip install -r requirements-extension.txt
+   ```
+
+2. Chuẩn bị Linux host và service configuration riêng tư.
+
+   - Cài và xác minh browser build, model, bubblewrap với user/PID namespace hoạt động, Xvfb, xauth, tzdata và binary x11vnc có SHA-256 đã xác minh độc lập. Cấu hình HTTPS/WSS cùng origin.
+   - Copy `deploy/extension/runtime.env.example` và `deploy/extension/secrets.env.example` vào thư mục config service riêng tư (thư mục mode `0700`, file `0600`). Đây là template, chưa dùng deploy trực tiếp được: resolve mọi path và `LOCKED_COMMIT`, thay digest placeholder của x11vnc bằng hash đã xác minh.
+   - Đặt các giá trị sau trong `runtime.env` trước khi Python import `src.core.config`:
+
+   ```dotenv
+   FOXPROFILE_EXT_ENABLED=true
+   FOXPROFILE_EXT_DB=/srv/foxprofile-extension/state.sqlite3
+   FOXPROFILE_DATA_DIR=/srv/foxprofile-extension/profiles
+   FOXPROFILE_PROFILES_FILE=/srv/foxprofile-extension/catalog.json
+   FOXPROFILE_HEADLESS=virtual
+   ```
+
+   Path trên lấy từ template đã đóng gói, cần thay bằng path thực của host. Đặt `FOXPROFILE_API_TOKEN` trong file `secrets.env` riêng tư.
+
+3. Xem [hướng dẫn triển khai protected](docs/EXTENSION_DEPLOY.vi.md) để chọn flow cài mới hoặc migrate dữ liệu hiện có. Dataset hiện tại phải đi qua đầy đủ các bước dừng, backup, staging và production migration trong hướng dẫn. Không bật protected mode trên dữ liệu đang chạy hoặc chưa migrate, và không tắt mode này để thao tác trên dữ liệu đã quản lý. Khi tới bước bootstrap admin đầu tiên, đặt `FOXPROFILE_EXT_DB` trong local interactive terminal thành cùng path đã resolve trong `runtime.env`:
+
+   ```bash
+   export FOXPROFILE_EXT_DB=/srv/foxprofile-extension/state.sqlite3
+   python -m foxprofile_ext.bootstrap \
+     --database "$FOXPROFILE_EXT_DB" \
+     --username admin0
+   ```
+
+   Thay path mẫu bằng giá trị thực trong `runtime.env`. Lệnh yêu cầu terminal tương tác, sẽ hỏi password và nhập lại để xác nhận; không truyền password qua argument.
+
+4. Khởi động service một manager đã resolve từ `deploy/extension/foxprofile-extension.service.example`; service chạy `python -m src.server`. Mỗi installation chỉ dùng một lifecycle manager và một ASGI worker. Mở web panel qua HTTPS đã cấu hình, đăng nhập bằng admin, tạo tài khoản, gán profile và đặt capacity.
+
+Live acceptance hiện mới hoàn tất một phần: một số kiểm tra authentication và noVNC đã PASS trên Linux x86-64 và ARM64; kiểm tra isolation đầy đủ và failure handling vẫn đang mở. Xem [implementation handoff](openspec/changes/add-multi-user-manual-browser-workflow/references/implementation-handoff.md) và [danh sách việc còn mở](openspec/TODO.md) để biết chứng cứ mới nhất.
 
 ## MCP: cho AI điều khiển trình duyệt
 
@@ -277,7 +331,7 @@ Tiền tố: `/api/v1`. Xem đầy đủ tại `/docs` khi ứng dụng đang ch
 | `POST` / `DELETE` | `/browser/{name}/page/tabs/{index}/select` · `/page/tabs/{index}` | Chọn / đóng tab |
 | `GET` | `/mcp/setup?base_url=...` | Cấu hình MCP cho từng ứng dụng AI (dùng bởi hộp thoại Kết nối AI) |
 
-Khi có `FOXPROFILE_API_TOKEN`, mọi request (trừ `/health` và `/info`) phải gửi header `Authorization: Bearer <token>`.
+Khi cấu hình `FOXPROFILE_API_TOKEN`, trusted service client dùng `Authorization: Bearer <token>` cho protected REST data route; `/health` và `/info` vẫn public. Ở chế độ cơ bản, token dùng chung này cũng bảo vệ web panel và MCP. Trong protected mode, người dùng panel đăng nhập bằng tài khoản và session riêng có CSRF protection; service credential được giữ trong `secrets.env` cho API/MCP client đáng tin cậy, không cấp cho người dùng.
 
 Ví dụ:
 
@@ -310,12 +364,12 @@ Cấu trúc thư mục, quy ước code và quy trình gửi PR nằm trong [CON
 
 Mọi đóng góp đều được chào đón: báo lỗi, đề xuất tính năng, sửa tài liệu, dịch thuật hay viết code.
 
-- Báo lỗi hoặc đề xuất: mở [issue](https://github.com/chienbm98/foxprofile/issues/new/choose) theo mẫu.
+- Báo lỗi upstream hoặc đề xuất: mở [issue](https://github.com/chienbm98/foxprofile/issues/new/choose) theo mẫu.
 - Gửi code: đọc [CONTRIBUTING.md](CONTRIBUTING.md) trước khi mở Pull Request.
 - Lỗ hổng bảo mật: **không** mở issue công khai, xem [SECURITY.md](SECURITY.md).
 - Mọi người tham gia cần tuân theo [Quy tắc ứng xử](CODE_OF_CONDUCT.md).
 
-Nếu FoxProfile có ích với bạn, hãy cho dự án một ⭐ trên GitHub.
+Nếu dự án upstream có ích với bạn, hãy cho dự án một ⭐ trên GitHub.
 
 ## Lưu ý sử dụng
 
@@ -327,6 +381,7 @@ Phát hành theo [giấy phép MIT](LICENSE). Copyright (c) 2026 chienbm98.
 
 ## Ghi công
 
+- [FoxProfile](https://github.com/chienbm98/foxprofile) của chienbm98, dự án upstream mà fork này kế thừa.
 - Trình duyệt [Camoufox](https://github.com/daijro/camoufox) của daijro.
 - [fingerprint-chromium](https://github.com/adryfish/fingerprint-chromium) của adryfish cho engine Chrome (BSD-3).
 - Font [Be Vietnam Pro](https://github.com/bettergui/BeVietnamPro) và [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono), giấy phép SIL Open Font License (`src/assets/fonts/`).

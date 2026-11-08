@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### Changed / Thay đổi
+- Clarified fork provenance, added features, installation and protected-mode setup in both READMEs. / Làm rõ nguồn gốc fork, tính năng bổ sung, cách cài đặt và cấu hình chế độ được bảo vệ trong cả hai README.
+
 ### Fixed / Sửa
 - Returning from noVNC updates the connection status after successful cleanup and preserves connection and close errors. / Khi trở lại từ noVNC, trạng thái kết nối được cập nhật sau cleanup thành công và lỗi kết nối hoặc đóng vẫn được giữ lại.
 - Protected browser controls use the existing authenticated core control header. / Điều khiển browser được bảo vệ dùng header xác thực hiện có của core.

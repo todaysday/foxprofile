@@ -78,7 +78,7 @@ scope, choose subsequent phases, or become a permanent role owner. Return oversi
 packages for splitting. The parent retains project-wide decisions and final acceptance.
 
 Select configured presets explicitly: luna-max for very complex work,
-luna-xhigh for medium, luna-low for simple. Limit nesting to parent -> lead ->
+luna-xhigh for medium, luna-high for bounded coding, luna-low for simple. Limit nesting to parent -> lead ->
 workers. Workers execute; they do not spawn more agents. If nested spawning
 is unavailable, the parent assigns the proposed workers directly.
 

@@ -118,7 +118,8 @@ not evidence of success.
 Minimize internal messages in both directions at every level: parent <-> lead,
 supervisor <-> worker, and peers. Put all known inputs, constraints, authority,
 and acceptance criteria in the initial brief so execution needs no conversation.
-Include this communication rule in every delegated brief.
+Include this communication rule in every delegated brief. Require subagents to write
+final summaries in English to reduce token use, unless the user requests otherwise.
 
 After assignment, send only a decision or dependency the recipient must act on,
 a material correction, an explicit request/grant required by this workflow, or

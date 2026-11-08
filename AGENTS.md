@@ -128,7 +128,7 @@ notification as delivery; do not duplicate it in a separate message.
 
 Prefer small, bounded subagent tasks with clear outputs. Explicitly select
 configured presets: luna-max(fast) for very complex work, luna-xhigh(fast) for
-medium, luna-high(fast) for bounded coding tasks needing high reasoning,
+medium, luna-high(fast) for bounded coding tasks,
 luna-low(fast) for simple work. Do obvious, known one-line fixes yourself unless
 already delegated. Reuse only for corrections or direct continuation requiring
 prior context, with a known, still-appropriate preset. Matching role/project is

@@ -95,6 +95,11 @@ establish baseline/ownership when relevant; do not assume all dirty state was
 preexisting.
 
 Parallelize only independent work; never run competing edits to the same files.
+
+After delegation, wait for the agent’s result using notifications or a wait tool.
+Do not investigate, implement, or repeatedly check the assigned work while the
+agent is running. Work only on independent tasks required by the current request.
+If none are available, wait. Review the result and evidence after delivery.
 Use notifications/wait tools, not status polling. Blocked agents save progress,
 report the exact dependency, and end their turn; their supervisor owns continuation.
 If work reveals a new independent subsystem, acceptance expansion, or a stall

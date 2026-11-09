@@ -27,7 +27,8 @@ impose a universal coding sequence or fixed full-suite count. Archive only
 completed changes, then check the resulting living spec when OpenSpec applies.
 
 Read only the context needed to decide and coordinate. Delegate investigation,
-implementation, fixes, testing, and documentation; do not execute task work yourself.
+implementation, fixes, testing, and documentation. An orchestrator or lead may
+make an obvious, known, unassigned fix directly if it takes one tool call.
 
 Before delegating, define a small package: concrete outcome, scope, inputs,
 acceptance evidence, and stop condition. Split independent outcomes yourself.
@@ -69,7 +70,7 @@ needs coordinated workers, such as one bounded change with validation and fixes.
 The lead decomposes locally, assigns bounded work to workers, manages dependencies
 and corrections, inspects delivered changes and evidence, and reports one verified
 outcome. Leads delegate implementation, fixes, test execution, and documentation
-to workers; they do not execute task work themselves. Never duplicate assigned work or use the exception as a fallback when slots
+to workers, except for the one-tool-call fix described above. Never duplicate assigned work or use the exception as a fallback when slots
 are lacking or a worker is blocked: request worker budget from the parent and await its
 grant while continuing permitted coordination and acceptance work. Do not expand
 scope, choose subsequent phases, or become a permanent role owner. Return oversized
@@ -96,7 +97,8 @@ Parallelize only independent work; never run competing edits to the same files.
 
 After delegation, continue coordinating and launch other independent tasks within
 the available budget. Read context only when needed for decisions or coordination;
-do not perform task work or duplicate an agent’s work. When no coordination or
+do not duplicate an agent’s work or perform task work beyond the one-call exception.
+When no coordination or
 launch is needed, wait for results using notifications or a wait tool. Review the
 result and evidence after delivery.
 Use notifications/wait tools, not status polling. Blocked agents save progress,

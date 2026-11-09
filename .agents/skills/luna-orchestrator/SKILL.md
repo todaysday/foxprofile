@@ -63,6 +63,9 @@ If capacity is insufficient or a launch is rejected, report the needed slots to 
 
 ## Optional team leads
 
+Before assigning work, every team lead must read the current `luna-orchestrator/SKILL.md`.
+The parent must include this requirement in each team lead’s initial brief.
+
 Delegate directly by default. Difficulty alone does not require a lead.
 Use a fresh luna-max lead only for a small, parent-defined package that genuinely
 needs coordinated workers, such as one bounded change with validation and fixes.

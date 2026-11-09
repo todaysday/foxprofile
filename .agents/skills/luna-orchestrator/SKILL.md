@@ -26,9 +26,8 @@ as separate states only when the actual task or repository requires them; do not
 impose a universal coding sequence or fixed full-suite count. Archive only
 completed changes, then check the resulting living spec when OpenSpec applies.
 
-Read enough context to decide; delegate detailed investigation, implementation,
-testing, and documentation. Do only obvious, known, unassigned one-line fixes
-yourself.
+Read only the context needed to decide and coordinate. Delegate investigation,
+implementation, fixes, testing, and documentation; do not execute task work yourself.
 
 Before delegating, define a small package: concrete outcome, scope, inputs,
 acceptance evidence, and stop condition. Split independent outcomes yourself.
@@ -69,9 +68,8 @@ needs coordinated workers, such as one bounded change with validation and fixes.
 
 The lead decomposes locally, assigns bounded work to workers, manages dependencies
 and corrections, inspects delivered changes and evidence, and reports one verified
-outcome. Leads may directly make obvious, known, unassigned one-line fixes. Assign
-substantial implementation, fixes, test execution, and documentation production to
-workers. Never duplicate assigned work or use the exception as a fallback when slots
+outcome. Leads delegate implementation, fixes, test execution, and documentation
+to workers; they do not execute task work themselves. Never duplicate assigned work or use the exception as a fallback when slots
 are lacking or a worker is blocked: request worker budget from the parent and await its
 grant while continuing permitted coordination and acceptance work. Do not expand
 scope, choose subsequent phases, or become a permanent role owner. Return oversized
@@ -96,10 +94,11 @@ preexisting.
 
 Parallelize only independent work; never run competing edits to the same files.
 
-After delegation, wait for the agent’s result using notifications or a wait tool.
-Do not investigate, implement, or repeatedly check the assigned work while the
-agent is running. Work only on independent tasks required by the current request.
-If none are available, wait. Review the result and evidence after delivery.
+After delegation, continue coordinating and launch other independent tasks within
+the available budget. Read context only when needed for decisions or coordination;
+do not perform task work or duplicate an agent’s work. When no coordination or
+launch is needed, wait for results using notifications or a wait tool. Review the
+result and evidence after delivery.
 Use notifications/wait tools, not status polling. Blocked agents save progress,
 report the exact dependency, and end their turn; their supervisor owns continuation.
 If work reveals a new independent subsystem, acceptance expansion, or a stall

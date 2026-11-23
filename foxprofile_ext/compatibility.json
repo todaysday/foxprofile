@@ -5,10 +5,10 @@
     "version": "2.4.0"
   },
   "candidate": {
-    "commit": null,
-    "status": "uncommitted-draft",
+    "commit": "6ce14e0ed9a821ce4cb59383f0a7f1cb56a488fe",
+    "status": "locked",
     "review_base": "ed68c3b69c745f27f25109e966a94901c6b9c7f2",
-    "note": "Reviewed runtime fixes passed the integrated suite. The source checkpoint and matching distribution digests are locked by the following metadata-only evidence commit; historical release inputs remain separate."
+    "note": "Immutable reviewed runtime-source checkpoint. This later evidence commit changes the compatibility register and review records, with no executable or test source change. Available offline regression passes; native and deployed two-host acceptance remain open."
   },
   "schema": {
     "version": 6,
@@ -34,7 +34,7 @@
       },
       {
         "command": "python tools/check_extension_compatibility.py",
-        "result": "PASS: 84 route/method entries, 94 hooks, 42 launch callsites."
+        "result": "PASS: 84 route/method entries, 94 hooks, 42 launch callsites. Final locked-register log SHA-256 5f4af1e0da078f5ce486e7e587c7de920e0674e091937e0b3ab8ba1974f6c06f"
       },
       {
         "command": "python tools/check_extension_compatibility.py --rehearse",
@@ -47,11 +47,20 @@
       {
         "command": "git diff --check",
         "result": "PASS."
+      },
+      {
+        "command": "setuptools.build_meta.build_sdist / build_wheel; isolated pip install --no-index --no-deps --no-compile",
+        "result": "PASS: fresh git archive of 6ce14e0ed9a821ce4cb59383f0a7f1cb56a488fe; 239 runtime payload files match in wheel, sdist and isolated installation. Artifact allowlists also pass."
+      },
+      {
+        "command": "python -m pytest -q tests/test_ext_compatibility_gate.py tests/test_ext_compatibility.py tests/test_ext_packaging.py",
+        "result": "39 passed, 3 warnings in 41.75s; final locked metadata, archive payload, sdist rebuild and isolated install checks pass. Log SHA-256 dcd73a569a01df32d1ee1ff3904e108f1c1ecd8c812280e4a1099fe2b7d7bc08"
       }
     ],
     "integrated_log_sha256": "996536ce5d6c535c141d4b1e22453b021f472706110999ddd9d6b5477f12ec51",
     "limits": "64 prerequisite skips: 44 Chromium DOM/module cases and 20 native/confinement cases. 24 actual Chromium-engine cases deselected. Local trusted TLS and filesystem faults do not establish deployed two-host or physical power-loss acceptance.",
-    "integration_corrections": "The initial integrated run exposed an incomplete runtime fixture and invalid candidate status. The metadata follow-up also corrected the new hook baseline to the common upstream baseline. Production behavior and assertions were preserved; 9 targeted checks and the definitive integrated rerun passed."
+    "integration_corrections": "The initial integrated run exposed an incomplete runtime fixture and invalid candidate status. The metadata follow-up also corrected the new hook baseline to the common upstream baseline. Production behavior and assertions were preserved; 9 targeted checks and the definitive integrated rerun passed.",
+    "runtime_source_checkpoint": "6ce14e0ed9a821ce4cb59383f0a7f1cb56a488fe"
   },
   "live_evidence": {
     "status": "NOT RUN for distributed Workers; prior bounded manual-browser evidence remains historical and does not establish two-host acceptance",
@@ -5508,14 +5517,21 @@
     }
   },
   "release_inputs": {
-    "status": "pending current reviewed distribution build",
-    "runtime_source_revision": null,
-    "wheel_sha256": null,
-    "sdist_sha256": null,
+    "status": "Verified artifacts from the reviewed runtime-source checkpoint; final evidence metadata is separate",
+    "runtime_source_revision": "6ce14e0ed9a821ce4cb59383f0a7f1cb56a488fe",
+    "wheel_sha256": "c4983b9636bc72267df962c7acd1859ff97a7f575b682b82f5a6d9710983b901",
+    "sdist_sha256": "0dcb34312cfd8a5c6f21b100576d10a7306baa8da151df1af832905535f4cd37",
     "dependency_report": "deploy/extension/dependencies-review-py312-linux.txt",
     "dependency_report_sha256": "6c8ecc19d7dff777ab69f0296ae68b351ddf1402400e81b7c4d1cf16e5dd2288",
     "dependency_report_scope": "Observed Linux x86_64 Python 3.12.14 review environment, including inherited build/test tools. Installed package versions; direct-source locations are omitted. This is not a production-only dependency or artifact lock.",
-    "note": "Pre-Worker a37cd81 artifact hashes belong only to historical_evidence. Current packaging checks and artifact hashes must be produced from the matching reviewed source."
+    "note": "These digests identify the exact source-checkpoint artifacts. The following evidence-only commit updates the packaged compatibility register and is not the byte input for these hashes. Historical pre-Worker artifacts remain under historical_evidence.",
+    "runtime_source_tree": "b082fe4dd6a4a5a5c23274ecb390013602ccdb5f",
+    "wheel_filename": "foxprofile-2.4.0-py3-none-any.whl",
+    "sdist_filename": "foxprofile-2.4.0.tar.gz",
+    "source_date_epoch": 1795429969,
+    "runtime_payload_files": 239,
+    "artifact_verification": "Wheel, sdist and isolated installed runtime bytes match the exact source archive.",
+    "post_lock_verification": "39 passed, 3 warnings in 41.75s; final metadata gate includes rebuilt wheel/sdist payload and isolated installation checks; these later artifacts are separate from the source-checkpoint hashes above."
   },
   "historical_evidence": [
     {

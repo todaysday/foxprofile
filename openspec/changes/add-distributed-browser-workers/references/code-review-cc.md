@@ -27,12 +27,21 @@ The [ranked report](code-review-cc.json) contains the 15 highest-priority surviv
 | `python -m pytest -q -rs -m 'not browser' --maxfail=10` | 1375 passed, 64 skipped, 24 deselected, 11 warnings in 279.27s (0:04:39); log SHA-256 996536ce5d6c535c141d4b1e22453b021f472706110999ddd9d6b5477f12ec51 |
 | `ruff check src tests chrome_engine foxprofile_ext tools` | PASS; the subsequently corrected test fixture also passed its scoped lint check. |
 | `ruff format --check src tests chrome_engine foxprofile_ext tools` | PASS: 257 files formatted; the subsequently corrected fixture also passed its scoped format check. |
-| `python tools/check_extension_compatibility.py` | PASS: 84 route/method entries, 94 hooks, 42 launch callsites. |
+| `python tools/check_extension_compatibility.py` | PASS: 84 route/method entries, 94 hooks, 42 launch callsites. Final locked-register log SHA-256 5f4af1e0da078f5ce486e7e587c7de920e0674e091937e0b3ab8ba1974f6c06f |
 | `python tools/check_extension_compatibility.py --rehearse` | PASS: unclassified route, missing admission hook, adapter signature drift and new browser factory rejected; restored disposable candidate passes. Log SHA-256 8f9f15e8aec671d1f3310762e43eb0807cc1f3bada893f169ee2b2715e0e2ca8 |
 | `node --check (panel.js and extracted web inline script)` | PASS: both JavaScript surfaces parse. |
 | `git diff --check` | PASS. |
+| `setuptools.build_meta.build_sdist / build_wheel; isolated pip install --no-index --no-deps --no-compile` | PASS: fresh git archive of 6ce14e0ed9a821ce4cb59383f0a7f1cb56a488fe; 239 runtime payload files match in wheel, sdist and isolated installation. Artifact allowlists also pass. |
+| `python -m pytest -q tests/test_ext_compatibility_gate.py tests/test_ext_compatibility.py tests/test_ext_packaging.py` | 39 passed, 3 warnings in 41.75s; final locked metadata, archive payload, sdist rebuild and isolated install checks pass. Log SHA-256 dcd73a569a01df32d1ee1ff3904e108f1c1ecd8c812280e4a1099fe2b7d7bc08 |
 
-This source checkpoint contains the completed runtime fixes and integrated checks. The exact source commit, matching wheel/sdist digests and final metadata/packaging check will be recorded by the following evidence commit; historical release artifacts do not describe this runtime.
+Reviewed runtime-source checkpoint: [`6ce14e0ed9a821ce4cb59383f0a7f1cb56a488fe`](https://github.com/todaysday/foxprofile/commit/6ce14e0ed9a821ce4cb59383f0a7f1cb56a488fe), tree `b082fe4dd6a4a5a5c23274ecb390013602ccdb5f`. The executable source and tests match the integrated run. Fresh distributions were built from this exact commit with `SOURCE_DATE_EPOCH=1795429969`.
+
+| Source artifact | SHA-256 |
+| --- | --- |
+| `foxprofile-2.4.0-py3-none-any.whl` | `c4983b9636bc72267df962c7acd1859ff97a7f575b682b82f5a6d9710983b901` |
+| `foxprofile-2.4.0.tar.gz` | `0dcb34312cfd8a5c6f21b100576d10a7306baa8da151df1af832905535f4cd37` |
+
+The following evidence-only commit records these digests and the metadata/packaging gate. It changes the packaged compatibility register, so the digests above identify artifacts from the stated source checkpoint, not artifacts rebuilt from the later branch tip. The runtime code is unchanged by that evidence commit.
 
 The real localhost TLS checks include normal authenticated Worker commands and full data-return/receipt flow with a synthetic runtime, plus rejection of control and RFB redirects before a second origin is contacted. They do not launch a native browser.
 

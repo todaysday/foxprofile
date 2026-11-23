@@ -17,7 +17,7 @@ For a new authorized profile, Master SHALL select local execution when it has sa
 - **THEN** no new browser starts, no partial profile data transfer begins, and the caller receives a capacity or no-worker-memory error.
 
 ### Requirement: DW-P02 One transaction for global ownership and placement
-Master SHALL extend the existing SQLite admission transaction to bind immutable profile_id, run_id, assigned worker/boot generation and memory reservation. The existing partial unique active-profile constraint SHALL remain authoritative for local and remote runs. A Worker SHALL NOT self-assign or start a profile without its exact valid Master reservation.
+Master SHALL extend the existing SQLite admission transaction to bind immutable profile_id, run_id, assigned worker/boot generation and memory reservation. The existing partial unique active-profile constraint SHALL remain authoritative for local and remote runs. Schema migrations SHALL update that index and all occupancy/recovery queries to include transferring, syncing and uncertain states, or use an equivalently atomic active-ownership record. No transition into a new phase may release the unique lock. A Worker SHALL NOT self-assign or start a profile without its exact valid Master reservation.
 
 #### Scenario: Two concurrent starts of the same profile
 - **WHEN** two authorized callers launch the same profile concurrently and different workers have space

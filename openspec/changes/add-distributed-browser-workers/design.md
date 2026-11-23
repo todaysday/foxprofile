@@ -52,7 +52,7 @@ For each launch:
 
 Concurrent schedulers must not oversubscribe: revalidate telemetry generations and reserved headroom inside the admission transaction, retry planning once on contention, then reject safely if no placement fits. A duplicate request for an already-owned profile returns the existing run as existing APIs permit, never a second browser. Worker may not self-issue a new run or bypass its gated start through the regular launcher.
 
-After a confirmed stop, keep central profile ownership until data sync is committed or conclusively failed and isolated; merely removing a process from a local dictionary, receiving a timeout or seeing a stale heartbeat never frees the slot. Global count is across local and remote runs; adding noVNC or Viewer does not consume an extra browser slot.
+After a confirmed stop, keep central profile ownership until data sync is committed or conclusively failed and isolated; merely removing a process from a local dictionary, receiving a timeout or seeing a stale heartbeat never frees the slot. Global count is across local and remote runs; adding noVNC or Viewer does not consume an extra browser slot. Global ledger migration must widen the existing active-run partial unique index and every occupancy/recovery query to include transferring, syncing and uncertain: the baseline index covers only reserved, starting, running and stopping. No transition may temporarily remove exclusivity.
 
 ## 6. Snapshot and canonical commit
 

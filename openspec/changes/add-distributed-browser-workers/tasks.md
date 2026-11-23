@@ -16,7 +16,7 @@
 
 ## Slice 2 — Central admission and placement
 
-- [ ] 2.1 Extend the existing SQLite capacity ledger/DAOs with worker identity, assignment generation, per-host reserved RAM and phase, retaining the current unique-active-profile index and global max_concurrent_profiles.
+- [ ] 2.1 Extend the existing SQLite capacity ledger/DAOs with worker identity, assignment generation, per-host reserved RAM and phase, retaining the current unique-active-profile index and global max_concurrent_profiles. Explicitly migrate the unique-active-profile index predicate and occupancy/recovery filters to include transferring, syncing and uncertain; test every state transition cannot open an exclusivity gap.
 - [ ] 2.2 Implement local-first headroom selection using observed MemAvailable, effective cgroup budget, service reserve and projected outstanding allocations; otherwise pick highest safe Worker headroom with deterministic tie-break.
 - [ ] 2.3 Keep principal authentication, profile authorization and batch preflight before transactionally reserving all new profile slots and placements. No network call under SQLite/catalog mutation locks. Whole batch fails before spawn if no capacity.
 - [ ] 2.4 Include stopped-profile helper/cookie tools in shared exclusivity and admission; preserve existing full-limit and rename/delete/import rules. Tests cover local and remote race against same profile.

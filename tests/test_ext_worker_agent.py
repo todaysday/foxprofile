@@ -88,6 +88,17 @@ class _Session:
         return _SocketContext(self.socket)
 
 
+def _worker_owner(ref, *, worker_id="worker-fixture", boot_id="boot-fixture", generation=1):
+    return {
+        "profile_id": ref.profile_id,
+        "run_id": ref.run_id,
+        "worker_id": worker_id,
+        "worker_boot_id": boot_id,
+        "connection_generation": generation,
+        "manual_sessions": {},
+    }
+
+
 def _agent(tmp_path, *, runtime=None, session=None, watchdog=None):
     state_dir = tmp_path / "worker"
     state_dir.mkdir(mode=0o700, exist_ok=True)
@@ -108,14 +119,75 @@ def _agent(tmp_path, *, runtime=None, session=None, watchdog=None):
     return agent
 
 
+def test_disconnected_manual_relay_completes_its_own_helper_cleanup(tmp_path):
+    import time
+
+    from foxprofile_ext.dto import ProcessIdentity
+    from foxprofile_ext.workers.agent import _ManualGate
+
+    calls = []
+
+    class Disconnected:
+        async def __aenter__(self):
+            raise ConnectionError("fixture relay disconnected")
+
+        async def __aexit__(self, *_):
+            pass
+
+    agent = _agent(tmp_path, session=SimpleNamespace(ws_connect=lambda *a, **k: Disconnected()))
+    agent._manual_backend = SimpleNamespace(
+        release_input=lambda *_: calls.append("release"),
+        revoke=lambda *_: calls.append("revoke"),
+        stop=lambda *_: calls.append("stop"),
+        probe=lambda *_: calls.append("probe") or "dead",
+    )
+    ref = BrowserRunRefDTO("fixture-profile", "fixture-run")
+    deadline = time.time() + 10
+    gate = _ManualGate(
+        "fixture-session",
+        ref,
+        None,
+        {"url": "wss://master.example.test/relay", "token": "fixture-token"},
+        deadline,
+        deadline,
+        deadline,
+    )
+    gate.helper = ProcessIdentity(900003, 125)
+    gate.backend_session = SimpleNamespace(
+        channel=SimpleNamespace(socket=SimpleNamespace(setblocking=lambda _: None))
+    )
+    agent._manual[gate.session_id] = gate
+    agent.database.put_run_context(
+        ref.run_id,
+        {
+            "profile_id": ref.profile_id,
+            "manual_sessions": {
+                gate.session_id: {"pid": gate.helper.pid, "start_ticks": gate.helper.start_ticks}
+            },
+        },
+    )
+
+    async def disconnect():
+        gate.relay_task = asyncio.create_task(agent._relay_manual(gate))
+        with pytest.raises(ConnectionError, match="fixture relay disconnected"):
+            await asyncio.wait_for(gate.relay_task, timeout=3)
+        assert gate.relay_task.done() and not gate.relay_task.cancelled()
+
+    anyio.run(disconnect)
+    assert calls[-2:] == ["stop", "probe"]
+    assert gate.session_id not in agent._manual
+    assert agent.database.run_context(ref.run_id)["manual_sessions"] == {}
+
+
 def test_worker_execution_database_has_only_exact_run_process_tables(tmp_path):
     database = WorkerExecutionDatabase(tmp_path / "worker.sqlite")
     ref = BrowserRunRefDTO("profile-a", "master-run-7")
-    assert database.reserve_exact(ref, current_host_id()) is True
-    assert database.reserve_exact(ref, current_host_id()) is False
+    assert database.reserve_exact(ref, current_host_id(), context=_worker_owner(ref)) is True
+    assert database.reserve_exact(ref, current_host_id(), context=_worker_owner(ref)) is False
     assert database.run_status(ref) is RunStatus.RESERVED
+    unsafe = BrowserRunRefDTO("profile-a", "../../run")
     with pytest.raises(ValueError):
-        database.reserve_exact(BrowserRunRefDTO("profile-a", "../../run"), current_host_id())
+        database.reserve_exact(unsafe, current_host_id(), context=_worker_owner(unsafe))
     assert_worker_only_database(database.path)
     with database.read() as connection:
         names = {
@@ -132,6 +204,7 @@ def test_worker_execution_database_has_only_exact_run_process_tables(tmp_path):
         ) == (None, None)
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="Protected supervisor requires Linux")
 def test_runtime_supervisor_and_capacity_ledger_recover_worker_execution_db(tmp_path):
     database = WorkerExecutionDatabase(tmp_path / "worker.sqlite")
     code_root = Path(__file__).resolve().parents[1]
@@ -143,7 +216,7 @@ def test_runtime_supervisor_and_capacity_ledger_recover_worker_execution_db(tmp_
         worker_execution=True,
     )
     ref = BrowserRunRefDTO("profile-a", "master-run-8")
-    assert database.reserve_exact(ref, runtime.host_id)
+    assert database.reserve_exact(ref, runtime.host_id, context=_worker_owner(ref))
     processes = []
     try:
         for _ in range(2):
@@ -290,7 +363,7 @@ def test_pre_spawn_rejection_returns_exact_no_process_proof_and_frees_worker_slo
     assert proof["manual_helpers_stopped"] is True
     assert not runtime.profile_directory(ref.run_id).exists()
     next_ref = BrowserRunRefDTO(ref.profile_id, "master-run-retry")
-    assert database.reserve_exact(next_ref, current_host_id()) is True
+    assert database.reserve_exact(next_ref, current_host_id(), context=_worker_owner(next_ref))
 
 
 def test_profile_busy_pre_spawn_proof_has_terminal_tombstone_and_preserves_old_run(tmp_path):
@@ -301,7 +374,7 @@ def test_profile_busy_pre_spawn_proof_has_terminal_tombstone_and_preserves_old_r
 
     ledger = CapacityLedger(database)
     old_ref = BrowserRunRefDTO("profile-busy", "master-run-existing")
-    assert database.reserve_exact(old_ref, current_host_id())
+    assert database.reserve_exact(old_ref, current_host_id(), context=_worker_owner(old_ref))
     old_data = state_dir / "profiles" / old_ref.run_id
     old_data.mkdir(parents=True)
     (old_data / "keep.txt").write_text("existing generation", encoding="utf-8")
@@ -362,18 +435,10 @@ def test_terminal_cleanup_removes_only_exact_run_and_replays_proof_idempotently(
     )
     agent = _agent(tmp_path, runtime=runtime)
     ref = BrowserRunRefDTO("profile-cleanup", "master-run-cleanup")
-    assert database.reserve_exact(ref, current_host_id())
+    context = _worker_owner(ref, worker_id=agent.worker_id, boot_id=agent.boot_id, generation=5)
+    context["data_dir"] = str(data_dir)
+    assert database.reserve_exact(ref, current_host_id(), context=context)
     assert ledger.cancel_unclaimed(ref)
-    context = {
-        "profile_id": ref.profile_id,
-        "run_id": ref.run_id,
-        "worker_id": agent.worker_id,
-        "worker_boot_id": agent.boot_id,
-        "connection_generation": 5,
-        "data_dir": str(data_dir),
-        "manual_sessions": {},
-    }
-    database.put_run_context(ref.run_id, context)
     proof = {
         "profile_id": ref.profile_id,
         "run_id": ref.run_id,
@@ -416,18 +481,10 @@ def test_acknowledged_run_retention_is_bounded_without_pruning_live_or_unacked_s
     host_id = current_host_id()
     for index in range(40):
         ref = BrowserRunRefDTO(f"profile-{index}", f"master-run-{index}")
-        assert database.reserve_exact(ref, host_id)
+        context = _worker_owner(ref, worker_id="worker-a", boot_id="boot-a", generation=3)
+        context["private_launch_settings"] = "x" * 3000
+        assert database.reserve_exact(ref, host_id, context=context)
         assert database.run_status(ref) is RunStatus.RESERVED
-        context = {
-            "profile_id": ref.profile_id,
-            "run_id": ref.run_id,
-            "worker_id": "worker-a",
-            "worker_boot_id": "boot-a",
-            "connection_generation": 3,
-            "manual_sessions": {},
-            "private_launch_settings": "x" * 3000,
-        }
-        database.put_run_context(ref.run_id, context)
         assert ledger.cancel_unclaimed(ref)
         proof = {
             "profile_id": ref.profile_id,
@@ -447,16 +504,14 @@ def test_acknowledged_run_retention_is_bounded_without_pruning_live_or_unacked_s
     proofs = database._read_json_map("stopped_proofs_json")
     assert len(contexts) == len(proofs) == 3
     assert not any("private_launch_settings" in value for value in contexts.values())
-    assert database.reserve_exact(BrowserRunRefDTO("profile-next", "master-run-next"), host_id)
+    next_ref = BrowserRunRefDTO("profile-next", "master-run-next")
+    assert database.reserve_exact(next_ref, host_id, context=_worker_owner(next_ref))
 
     active_ref = BrowserRunRefDTO("profile-live", "master-run-live")
-    assert database.reserve_exact(active_ref, host_id)
-    database.put_run_context(
-        active_ref.run_id,
-        {"profile_id": active_ref.profile_id, "run_id": active_ref.run_id},
-    )
+    assert database.reserve_exact(active_ref, host_id, context=_worker_owner(active_ref))
     unacked_ref = BrowserRunRefDTO("profile-unacked", "master-run-unacked")
-    assert database.reserve_exact(unacked_ref, host_id)
+    context = _worker_owner(unacked_ref, worker_id="worker-a", boot_id="boot-a", generation=3)
+    assert database.reserve_exact(unacked_ref, host_id, context=context)
     assert ledger.cancel_unclaimed(unacked_ref)
     unacked_proof = {
         "profile_id": unacked_ref.profile_id,
@@ -469,10 +524,6 @@ def test_acknowledged_run_retention_is_bounded_without_pruning_live_or_unacked_s
         "manual_helpers_stopped": True,
         "reason": "loss",
     }
-    database.put_run_context(
-        unacked_ref.run_id,
-        {"profile_id": unacked_ref.profile_id, "run_id": unacked_ref.run_id},
-    )
     database.record_stop_proof(unacked_ref.run_id, unacked_proof)
     assert database.run_context(active_ref.run_id) is not None
     assert database.run_context(unacked_ref.run_id) is not None
@@ -503,6 +554,7 @@ def test_parallel_exit_callback_and_stop_create_one_immutable_clean_archive(tmp_
         profile_directory=lambda run_id: tmp_path / "worker" / "profiles" / run_id,
     )
     agent = _agent(tmp_path, runtime=runtime)
+    agent.connection_generation = 3
     ref = BrowserRunRefDTO("profile-a", "master-run-9")
     data_dir = agent.runtime.profile_directory(ref.run_id)
     data_dir.mkdir(parents=True)

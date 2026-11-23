@@ -17,6 +17,15 @@ The master ledger is authoritative for (profile_id, run_id, placement, state, re
 
 Authenticated Worker enrollment returns accepted worker_id, boot/connection generation and approved runtime digest. Every command and reply must include a correlation identifier, profile_id, run_id and connection generation; duplicate command IDs get the previous result or an idempotent no-op. Worker telemetry contains MemAvailable, optional cgroup headroom, disk headroom, engine readiness, running exact generations, drain and preflight status. Missing, implausible or stale measurements make Worker unselectable; they do not terminate known runs.
 
+Every valid memory sample includes the Worker's own nonnegative integer
+`memory_reserve_bytes`. Master applies that reserve to that node and retains
+charges for reservations absent from the sample's `memory_accounted_runs`.
+`metrics: null` clears placement eligibility; `active_runs: null` means unknown
+inventory and preserves known runs. Without a memory sample,
+`memory_accounted_runs` is empty. Fresh authenticated heartbeats continue to
+renew the current control lease when telemetry is unavailable. The loss deadline
+must exceed the 10-second heartbeat interval and be no greater than 30 seconds.
+
 ## Run phases
 
 **reserved → transferring → starting → running → stopping → syncing → closed**.

@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import signal
+import sqlite3
 import ssl
 import stat
 import sys
@@ -22,7 +23,9 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from weakref import WeakValueDictionary
+
+from yarl import URL
 
 from src.models.profile import ENGINES, Profile
 from src.services.browser.launcher import BrowserLauncher
@@ -36,7 +39,8 @@ from ..runtime.confinement import ConfinementPurpose, ConfinementSpec
 from ..runtime.processes import RuntimeSupervisor
 from ..runtime.registry import current_host_id
 from ..storage.capacity import ProcessLiveness, RunStatus
-from .execution import WorkerExecutionDatabase
+from .channel import HEARTBEAT_INTERVAL_SECONDS, LOSS_TIMEOUT_SECONDS
+from .execution import WorkerExecutionDatabase, pre_spawn_stop_proof
 from .manifest import VerifiedManifest, load_manifest
 from .metrics import NodeMetrics, read_local_metrics
 from .watchdog import WorkerWatchdog
@@ -110,21 +114,49 @@ def secure_worker_directory(path: str | Path) -> Path:
     return candidate.resolve()
 
 
-def _https_url(value: object, *, web_socket: bool = False) -> str:
-    if not isinstance(value, str) or len(value) > 2048:
-        raise ValueError("transfer URL is invalid")
-    parsed = urlsplit(value)
-    allowed = {"wss"} if web_socket else {"https"}
+def _tls_url(value: object, scheme: str) -> URL:
+    if not isinstance(value, str) or len(value) > 2048 or any(ord(c) < 32 for c in value):
+        raise ValueError("Worker transport URL is invalid")
+    parsed = URL(value)
     if (
-        parsed.scheme not in allowed
-        or not parsed.hostname
-        or parsed.username
-        or parsed.password
+        parsed.scheme != scheme
+        or not parsed.host
+        or parsed.port == 0
+        or parsed.raw_user is not None
+        or parsed.raw_password is not None
         or parsed.fragment
-        or any(char in value for char in "\r\n\x00")
     ):
         raise ValueError("Worker transport requires an authenticated TLS URL")
-    return value
+    return parsed
+
+
+async def _reject_redirect(_session, _context, _params) -> None:
+    # aiohttp's WebSocket handshake follows HTTP redirects by default.
+    raise ConnectionError("Worker transport redirects are disabled")
+
+
+async def _join_on_cancel(operation):
+    """Cancellation cannot release a file or run lock while its owner is still working."""
+    task = asyncio.create_task(operation)
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        joined = asyncio.gather(task, return_exceptions=True)
+        while not joined.done():
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.shield(joined)
+        raise
+
+
+async def _file_io(function, *args, **kwargs):
+    return await _join_on_cancel(asyncio.to_thread(function, *args, **kwargs))
+
+
+def _prepare_worker_launch(profile: Profile) -> None:
+    if profile.engine == "camoufox":
+        from ..runtime.cache import prepare_geoip_cache
+
+        prepare_geoip_cache()
 
 
 def _strict_object(value: object, label: str) -> dict[str, Any]:
@@ -133,6 +165,17 @@ def _strict_object(value: object, label: str) -> dict[str, Any]:
     if len(json.dumps(value, separators=(",", ":")).encode()) > MAX_CONTROL_PARAMS_BYTES:
         raise DomainError(ErrorCode.VALIDATION_ERROR)
     return value
+
+
+def _worker_loss_timeout(value: float) -> float:
+    if (
+        type(value) not in (int, float)
+        or not HEARTBEAT_INTERVAL_SECONDS < value <= LOSS_TIMEOUT_SECONDS
+    ):
+        raise ValueError(
+            "Worker loss timeout must exceed the 10-second heartbeat and be at most 30 seconds"
+        )
+    return float(value)
 
 
 def _redacted_error_code(error: BaseException) -> str:
@@ -176,7 +219,7 @@ class WorkerRuntime:
         state_dir: Path,
         manifest: VerifiedManifest,
         *,
-        prepare_launch: Callable[[Profile], None] | None = None,
+        prepare_launch: Callable[[Profile], None] = _prepare_worker_launch,
         supervisor: RuntimeSupervisor | None = None,
         launcher: BrowserLauncher | None = None,
     ) -> None:
@@ -187,8 +230,6 @@ class WorkerRuntime:
         self.code_root = Path(__file__).resolve().parents[2]
         self.manifest = manifest
         if supervisor is None:
-            from ..runtime_factory import _installed_executable
-
             runtime_paths = [
                 Path(item)
                 for item in (
@@ -219,9 +260,7 @@ class WorkerRuntime:
             }
             settings["FOXPROFILE_LOG_DIR"] = "/tmp/logs"
             for engine in manifest.ready_engines:
-                executable = _installed_executable(engine)
-                if executable is None:
-                    raise RuntimeError("Pinned browser executable is unavailable")
+                executable = Path(manifest.runtime["binaries"][engine]["path"])
                 runtime_paths.append(executable.parent)
                 settings[f"FOXPROFILE_{engine.upper()}_EXECUTABLE"] = str(executable)
                 if engine == "camoufox":
@@ -266,7 +305,8 @@ class WorkerRuntime:
         ref: BrowserRunRefDTO,
         *,
         on_ready: Callable[[], None],
-        on_stop: Callable[[], None],
+        on_exit: Callable[[bool], None],
+        check_capacity: Callable[[], None],
         timeout: float,
     ) -> str:
         current = self.ledger.get(ref)
@@ -278,16 +318,25 @@ class WorkerRuntime:
             return "starting"
         if current.status is not RunStatus.RESERVED or current.process is not None:
             raise DomainError(ErrorCode.STALE_RUN)
-        self.supervisor.prepare_browser(profile, ref.profile_id, ref.run_id)
+        await asyncio.to_thread(
+            self.supervisor.prepare_browser, profile, ref.profile_id, ref.run_id
+        )
+        try:
+            check_capacity()
+        except DomainError:
+            self.ledger.cancel_unclaimed(ref)
+            self.supervisor.discard_prepared(ref)
+            raise
         if not self.launcher.start_thread(
             profile,
             lambda _line: None,
             on_ready=lambda: (self.ledger.mark_running(ref), on_ready()),
-            on_stop=on_stop,
+            on_exit=on_exit,
             run_id=ref.run_id,
             profile_id=ref.profile_id,
         ):
             self.ledger.cancel_unclaimed(ref)
+            self.supervisor.discard_prepared(ref)
             raise DomainError(ErrorCode.PROFILE_BUSY)
         ok, error = await asyncio.to_thread(
             self.launcher.wait_for_launch, profile.name, timeout, ref.run_id
@@ -300,6 +349,9 @@ class WorkerRuntime:
 
     def stop(self, ref: BrowserRunRefDTO, timeout: float) -> bool:
         return self.supervisor.request_stop(ref.profile_id, ref.run_id, timeout)
+
+    def clean_exit(self, ref: BrowserRunRefDTO, timeout: float) -> bool | None:
+        return self.launcher.clean_exit(ref.run_id, ref.run_id, timeout)
 
     def control(self, ref: BrowserRunRefDTO, action: str, params: dict[str, Any], timeout: float):
         return self.supervisor.control(ref.profile_id, ref.run_id, action, params, timeout)
@@ -338,28 +390,23 @@ class WorkerAgent:
             or any(ord(char) < 33 or ord(char) > 126 for char in credential)
         ):
             raise ValueError("Worker credential is invalid")
-        parsed = urlsplit(master_url)
-        if (
-            parsed.scheme != "wss"
-            or not parsed.hostname
-            or parsed.path not in {"", "/"}
-            or parsed.username
-            or parsed.password
-            or parsed.query
-            or parsed.fragment
-        ):
+        master_origin = _tls_url(master_url, "wss")
+        if master_origin.path != "/" or master_origin.query_string:
             raise ValueError("Worker master URL must be a WSS origin")
-        for value in (loss_timeout, startup_timeout):
-            if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
-                raise ValueError("Worker timeouts must be finite and positive")
-        if loss_timeout > 30:
-            raise ValueError("Worker loss timeout cannot exceed 30 seconds")
+        self._watchdog_loss_cap = _worker_loss_timeout(loss_timeout)
+        if (
+            type(startup_timeout) not in (int, float)
+            or not math.isfinite(startup_timeout)
+            or startup_timeout <= 0
+        ):
+            raise ValueError("Worker startup timeout must be finite and positive")
         for value in (memory_reserve_bytes, staging_reserve_bytes):
-            if type(value) is not int or value < 0:
-                raise ValueError("Worker reserves must be non-negative bytes")
+            if type(value) is not int or not 0 <= value <= 1 << 60:
+                raise ValueError("Worker reserves must be plausible non-negative bytes")
         self.worker_id = worker_id
         self.credential = credential
-        self.master_url = master_url.rstrip("/")
+        self._master_origin = master_origin.origin()
+        self.master_url = str(self._master_origin)
         self.state_dir = secure_worker_directory(state_dir)
         self.database = database
         self.manifest = manifest
@@ -368,22 +415,22 @@ class WorkerAgent:
         self.boot_id = boot_id or operating_system_boot_id()
         self.session = session
         self.manual_backend = manual_backend
-        self.loss_timeout = float(loss_timeout)
-        self._watchdog_loss_cap = float(loss_timeout)
+        self.loss_timeout = self._watchdog_loss_cap
         self.startup_timeout = min(60.0, float(startup_timeout))
         self.memory_reserve_bytes = memory_reserve_bytes
         self.staging_reserve_bytes = staging_reserve_bytes
         self.connection_generation: int | None = None
-        self.heartbeat_interval = 10.0
+        self.heartbeat_interval = float(HEARTBEAT_INTERVAL_SECONDS)
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._pending_sample: asyncio.Future | None = None
         self._events: asyncio.Queue[dict[str, Any]] | None = None
         self._send_lock: asyncio.Lock | None = None
         self._commands: dict[str, asyncio.Task] = {}
         self._command_cache: OrderedDict[str, tuple[str, dict[str, Any], int]] = OrderedDict()
         self._command_cache_bytes = 0
-        self._profile_by_run: dict[str, Profile] = {}
-        self._run_locks: dict[str, asyncio.Lock] = {}
-        self._finalize_locks: dict[str, asyncio.Lock] = {}
+        # Holders and waiters keep their lock alive; idle generations need no cache.
+        self._run_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
+        self._finalize_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
         self._manual: dict[str, _ManualGate] = {}
         self._manual_lock = threading.RLock()
         self._manual_backend = manual_backend
@@ -395,6 +442,16 @@ class WorkerAgent:
     def connect_url(self) -> str:
         return self.master_url + "/api/v1/workers/connect"
 
+    def _master_endpoint(self, value: object, *, web_socket: bool = False) -> str:
+        scheme = "wss" if web_socket else "https"
+        endpoint = _tls_url(value, scheme)
+        if (endpoint.raw_host, endpoint.port) != (
+            self._master_origin.raw_host,
+            self._master_origin.port,
+        ):
+            raise ValueError("Worker endpoint must use the configured Master origin")
+        return str(endpoint)
+
     def start_watchdog(self) -> None:
         self.watchdog.start()
 
@@ -405,7 +462,11 @@ class WorkerAgent:
         connector = aiohttp.TCPConnector(ssl=ssl.create_default_context())
         timeout = aiohttp.ClientTimeout(total=None, connect=10, sock_read=self._http_timeout)
         if self.session is None:
-            self.session = aiohttp.ClientSession(connector=connector, timeout=timeout)
+            trace = aiohttp.TraceConfig()
+            trace.on_request_redirect.append(_reject_redirect)
+            self.session = aiohttp.ClientSession(
+                connector=connector, timeout=timeout, trace_configs=[trace]
+            )
             owns_session = True
         else:
             owns_session = False
@@ -487,24 +548,47 @@ class WorkerAgent:
                 or generation < 1
             ):
                 raise ConnectionError("Master welcome is invalid")
-            interval = message.get("heartbeat_interval", 10)
-            loss_timeout = message.get("loss_timeout", self.loss_timeout)
-            if type(interval) not in (int, float) or not 1 <= interval <= 10:
+            interval = message.get("heartbeat_interval")
+            loss_timeout = message.get("loss_timeout")
+            if (
+                type(interval) not in (int, float)
+                or not 1 <= interval <= HEARTBEAT_INTERVAL_SECONDS
+            ):
                 raise ConnectionError("Master heartbeat interval is invalid")
             if (
                 type(loss_timeout) not in (int, float)
-                or not 10 <= loss_timeout <= 30
-                or interval >= loss_timeout
+                or not HEARTBEAT_INTERVAL_SECONDS <= loss_timeout <= LOSS_TIMEOUT_SECONDS
+                or interval >= min(loss_timeout, self._watchdog_loss_cap)
             ):
                 raise ConnectionError("Master loss timeout is invalid")
+            await self._retire_previous_runs()
             self.connection_generation = generation
             self.heartbeat_interval = float(interval)
-            self.loss_timeout = float(loss_timeout)
-            self.watchdog.accept_generation(
-                generation, min(self._watchdog_loss_cap, float(loss_timeout))
-            )
+            self.loss_timeout = min(self._watchdog_loss_cap, float(loss_timeout))
+            self.watchdog.accept_generation(generation, self.loss_timeout)
             await self._serve_connection(websocket, generation)
-        self.connection_generation = None
+
+    async def _retire_previous_runs(self) -> None:
+        # No assignment predates its own transport. Leave the old watchdog
+        # deadline armed until every prior tree has verified death.
+        for ref in self.database.runs_to_reconcile():
+            context = self.database.run_context(ref.run_id)
+            if not await self._close_manual_for_run(ref, 2.0):
+                raise ConnectionError("Previous Worker helpers have not stopped")
+            if (
+                not await asyncio.to_thread(self.runtime.tree_is_dead, ref)
+                and not self.runtime.ledger.cancel_unclaimed(ref)
+                and not await asyncio.to_thread(self.runtime.stop, ref, 2.0)
+            ):
+                raise ConnectionError("A previous Worker run has not stopped")
+            if context.get("clean_stopped") is True:
+                # No archive proof or terminal cleanup on a replacement channel.
+                if not await asyncio.to_thread(self.runtime.tree_is_dead, ref):
+                    raise ConnectionError("Previous Worker tree death is unconfirmed")
+                continue
+            await self._finalize_stopped(ref, reason="loss", event=False)
+        if self.database.active_runs():
+            raise ConnectionError("A previous Worker reservation remains active")
 
     async def _serve_connection(self, websocket, generation: int) -> None:
         self._events = asyncio.Queue(maxsize=512)
@@ -571,6 +655,7 @@ class WorkerAgent:
                 self._commands[command_id] = task
                 task.add_done_callback(lambda _task, key=command_id: self._commands.pop(key, None))
         finally:
+            self.connection_generation = None
             heartbeat.cancel()
             event_sender.cancel()
             await asyncio.gather(heartbeat, event_sender, return_exceptions=True)
@@ -632,12 +717,25 @@ class WorkerAgent:
         operation = message["operation"]
         payload = message.get("payload") or {}
         ref = BrowserRunRefDTO(message["profile_id"], message["run_id"])
+        context = self.database.run_context(ref.run_id)
+        if (
+            operation != "cleanup"
+            and context is not None
+            and (
+                context.get("worker_id") != self.worker_id
+                or context.get("worker_boot_id") != self.boot_id
+                or context.get("connection_generation") != generation
+            )
+        ):
+            raise DomainError(ErrorCode.STALE_RUN)
         if operation == "start":
             return await self._start_command(ref, payload, generation)
         if operation == "stop":
             return await self._stop_command(ref, payload)
         if operation == "cleanup":
-            return self._cleanup_command(ref, payload)
+            lock = self._run_locks.setdefault(ref.run_id, asyncio.Lock())
+            async with lock:
+                return await _file_io(self._cleanup_command, ref, payload)
         if operation == "control":
             return await self._control_command(ref, payload)
         if operation == "describe":
@@ -667,38 +765,6 @@ class WorkerAgent:
             return {"state": "running" if existing is RunStatus.RUNNING else "starting"}
         if existing is not None or self.database.run_context(ref.run_id) is not None:
             raise DomainError(ErrorCode.STALE_RUN)
-        try:
-            host_id = getattr(
-                getattr(self.runtime, "supervisor", None), "host_id", current_host_id()
-            )
-            reserved = self.database.reserve_exact(ref, host_id)
-        except RuntimeError:
-            # A different local generation of this profile is present. Do not
-            # infer that it belongs to the new Master run or stop it here. The
-            # exact ID has no worker row, so the child-side reservation gate
-            # could not have admitted this generation; report that fact.
-            if self.database.run_status(ref) is None:
-                if not self.database.record_cancelled_exact(ref, host_id):
-                    raise DomainError(ErrorCode.STALE_RUN) from None
-                context = {
-                    "profile_id": ref.profile_id,
-                    "run_id": ref.run_id,
-                    "worker_id": self.worker_id,
-                    "worker_boot_id": self.boot_id,
-                    "connection_generation": generation,
-                    "manual_sessions": {},
-                }
-                self.database.put_run_context(ref.run_id, context)
-                proof = _no_process_proof(self.worker_id, self.boot_id, context, ref)
-                self.database.record_stop_proof(ref.run_id, proof)
-                self._emit_event({"type": "stopped", "proof": proof})
-            raise DomainError(ErrorCode.PROFILE_BUSY) from None
-        if not reserved:
-            raise DomainError(ErrorCode.STALE_RUN)
-
-        # Record the exact Master generation before doing capacity or transfer
-        # work. Any pre-spawn rejection can then return durable proof that this
-        # run never claimed a supervisor process.
         context: dict[str, Any] = {
             "profile_id": ref.profile_id,
             "run_id": ref.run_id,
@@ -707,7 +773,22 @@ class WorkerAgent:
             "connection_generation": generation,
             "manual_sessions": {},
         }
-        self.database.put_run_context(ref.run_id, context)
+        host_id = self.runtime.supervisor.host_id
+        try:
+            reserved = self.database.reserve_exact(ref, host_id, context=context)
+        except RuntimeError:
+            # A different local generation of this profile is present. Do not
+            # infer that it belongs to the new Master run or stop it here. The
+            # exact ID has no worker row, so the child-side reservation gate
+            # could not have admitted this generation; report that fact.
+            if self.database.run_status(ref) is None:
+                if not self.database.record_cancelled_exact(ref, host_id, context=context):
+                    raise DomainError(ErrorCode.STALE_RUN) from None
+                await self._finalize_stopped(ref, reason="loss", event=True)
+            raise DomainError(ErrorCode.PROFILE_BUSY) from None
+        if not reserved:
+            raise DomainError(ErrorCode.STALE_RUN)
+
         staged_path = self.runtime.profile_directory(ref.run_id)
         archive = self.state_dir / "transfers" / f"{ref.run_id}.zip"
         try:
@@ -724,7 +805,7 @@ class WorkerAgent:
             expected_digest = snapshot.get("archive_digest")
             identity_digest = snapshot.get("identity_digest")
             token = snapshot.get("token")
-            url = _https_url(snapshot.get("url"))
+            url = self._master_endpoint(snapshot.get("url"))
             if (
                 type(expected_size) is not int
                 or not 1 <= expected_size <= self._archive_limit
@@ -752,7 +833,7 @@ class WorkerAgent:
             try:
                 from .profile_store import unpack_browser_data
 
-                unpacked = await asyncio.to_thread(
+                unpacked = await _file_io(
                     unpack_browser_data,
                     archive,
                     staged_path,
@@ -765,40 +846,30 @@ class WorkerAgent:
                     raise DomainError(ErrorCode.TRANSFER_INVALID)
             except BaseException:
                 with contextlib.suppress(OSError):
-                    shutil.rmtree(staged_path)
+                    await _file_io(shutil.rmtree, staged_path)
                 raise
             finally:
-                archive.unlink(missing_ok=True)
+                await _file_io(archive.unlink, missing_ok=True)
             self.database.put_run_context(ref.run_id, context)
-            self._profile_by_run[ref.run_id] = profile
             state = await self.runtime.start(
                 profile,
                 ref,
                 on_ready=lambda: self._browser_ready(ref),
-                on_stop=lambda: self._browser_exited(ref),
+                on_exit=lambda clean: self._browser_exited(ref, generation, clean),
+                check_capacity=lambda: self._check_local_capacity(profile.engine, budget),
                 timeout=self.startup_timeout,
             )
             return {"state": state}
         except asyncio.CancelledError:
-            await asyncio.shield(self._finish_failed_start(ref))
+            await _join_on_cancel(self._finish_failed_start(ref))
             raise
         except BaseException:
             await self._finish_failed_start(ref)
             raise
 
     async def _finish_failed_start(self, ref: BrowserRunRefDTO) -> None:
-        run = self.runtime.ledger.get(ref)
-        if (
-            run is not None
-            and run.status is RunStatus.RESERVED
-            and self.runtime.ledger.cancel_unclaimed(ref)
-        ):
-            context = self.database.run_context(ref.run_id) or {}
-            proof = _no_process_proof(self.worker_id, self.boot_id, context, ref)
-            self.database.record_stop_proof(ref.run_id, proof)
-            self._remove_run_data(ref, context)
-            self._emit_event({"type": "stopped", "proof": proof})
-            return
+        if self.database.run_status(ref) is RunStatus.RESERVED:
+            self.runtime.ledger.cancel_unclaimed(ref)
         try:
             await self._finalize_stopped(ref, reason="loss", event=True)
         except Exception:
@@ -809,17 +880,21 @@ class WorkerAgent:
     def _check_local_capacity(self, engine: str, memory_budget: int) -> None:
         if engine not in self.manifest.ready_engines:
             raise DomainError(ErrorCode.RUNTIME_INCOMPATIBLE)
-        metrics = self._metrics()
-        headroom = metrics.mem_available_bytes
-        if metrics.cgroup_headroom_bytes is not None:
-            headroom = min(headroom, metrics.cgroup_headroom_bytes)
-        if headroom - self.memory_reserve_bytes < memory_budget:
+        try:
+            metrics = self._metrics()
+        except (OSError, ValueError):
+            raise DomainError(ErrorCode.NO_WORKER_MEMORY) from None
+        if metrics.usable_memory_bytes < memory_budget:
             raise DomainError(ErrorCode.NO_WORKER_MEMORY)
         if metrics.staging_free_bytes - self.staging_reserve_bytes <= 0:
             raise DomainError(ErrorCode.TRANSFER_INVALID)
 
     def _metrics(self) -> NodeMetrics:
-        return read_local_metrics(self.state_dir, self.manifest.ready_engines)
+        return read_local_metrics(
+            self.state_dir,
+            self.manifest.ready_engines,
+            memory_reserve_bytes=self.memory_reserve_bytes,
+        )
 
     async def _download_snapshot(
         self, url, headers, destination, expected_size, expected_digest
@@ -827,11 +902,27 @@ class WorkerAgent:
         hasher = hashlib.sha256()
         count = 0
         complete = False
-        if destination.exists() or destination.is_symlink():
-            raise DomainError(ErrorCode.TRANSFER_CONFLICT)
-        destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        stream = None
+
+        def open_destination() -> None:
+            nonlocal stream
+            destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            try:
+                # Its owner closes it off-loop after the final write, including cancellation.
+                stream = open(  # noqa: SIM115
+                    destination, "xb", opener=lambda path, flags: os.open(path, flags, 0o600)
+                )
+            except FileExistsError as error:
+                raise DomainError(ErrorCode.TRANSFER_CONFLICT) from error
+
+        def discard_destination() -> None:
+            try:
+                stream.close()
+            finally:
+                destination.unlink(missing_ok=True)
+
         try:
+            await _file_io(open_destination)
             async with self.session.get(
                 url,
                 headers=headers,
@@ -845,26 +936,23 @@ class WorkerAgent:
                 declared = response.headers.get("Content-Length")
                 if declared is not None and int(declared) != expected_size:
                     raise DomainError(ErrorCode.TRANSFER_INVALID)
-                with os.fdopen(descriptor, "wb") as stream:
-                    descriptor = -1
-                    async for chunk in response.content.iter_chunked(1024 * 1024):
-                        count += len(chunk)
-                        if count > expected_size or count > self._archive_limit:
-                            raise DomainError(ErrorCode.TRANSFER_INVALID)
-                        hasher.update(chunk)
-                        stream.write(chunk)
-                    stream.flush()
-                    os.fsync(stream.fileno())
-            if count != expected_size or hasher.hexdigest() != expected_digest:
-                raise DomainError(ErrorCode.TRANSFER_INVALID)
+                async for chunk in response.content.iter_chunked(1024 * 1024):
+                    count += len(chunk)
+                    if count > expected_size or count > self._archive_limit:
+                        raise DomainError(ErrorCode.TRANSFER_INVALID)
+                    hasher.update(chunk)
+                    await _file_io(stream.write, chunk)
+                if count != expected_size or hasher.hexdigest() != expected_digest:
+                    raise DomainError(ErrorCode.TRANSFER_INVALID)
+                await _file_io(stream.flush)
+                await _file_io(os.fsync, stream.fileno())
+            await _file_io(stream.close)
             complete = True
         except (OSError, ValueError) as error:
             raise DomainError(ErrorCode.TRANSFER_INVALID) from error
         finally:
-            if descriptor >= 0:
-                os.close(descriptor)
-            if not complete:
-                destination.unlink(missing_ok=True)
+            if stream is not None and not complete:
+                await _file_io(discard_destination)
 
     async def _stop_command(self, ref: BrowserRunRefDTO, payload: dict[str, Any]) -> dict[str, Any]:
         lock = self._run_locks.setdefault(ref.run_id, asyncio.Lock())
@@ -888,10 +976,17 @@ class WorkerAgent:
         if proof is None:
             if not await self._close_manual_for_run(ref, float(timeout)):
                 raise DomainError(ErrorCode.RUN_UNCERTAIN)
-            stopped = await asyncio.to_thread(self.runtime.stop, ref, float(timeout))
-            if not stopped or not await asyncio.to_thread(self.runtime.tree_is_dead, ref):
-                raise DomainError(ErrorCode.RUN_UNCERTAIN)
-            proof = await self._finalize_stopped(ref, reason="clean", event=False)
+            clean = context.get("clean_stopped") is True
+            if not clean:
+                stopped = await asyncio.to_thread(self.runtime.stop, ref, float(timeout))
+                if not stopped:
+                    raise DomainError(ErrorCode.RUN_UNCERTAIN)
+                clean = await asyncio.to_thread(self.runtime.clean_exit, ref, min(2.0, timeout))
+                if clean is None:
+                    raise DomainError(ErrorCode.RUN_UNCERTAIN)
+            proof = await self._finalize_stopped(
+                ref, reason="clean" if clean else "loss", event=False
+            )
         if proof.get("reason") == "clean" and not _valid_digest(proof.get("archive_digest")):
             raise DomainError(ErrorCode.SYNC_FAILED)
         return {"stopped": True, "proof": proof}
@@ -909,71 +1004,91 @@ class WorkerAgent:
                 if event:
                     self._emit_event({"type": "stopped", "proof": existing})
                 return existing
-            return await self._finalize_stopped_locked(ref, reason=reason, event=event)
+            return await _join_on_cancel(
+                self._finalize_stopped_locked(ref, reason=reason, event=event)
+            )
 
     async def _finalize_stopped_locked(
         self, ref: BrowserRunRefDTO, *, reason: str, event: bool
     ) -> dict[str, Any]:
+        from .profile_store import ArchiveStagingError, pack_browser_data
+
         context = self.database.run_context(ref.run_id)
         if context is None or context.get("profile_id") != ref.profile_id:
             raise DomainError(ErrorCode.STALE_RUN)
-        existing = self._proof_for_run(ref.run_id)
-        if existing is not None:
-            if event:
-                self._emit_event({"type": "stopped", "proof": existing})
-            return existing
         if not await asyncio.to_thread(self.runtime.tree_is_dead, ref):
             raise DomainError(ErrorCode.RUN_UNCERTAIN)
         manual_ok = await self._close_manual_for_run(ref, 5.0)
-        proof = {
-            "profile_id": ref.profile_id,
-            "run_id": ref.run_id,
-            "worker_id": context["worker_id"],
-            "worker_boot_id": context["worker_boot_id"],
-            "connection_generation": context["connection_generation"],
-            "terminated": True,
-            "process_tree_dead": True,
-            "manual_helpers_stopped": manual_ok,
-            "reason": reason,
-        }
-        if not manual_ok and reason == "clean":
-            reason = "loss"
-            proof["reason"] = reason
-        archive_path = self.state_dir / "sync" / f"{ref.run_id}.zip"
-        if reason == "clean":
-            try:
-                from .profile_store import pack_browser_data
+        if context.get("clean_stopped") is True and reason != "clean":
+            # Shutdown and replacement transports cannot discard a pending save.
+            raise DomainError(ErrorCode.SYNC_FAILED)
 
-                archive_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-                if archive_path.exists() or archive_path.is_symlink():
-                    raise DomainError(ErrorCode.SYNC_FAILED)
+        cancelled = self.database.run_status(ref) is RunStatus.CANCELLED
+        if cancelled:
+            proof = pre_spawn_stop_proof(ref, context)
+            if proof is None or not manual_ok or not self.database.cancelled_without_process(ref):
+                raise DomainError(ErrorCode.RUN_UNCERTAIN)
+            reason = "loss"
+        else:
+            if not manual_ok:
+                reason = "loss"
+            proof = {
+                "profile_id": ref.profile_id,
+                "run_id": ref.run_id,
+                "worker_id": context["worker_id"],
+                "worker_boot_id": context["worker_boot_id"],
+                "connection_generation": context["connection_generation"],
+                "terminated": True,
+                "process_tree_dead": True,
+                "manual_helpers_stopped": manual_ok,
+                "reason": reason,
+            }
+        if reason == "clean":
+            # Record tree and helper death before any fallible archive work. A
+            # retry packages this stopped copy without repeating process control.
+            retry = context.get("clean_stopped") is True
+            context = self.database.update_run_context(ref.run_id, clean_stopped=True)
+            if self.connection_generation != context["connection_generation"]:
+                raise DomainError(ErrorCode.SYNC_FAILED)
+            archive_path = self.state_dir / "sync" / f"{ref.run_id}.zip"
+            try:
+                secure_worker_directory(archive_path.parent)
+                if retry:
+                    # A process restart can leave an unpublished archive or partial.
+                    for path in (archive_path, archive_path.with_suffix(".zip.part")):
+                        path.unlink(missing_ok=True)
                 info = await asyncio.to_thread(
-                    pack_browser_data,
-                    context["data_dir"],
-                    context["engine"],
-                    archive_path,
+                    pack_browser_data, context["data_dir"], context["engine"], archive_path
                 )
                 if info.identity_digest != context["identity_digest"]:
                     raise DomainError(ErrorCode.TRANSFER_INVALID)
-                proof["archive_digest"] = info.archive_digest
-                proof["archive_size_bytes"] = info.size_bytes
-                context = (
-                    self.database.update_run_context(
-                        ref.run_id,
-                        archive_path=str(archive_path),
-                        archive_digest=info.archive_digest,
-                        archive_size_bytes=info.size_bytes,
-                        stopped=True,
-                    )
-                    or context
-                )
-            except Exception:
-                reason = "loss"
-                proof["reason"] = reason
+            except (ArchiveStagingError, OSError) as error:
+                raise DomainError(ErrorCode.SYNC_FAILED) from error
+            except DomainError as error:
+                if isinstance(error.__cause__, OSError) and not isinstance(
+                    error.__cause__, FileNotFoundError
+                ):
+                    raise DomainError(ErrorCode.SYNC_FAILED) from error
+                proof["reason"] = "loss"
                 with contextlib.suppress(OSError):
-                    archive_path.unlink()
-        self.database.record_stop_proof(ref.run_id, proof, context=context)
+                    archive_path.unlink(missing_ok=True)
+            else:
+                if self.connection_generation != context["connection_generation"]:
+                    # A completed ZIP on a lost transport has no current save lease.
+                    raise DomainError(ErrorCode.SYNC_FAILED)
+                proof.update(archive_digest=info.archive_digest, archive_size_bytes=info.size_bytes)
+                context.update(
+                    archive_path=str(archive_path),
+                    archive_digest=info.archive_digest,
+                    archive_size_bytes=info.size_bytes,
+                    stopped=True,
+                )
+        self.database.record_stop_proof(
+            ref.run_id, proof, context=context if reason == "clean" else None
+        )
         proof = self._proof_for_run(ref.run_id) or proof
+        if cancelled:
+            await _file_io(self._remove_run_data, ref, context)
         if event:
             self._emit_event({"type": "stopped", "proof": proof})
         return proof
@@ -1007,7 +1122,7 @@ class WorkerAgent:
         ):
             raise DomainError(ErrorCode.SYNC_FAILED)
         upload = _strict_object(payload.get("upload"), "upload")
-        url = _https_url(upload.get("url"))
+        url = self._master_endpoint(upload.get("url"))
         token = upload.get("token")
         base_revision = upload.get("base_revision")
         supplied_digest = upload.get("archive_digest")
@@ -1035,8 +1150,11 @@ class WorkerAgent:
             archive_path != expected_path
             or archive_path.is_symlink()
             or not archive_path.is_file()
-            or archive_path.stat().st_size != proof.get("archive_size_bytes")
-            or _file_digest(archive_path) != proof["archive_digest"]
+            or type(proof.get("archive_size_bytes")) is not int
+            or not 1 <= proof["archive_size_bytes"] <= self._archive_limit
+            or archive_path.stat().st_size != proof["archive_size_bytes"]
+            or await _file_io(_file_digest, archive_path, proof["archive_size_bytes"])
+            != proof["archive_digest"]
         ):
             raise DomainError(ErrorCode.TRANSFER_INVALID)
         headers = self._transfer_headers(token, int(context["connection_generation"]))
@@ -1157,17 +1275,24 @@ class WorkerAgent:
         descriptor = self.runtime.descriptor(ref)
         if descriptor is None:
             raise DomainError(ErrorCode.STALE_BROWSER_RUN)
-        return {"descriptor": asdict(descriptor)}
+        return {
+            "descriptor": asdict(descriptor),
+            "manual_available": self._manual_backend is not None,
+        }
 
     def _browser_ready(self, ref: BrowserRunRefDTO) -> None:
         self._emit_event({"type": "event", "event": "running", **asdict(ref)})
 
-    def _browser_exited(self, ref: BrowserRunRefDTO) -> None:
+    def _browser_exited(self, ref: BrowserRunRefDTO, generation: int, clean: bool) -> None:
         loop = self._loop
         if loop is None or loop.is_closed():
             return
+        current = self.connection_generation == generation and not self._shutdown.is_set()
         future = asyncio.run_coroutine_threadsafe(
-            self._finalize_stopped(ref, reason="clean", event=True), loop
+            self._finalize_stopped(
+                ref, reason="clean" if clean and current else "loss", event=True
+            ),
+            loop,
         )
         # callback thread must not block BrowserLauncher monitor thread
         future.add_done_callback(
@@ -1191,24 +1316,67 @@ class WorkerAgent:
         await self._send_json(websocket, message)
 
     async def _heartbeat_loop(self, websocket, generation: int) -> None:
+        loop = asyncio.get_running_loop()
         while self.connection_generation == generation:
+            # A blocked sampler must not delay the control lease or accumulate
+            # concurrent readers, even across reconnects. Discard late samples.
+            collecting = self._pending_sample is None or self._pending_sample.done()
+            if collecting:
+                self._pending_sample = loop.run_in_executor(None, self._heartbeat_sample)
             await asyncio.sleep(self.heartbeat_interval)
-            metrics = asdict(self._metrics())
+            if collecting and self._pending_sample.done():
+                sample = self._pending_sample.result()
+            else:
+                sample = self._unavailable_sample()
             payload = {
                 "type": "heartbeat",
                 "worker_id": self.worker_id,
                 "boot_id": self.boot_id,
                 "connection_generation": generation,
-                "metrics": metrics,
-                "active_runs": [
-                    {"profile_id": row["profile_id"], "run_id": row["run_id"]}
-                    for row in self.database.active_runs()
-                ],
-                "stopped_runs": list(self.database.stopped_proofs(include_acknowledged=False)),
+                **sample,
             }
             if len(json.dumps(payload, separators=(",", ":")).encode()) > MAX_MESSAGE_BYTES:
                 raise ConnectionError("Worker heartbeat exceeds protocol limit")
             await self._send_json(websocket, payload)
+
+    @staticmethod
+    def _unavailable_sample(stopped=()) -> dict:
+        return {
+            "metrics": None,
+            "active_runs": None,
+            "memory_accounted_runs": [],
+            "stopped_runs": list(stopped),
+        }
+
+    def _heartbeat_sample(self) -> dict:
+        stopped = ()
+        try:
+            stopped = self.database.stopped_proofs(include_acknowledged=False)
+            running_before_sample = {
+                row["run_id"] for row in self.database.active_runs() if row["status"] == "running"
+            }
+            metrics = None
+            with contextlib.suppress(OSError, ValueError):
+                metrics = asdict(self._metrics())
+            active = self.database.active_runs()
+        except (OSError, RuntimeError, ValueError, sqlite3.Error):
+            # No inventory claim on a failed sample. Exact durable stop proofs
+            # still reconcile, and only the Master's authenticated ACK renews control.
+            return self._unavailable_sample(stopped)
+        return {
+            "metrics": metrics,
+            "active_runs": [
+                {"profile_id": row["profile_id"], "run_id": row["run_id"]} for row in active
+            ],
+            "memory_accounted_runs": [
+                {"profile_id": row["profile_id"], "run_id": row["run_id"]}
+                for row in active
+                if metrics is not None
+                and row["run_id"] in running_before_sample
+                and row["status"] == "running"
+            ],
+            "stopped_runs": list(stopped),
+        }
 
     async def _event_loop(self, websocket, generation: int) -> None:
         assert self._events is not None
@@ -1306,7 +1474,7 @@ class WorkerAgent:
             if gate is not None:
                 gate.closing = True
                 gate.activate.set()
-                if gate.relay_task is not None:
+                if gate.relay_task is not None and gate.relay_task is not asyncio.current_task():
                     gate.relay_task.cancel()
                     await asyncio.gather(gate.relay_task, return_exceptions=True)
             stored = persisted.get(session_id)
@@ -1357,13 +1525,11 @@ class WorkerAgent:
         if not isinstance(session_id, str) or not 8 <= len(session_id) <= 128:
             raise DomainError(ErrorCode.VALIDATION_ERROR)
         context = self.database.run_context(ref.run_id)
-        profile = self._profile_by_run.get(ref.run_id)
         descriptor = self.runtime.descriptor(ref)
         if (
             context is None
             or context.get("profile_id") != ref.profile_id
-            or profile is None
-            or profile.engine != "camoufox"
+            or context.get("engine") != "camoufox"
             or descriptor is None
             or any(
                 value is None
@@ -1378,7 +1544,7 @@ class WorkerAgent:
         ):
             raise DomainError(ErrorCode.MANUAL_UNSUPPORTED_RUNTIME)
         relay = _strict_object(payload.get("relay"), "relay")
-        relay_url = _https_url(relay.get("url"), web_socket=True)
+        relay_url = self._master_endpoint(relay.get("url"), web_socket=True)
         relay_token = relay.get("token")
         if not isinstance(relay_token, str) or not 16 <= len(relay_token) <= 512:
             raise DomainError(ErrorCode.VALIDATION_ERROR)
@@ -1472,6 +1638,9 @@ class WorkerAgent:
             raise DomainError(ErrorCode.MANUAL_SESSION_CLOSED)
         if operation == "manual_heartbeat":
             gate = self._get_manual_gate(session_id, ref)
+            descriptor = await asyncio.to_thread(self.runtime.descriptor, ref)
+            if descriptor is None or descriptor != gate.descriptor:
+                raise DomainError(ErrorCode.MANUAL_SESSION_CLOSED)
             deadline = _finite_deadline(payload.get("watchdog_deadline"))
             await asyncio.to_thread(self._manual_backend.heartbeat, session_id, deadline)
             return {"renewed": True}
@@ -1659,39 +1828,22 @@ def _request_signature(message: dict[str, Any]) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _file_digest(path: Path) -> str:
+def _file_digest(path: Path, expected_size: int) -> str:
+    count = 0
     hasher = hashlib.sha256()
     with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            count += len(chunk)
+            if count > expected_size:
+                raise DomainError(ErrorCode.TRANSFER_INVALID)
             hasher.update(chunk)
+    if count != expected_size:
+        raise DomainError(ErrorCode.TRANSFER_INVALID)
     return hasher.hexdigest()
 
 
 def _valid_digest(value: object) -> bool:
     return isinstance(value, str) and bool(re.fullmatch(r"[a-f0-9]{64}", value))
-
-
-def _no_process_proof(
-    worker_id: str,
-    boot_id: str,
-    context: dict[str, Any],
-    ref: BrowserRunRefDTO,
-) -> dict[str, Any]:
-    generation = context.get("connection_generation")
-    if type(generation) is not int or generation < 1:
-        raise ValueError("Master run generation is unavailable")
-    return {
-        "profile_id": ref.profile_id,
-        "run_id": ref.run_id,
-        "worker_id": worker_id,
-        "worker_boot_id": boot_id,
-        "connection_generation": generation,
-        "terminated": True,
-        "process_tree_dead": True,
-        "manual_helpers_stopped": True,
-        "reason": "loss",
-        "shutdown_kind": "pre-spawn",
-    }
 
 
 def _finite_deadline(value: object) -> float:
@@ -1735,9 +1887,12 @@ def _load_manifest_and_agent() -> WorkerAgent:
         raise RuntimeError("Worker runtime manifest and native evidence are required")
     manifest = load_manifest(manifest_path, evidence_path, expected_digest)
     database = WorkerExecutionDatabase(state_dir / "runtime.sqlite3")
+    loss_timeout = _worker_loss_timeout(
+        float(os.environ.get("FOXPROFILE_WORKER_LOSS_TIMEOUT", "30"))
+    )
     watchdog = WorkerWatchdog(
         database,
-        loss_timeout=float(os.environ.get("FOXPROFILE_WORKER_LOSS_TIMEOUT", "30")),
+        loss_timeout=loss_timeout,
         term_grace=float(os.environ.get("FOXPROFILE_WORKER_TERM_GRACE", "2")),
         kill_grace=float(os.environ.get("FOXPROFILE_WORKER_KILL_GRACE", "2")),
         parent_pid=os.getpid(),
@@ -1756,7 +1911,7 @@ def _load_manifest_and_agent() -> WorkerAgent:
         runtime=runtime,
         watchdog=watchdog,
         manual_backend=manual_backend,
-        loss_timeout=float(os.environ.get("FOXPROFILE_WORKER_LOSS_TIMEOUT", "30")),
+        loss_timeout=loss_timeout,
         memory_reserve_bytes=int(
             os.environ.get("FOXPROFILE_WORKER_SYSTEM_RESERVE_BYTES", "536870912")
         ),

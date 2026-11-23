@@ -3,6 +3,7 @@
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
+from threading import Event
 from types import SimpleNamespace
 
 import pytest
@@ -241,6 +242,87 @@ def test_revoked_identity_cannot_route_commands(channel_api):
         )
         with pytest.raises(WebSocketDisconnect):
             socket.receive_json()
+
+
+@pytest.mark.parametrize("invalidation", ["revoke", "rotate", "register", "disconnect", "expire"])
+def test_pending_result_requires_current_durable_owner(channel_api, invalidation):
+    api = channel_api
+    with connect(api) as socket:
+        run = ready(socket)
+        with ThreadPoolExecutor() as pool:
+            pending = pool.submit(api.hub.command, run, "control", {}, timeout=2)
+            command = socket.receive_json()
+            if invalidation == "register":
+                api.registry.register("worker-a", api.token, "boot-a", DIGEST, True)
+            elif invalidation == "disconnect":
+                api.registry.disconnect("worker-a", "boot-a", run.connection_generation)
+            elif invalidation == "expire":
+                expired_at = time.time() + 31
+                api.registry.clock = lambda: expired_at
+            else:
+                getattr(api.registry, invalidation)("worker-a")
+            # Deliberately leave the old in-memory socket installed: the durable
+            # change must fence a result before the asynchronous drop callback.
+            socket.send_json({**command, "type": "result", "ok": True, "result": "stale-image"})
+            with pytest.raises(DomainError) as failure:
+                pending.result(3)
+            assert failure.value.code in {ErrorCode.STALE_RUN, ErrorCode.WORKER_UNAVAILABLE}
+
+
+def test_pending_result_from_current_draining_owner_remains_valid(channel_api):
+    api = channel_api
+    with connect(api) as socket:
+        run = ready(socket)
+        with ThreadPoolExecutor() as pool:
+            pending = pool.submit(api.hub.command, run, "control", {}, timeout=2)
+            command = socket.receive_json()
+            api.registry.set_draining("worker-a", True)
+            socket.send_json({**command, "type": "result", "ok": True, "result": "current-image"})
+            assert pending.result(3) == "current-image"
+
+
+@pytest.mark.parametrize("outcome", ["current", "timed-out", "disconnected"])
+def test_result_waiting_for_database_writer_keeps_event_loop_available(
+    channel_api, monkeypatch, outcome
+):
+    api = channel_api
+    checking, loop_progress = Event(), Event()
+    original_guard = api.registry.connection_guard
+
+    def observed_guard(*args):
+        checking.set()
+        return original_guard(*args)
+
+    with connect(api) as socket, ThreadPoolExecutor() as pool:
+        run = ready(socket)
+        connection = api.hub.connection_for(run)
+        timeout = 0.5 if outcome == "timed-out" else 5
+        pending = pool.submit(api.hub.command, run, "control", {}, timeout=timeout)
+        command = socket.receive_json()
+        monkeypatch.setattr(api.registry, "connection_guard", observed_guard)
+        with api.registry.database.transaction():
+            reply = pool.submit(
+                socket.send_json, {**command, "type": "result", "ok": True, "result": "first"}
+            )
+            assert checking.wait(2)
+            connection.loop.call_soon_threadsafe(loop_progress.set)
+            assert loop_progress.wait(1), "Result ownership check blocked the ASGI event loop"
+            if outcome == "disconnected":
+                api.hub.disconnect(run.worker_id)
+            if outcome != "current":
+                with pytest.raises(DomainError) as failure:
+                    pending.result(2)
+                assert failure.value.code is ErrorCode.WORKER_UNAVAILABLE
+        reply.result(2)
+        if outcome == "current":
+            assert pending.result(2) == "first"
+        if outcome == "disconnected":
+            return
+        # A timeout while the result is being checked must leave the socket usable.
+        following = pool.submit(api.hub.command, run, "control", {}, timeout=3)
+        command = socket.receive_json()
+        socket.send_json({**command, "type": "result", "ok": True, "result": "next"})
+        assert following.result(3) == "next"
 
 
 def test_forged_worker_and_stale_reply_are_rejected(channel_api):

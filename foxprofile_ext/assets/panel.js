@@ -17,7 +17,9 @@ const STRINGS = {
     stamp_transferring: "Transferring", stamp_syncing: "Saving", stamp_uncertain: "Stop unverified",
     stamp_unsaved: "Session not saved", unsaved_hint: "Latest session changes were not saved. The next launch uses the last saved profile.",
     location_local: "Master", location_remote: "Worker", workers: "Execution workers",
-    worker_memory: "Available RAM: {n} MiB", worker_runs: "Assigned runs: {n}",
+    worker_state_revoked: "Revoked", worker_state_incompatible: "Incompatible", worker_state_offline: "Offline",
+    worker_state_draining: "Draining", worker_state_ready: "Ready",
+    worker_memory: "Available RAM: {n} MiB", worker_memory_unknown: "Available RAM unavailable", worker_runs: "Assigned runs: {n}",
     worker_drain: "Drain", worker_resume: "Accept new runs", worker_empty: "No enrolled workers.",
     worker_memory_full: "No execution host has enough available RAM.", worker_offline: "Execution worker is unavailable.",
     worker_runtime_incompatible: "Execution runtime is incompatible.", worker_transfer_invalid: "Profile transfer is invalid.",
@@ -45,7 +47,9 @@ const STRINGS = {
     stamp_transferring: "Đang chuyển", stamp_syncing: "Đang lưu", stamp_uncertain: "Chưa xác minh dừng",
     stamp_unsaved: "Session chưa được lưu", unsaved_hint: "Thay đổi của session gần nhất chưa được lưu. Lần mở tiếp theo dùng profile đã lưu trước đó.",
     location_local: "Master", location_remote: "Worker", workers: "Worker thực thi",
-    worker_memory: "RAM khả dụng: {n} MiB", worker_runs: "Run được cấp: {n}",
+    worker_state_revoked: "Đã thu hồi", worker_state_incompatible: "Không tương thích", worker_state_offline: "Ngoại tuyến",
+    worker_state_draining: "Ngừng nhận run mới", worker_state_ready: "Sẵn sàng",
+    worker_memory: "RAM khả dụng: {n} MiB", worker_memory_unknown: "Không có số liệu RAM khả dụng", worker_runs: "Run được cấp: {n}",
     worker_drain: "Drain", worker_resume: "Nhận run mới", worker_empty: "Chưa có worker đăng ký.",
     worker_memory_full: "Không có host đủ RAM khả dụng.", worker_offline: "Worker thực thi không khả dụng.",
     worker_runtime_incompatible: "Runtime thực thi không tương thích.", worker_transfer_invalid: "Dữ liệu chuyển profile không hợp lệ.",
@@ -174,17 +178,25 @@ export function createPanel(ctx, info) {
         const createRole = roleSelect("admin-new-role", "user");
         let workersPanel = null;
         if (inventory) {
-          const workerRows = inventory.workers.map((worker) => h("div", { class: "admin-user" },
-            h("b", {}, worker.worker_id), h("span", {}, worker.state),
-            h("span", { class: "data" }, t("worker_memory", { n: Math.floor((worker.metrics?.mem_available_bytes || 0) / 1048576) })),
-            h("span", {}, t("worker_runs", { n: worker.runs.length })),
-            h("button", { class: "btn btn-line", type: "button", onclick: async () => {
-              if (!isAdmin(version)) return;
-              try {
-                await adminRequest("POST", `/workers/${encodeURIComponent(worker.worker_id)}/drain`, { draining: !worker.draining }, version);
-                if (isAdmin(version)) { close(); await openAdmin(); }
-              } catch (error) { if (isAdmin(version)) toast(error.message, true); }
-            } }, t(worker.draining ? "worker_resume" : "worker_drain"))));
+          const workerRows = inventory.workers.map((worker) => {
+            const stateKey = "worker_state_" + worker.state;
+            const stateLabel = t(stateKey);
+            const memory = worker.metrics
+              ? t("worker_memory", { n: Math.floor(worker.metrics.mem_available_bytes / 1048576) })
+              : t("worker_memory_unknown");
+            return h("div", { class: "admin-user" },
+              h("b", {}, worker.worker_id),
+              h("span", {}, stateLabel === stateKey ? t("worker_offline") : stateLabel),
+              h("span", { class: "data" }, memory),
+              h("span", {}, t("worker_runs", { n: worker.runs.length })),
+              h("button", { class: "btn btn-line", type: "button", onclick: async () => {
+                if (!isAdmin(version)) return;
+                try {
+                  await adminRequest("POST", `/workers/${encodeURIComponent(worker.worker_id)}/drain`, { draining: !worker.draining }, version);
+                  if (isAdmin(version)) { close(); await openAdmin(); }
+                } catch (error) { if (isAdmin(version)) toast(error.message, true); }
+              } }, t(worker.draining ? "worker_resume" : "worker_drain")));
+          });
           workersPanel = h("section", {}, h("h3", {}, t("workers")), workerRows.length ? workerRows : h("p", {}, t("worker_empty")));
         }
         return h("div", {}, modalHead(t("admin"), null, close), h("div", { class: "modal-body" },

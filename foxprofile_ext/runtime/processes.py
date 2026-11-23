@@ -82,6 +82,7 @@ class RuntimeSupervisor:
         self.lock_path = lock_path
         self.prepare_launch = prepare_launch
         self.worker_execution = worker_execution
+        self.track_local_browser_data = False
         self._handles: dict[str, subprocess.Popen[str]] = {}
         self._owned_runs: dict[str, BrowserRunRefDTO] = {}
         self._prepared_runs: set[BrowserRunRefDTO] = set()
@@ -190,6 +191,7 @@ class RuntimeSupervisor:
                 "helper_stdin": helper_stdin,
                 "engine": profile.engine,
                 "worker_execution": self.worker_execution,
+                "track_local_browser_data": self.track_local_browser_data,
             }
             with self._lock:
                 if self._closed:
@@ -446,6 +448,12 @@ class RuntimeSupervisor:
         if not isinstance(result, dict):
             raise RuntimeError("Protected cookie helper returned an invalid result")
         return result
+
+    def close_unpublished(self) -> None:
+        """Release construction-time ownership without stopping adopted processes."""
+        with self._lock:
+            self._closed = True
+            self._manager_file.close()
 
     def shutdown(self, timeout: float = 30.0) -> None:
         if type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout < 0:

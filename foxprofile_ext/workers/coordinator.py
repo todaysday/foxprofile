@@ -8,7 +8,8 @@ import logging
 import re
 import threading
 import time
-from dataclasses import asdict
+from dataclasses import asdict, replace
+from weakref import WeakValueDictionary
 
 from ..capacity import CapacityService
 from ..dto import BrowserRunRefDTO, ProcessIdentity, ProfileRefDTO, RuntimeDescriptor
@@ -87,17 +88,20 @@ class DistributedCoordinator(RuntimeCoordinator):
         self.workers = registry
         self.hub = hub
         self.profiles = profiles
+        self.runtime.track_local_browser_data = True
         self.public_url = public_url.rstrip("/")
         from .manual import ManualRelay
 
         self.manual_relay = ManualRelay(self)
-        self._descriptors = {}
-        self._locks: dict[str, threading.RLock] = {}
+        self._locks: WeakValueDictionary[str, threading.RLock] = WeakValueDictionary()
         self._guard = threading.RLock()
         self._finishing: set[str] = set()
         self._cleaning: set[str] = set()
         self._executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=16, thread_name_prefix="worker-run"
+        )
+        self.transfer_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=4, thread_name_prefix="worker-transfer"
         )
         self._closed = False
         hub.on_disconnect = self._disconnected
@@ -130,9 +134,17 @@ class DistributedCoordinator(RuntimeCoordinator):
         with self.ledger.database.read() as db:
             receipts = tuple(
                 db.execute(
-                    "SELECT c.profile_id, c.run_id, c.worker_id, c.worker_boot_id, c.connection_generation "
+                    "SELECT c.profile_id, c.run_id, c.worker_id, c.worker_boot_id, "
+                    "c.connection_generation, c.receipt_id "
                     "FROM profile_sync_commits c JOIN worker_stop_proofs p ON p.run_id = c.run_id "
-                    "WHERE c.status = 'committed' AND p.archive_digest = c.archive_digest"
+                    "JOIN browser_runs r ON r.run_id = c.run_id AND r.profile_id = c.profile_id "
+                    "JOIN browser_run_placements b ON b.run_id = c.run_id "
+                    "AND b.worker_id = c.worker_id AND b.worker_boot_id = c.worker_boot_id "
+                    "AND b.connection_generation = c.connection_generation "
+                    "AND b.base_revision = c.base_revision "
+                    "WHERE c.status = 'committed' AND p.archive_digest = c.archive_digest "
+                    "AND (r.status IN ('syncing', 'uncertain') "
+                    "OR (r.status = 'closed' AND b.storage_outcome IS NOT 'saved'))"
                 )
             )
         for receipt in receipts:
@@ -143,8 +155,43 @@ class DistributedCoordinator(RuntimeCoordinator):
                 receipt["connection_generation"],
             ):
                 self.ledger.complete_remote(
-                    *self._owner(run), process_stopped=True, sync_verified=True
+                    *self._owner(run),
+                    process_stopped=True,
+                    sync_verified=True,
+                    commit_receipt_id=receipt["receipt_id"],
                 )
+
+    def _reconcile_remote_commit(self, run):
+        """Keep an admitted journal's claim until its durable outcome is known."""
+        with self.ledger.database.read() as db:
+            receipt = db.execute(
+                "SELECT c.status, c.receipt_id FROM profile_sync_commits c "
+                "JOIN worker_stop_proofs p ON p.run_id = c.run_id "
+                "WHERE c.run_id = ? AND c.profile_id = ? AND c.worker_id = ? "
+                "AND c.worker_boot_id = ? AND c.connection_generation = ? "
+                "AND c.base_revision = ? AND p.archive_digest = c.archive_digest "
+                "AND c.status IN ('prepared', 'committed')",
+                (
+                    run.ref.run_id,
+                    run.ref.profile_id,
+                    run.worker_id,
+                    run.worker_boot_id,
+                    run.connection_generation,
+                    run.base_revision,
+                ),
+            ).fetchone()
+        if receipt is None:
+            return False
+        if receipt["status"] == "committed":
+            if not self.ledger.complete_remote(
+                *self._owner(run),
+                process_stopped=True,
+                sync_verified=True,
+                commit_receipt_id=receipt["receipt_id"],
+            ):
+                raise DomainError(ErrorCode.RUN_UNCERTAIN)
+            self._cleanup_snapshot(run.ref.run_id)
+        return True
 
     def _run_lock(self, run_id):
         with self._guard:
@@ -222,6 +269,8 @@ class DistributedCoordinator(RuntimeCoordinator):
         with self._run_lock(run.ref.run_id):
             try:
                 if not self._phase(run, RunStatus.RESERVED, RunStatus.TRANSFERRING):
+                    if self.ledger.get(run.ref).status is RunStatus.UNCERTAIN:
+                        self._discard_unstarted(run)
                     return
                 with catalog_lock(self.lock_path):
                     current, active = self._current_run(
@@ -229,13 +278,17 @@ class DistributedCoordinator(RuntimeCoordinator):
                     )
                     if current.name != expected_name or active is None or active.ref != run.ref:
                         raise DomainError(ErrorCode.STALE_RUN)
-                    profile = self.profile_by_id(current.profile_id)
-                    snapshot = self.profiles.capture(profile, self.ledger.get(run.ref))
+                    profile = replace(self.profile_by_id(current.profile_id))
                     profile_settings = profile.to_dict()
+                # The exact run lock and occupied ledger row protect this
+                # profile's bytes while independent catalog work stays available.
+                snapshot = self.profiles.capture(profile, self.ledger.get(run.ref))
                 self.authorize(principal, current)
                 run = self.ledger.get(run.ref)
                 grant = self.profiles.issue_grant(run, "download", snapshot=snapshot)
                 if not self._phase(run, RunStatus.TRANSFERRING, RunStatus.STARTING):
+                    if self.ledger.get(run.ref).status is RunStatus.UNCERTAIN:
+                        self._discard_unstarted(run)
                     return
                 payload = {
                     "profile": profile_settings,
@@ -280,7 +333,7 @@ class DistributedCoordinator(RuntimeCoordinator):
         if run is None:
             raise DomainError(ErrorCode.STALE_BROWSER_RUN)
         if run.worker_id is None:
-            return super().control(principal, current, action, params)
+            return self._control_local(run.ref, action, params)
         with self._run_lock(run.ref.run_id):
             current, latest = self._current_run(principal, current)
             if latest is None or latest.ref != run.ref or latest.status is not RunStatus.RUNNING:
@@ -299,10 +352,7 @@ class DistributedCoordinator(RuntimeCoordinator):
         if run is None:
             return False
         if run.worker_id is None:
-            stopped = super().stop(principal, current, timeout=timeout)
-            if stopped:
-                self._record_local_stop(run)
-            return stopped
+            return self._stop_local(run, timeout)
         with self._run_lock(run.ref.run_id):
             self.authorize(principal, current)
             return self._stop_remote(run, timeout)
@@ -325,7 +375,7 @@ class DistributedCoordinator(RuntimeCoordinator):
             self._phase(run, run.status, RunStatus.STOPPING)
             try:
                 result = self.hub.command(
-                    run, "stop", {"timeout": timeout}, timeout=max(1, timeout) + 5
+                    run, "stop", {"timeout": min(timeout, 60.0)}, timeout=max(1, timeout) + 5
                 )
             except DomainError:
                 self._uncertain(run)
@@ -373,6 +423,7 @@ class DistributedCoordinator(RuntimeCoordinator):
         if (
             not isinstance(proof, dict)
             or proof.get("terminated") is not True
+            or proof.get("process_tree_dead") is not True
             or proof.get("reason") not in {"clean", "loss"}
             or any(
                 proof.get(key) != expected
@@ -404,6 +455,11 @@ class DistributedCoordinator(RuntimeCoordinator):
                 clean_current_run = False
         if not clean_current_run:
             self._uncertain(run)
+            # The phase change excludes new commit intents. An intent already
+            # admitted by the same database must retain ownership until saved
+            # or rolled back; waiting on the catalog lock here blocks heartbeats.
+            if self._reconcile_remote_commit(run):
+                return
             closed = self.ledger.complete_remote(
                 *self._owner(run),
                 process_stopped=True,
@@ -437,35 +493,41 @@ class DistributedCoordinator(RuntimeCoordinator):
     def commit_upload(self, run, archive, digest):
         # The stop caller is waiting on the worker's HTTPS upload while holding
         # its operation lock. The durable syncing phase owns exclusivity here.
-        with catalog_lock(self.lock_path):
-            profile = self.profile_by_id(run.ref.profile_id)
+        receipt = self.profiles.replay_committed_receipt(run, archive, run.base_revision, digest)
+        if receipt is None:
+            with catalog_lock(self.lock_path):
+                profile = replace(self.profile_by_id(run.ref.profile_id))
+            # Commit revalidates the exact claim and revision after extraction;
+            # its prepared intent retains that claim through atomic promotion.
             receipt = self.profiles.commit(profile, run, archive, run.base_revision, digest)
-            if (
-                not self.ledger.complete_remote(
-                    *self._owner(run),
-                    process_stopped=True,
-                    sync_verified=True,
-                )
-                and self.ledger.get(run.ref).status is not RunStatus.CLOSED
-            ):
-                raise DomainError(ErrorCode.RUN_UNCERTAIN)
-            self._cleanup_snapshot(run.ref.run_id)
-            return asdict(receipt)
+        return self.acknowledge_upload(run, receipt)
+
+    def acknowledge_upload(self, run, receipt):
+        """Finish an exact durable receipt, including a validated streaming retry."""
+        if not self.ledger.complete_remote(
+            *self._owner(run),
+            process_stopped=True,
+            sync_verified=True,
+            commit_receipt_id=receipt.receipt_id,
+        ):
+            raise DomainError(ErrorCode.RUN_UNCERTAIN)
+        self._cleanup_snapshot(run.ref.run_id)
+        return asdict(receipt)
 
     def verified_remote_descriptor(self, run):
         if run.worker_id is None or run.status is not RunStatus.RUNNING:
             return None
         self.hub.connection_for(run)
-        if run.ref.run_id in self._descriptors:
-            return self._descriptors[run.ref.run_id]
         data = self.hub.command(run, "describe", timeout=5)
         if not isinstance(data, dict):
             raise DomainError(ErrorCode.STALE_RUN)
-        data = data.get("descriptor", data)
-        if data.get("run") != asdict(run.ref):
+        if data.get("manual_available") is not True:
+            raise DomainError(ErrorCode.MANUAL_UNSUPPORTED_RUNTIME)
+        data = data.get("descriptor")
+        if not isinstance(data, dict) or data.get("run") != asdict(run.ref):
             raise DomainError(ErrorCode.STALE_RUN)
         # PIDs are private worker-local proof. Master never signals them.
-        descriptor = RuntimeDescriptor(
+        return RuntimeDescriptor(
             run.ref,
             run.host_id,
             ProcessIdentity(**data["supervisor"]),
@@ -476,8 +538,6 @@ class DistributedCoordinator(RuntimeCoordinator):
             xauthority_path=data.get("xauthority_path"),
             boundary=ProcessIdentity(**data["boundary"]) if data.get("boundary") else None,
         )
-        self._descriptors[run.ref.run_id] = descriptor
-        return descriptor
 
     def _disconnected(self, connection):
         for run in self.ledger.active_runs():
@@ -549,12 +609,6 @@ class DistributedCoordinator(RuntimeCoordinator):
             with self._guard:
                 self._finishing.discard(run.ref.run_id)
 
-    def _record_local_stop(self, run):
-        with catalog_lock(self.lock_path):
-            if any(r.ref.profile_id == run.ref.profile_id for r in self.ledger.active_runs()):
-                return
-            self.profiles.record_local_stop(self.profile_by_id(run.ref.profile_id), run)
-
     def fence(self, run, evidence: str):
         """Called only after an admin attests verified out-of-band host fencing."""
         if not isinstance(evidence, str) or not evidence.strip() or len(evidence) > 2048:
@@ -575,6 +629,9 @@ class DistributedCoordinator(RuntimeCoordinator):
                     (run.ref.run_id, evidence, time.time()),
                 )
                 self._record_cleanup_proof(db, run)
+            self._uncertain(run)
+            if self._reconcile_remote_commit(run):
+                return self.ledger.get(run.ref).status is RunStatus.CLOSED
             closed = (
                 self.ledger.complete_remote(
                     *self._owner(run),
@@ -596,4 +653,5 @@ class DistributedCoordinator(RuntimeCoordinator):
                     self._stop_remote(run, min(timeout, 10))
         self.hub.shutdown()
         self._executor.shutdown(wait=False, cancel_futures=True)
+        self.transfer_executor.shutdown(wait=False, cancel_futures=True)
         super().shutdown(timeout=timeout)

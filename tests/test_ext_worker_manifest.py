@@ -103,6 +103,31 @@ def _write_files(tmp_path: Path, document: dict, evidence: dict):
     return manifest_path, evidence_path
 
 
+@pytest.mark.parametrize("version", [1, 2])
+def test_generator_only_writes_evidence_format_the_loader_accepts(
+    evidence_files, monkeypatch, version
+):
+    tmp_path, document, native, observed = evidence_files
+    measured = copy.deepcopy(document["runtimes"]["x86_64"])
+    del measured["native"]
+    monkeypatch.setattr(worker_manifest, "_ubuntu_release", lambda: document["distribution"])
+    monkeypatch.setattr(
+        worker_manifest, "measure_runtime_pins", lambda **_: copy.deepcopy(measured)
+    )
+    evidence = tmp_path / "incoming.json"
+    evidence.write_text(json.dumps({**native, "format_version": version}))
+    output = tmp_path / "generated.json"
+    if version != 1:
+        with pytest.raises(worker_manifest.ManifestError):
+            worker_manifest.generate_runtime_manifest(evidence, output)
+        assert not output.exists()
+    else:
+        digest = worker_manifest.generate_runtime_manifest(evidence, output)
+        assert worker_manifest.load_manifest(
+            output, evidence, digest, observed=observed
+        ).ready_engines == ("camoufox",)
+
+
 def test_manifest_exposes_only_fully_pinned_native_runtime(evidence_files):
     tmp_path, document, _native, observed = evidence_files
     manifest_path, evidence_path = _write_files(tmp_path, document, _native)

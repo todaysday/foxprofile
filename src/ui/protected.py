@@ -367,6 +367,10 @@ class PersonalDesktop:
         worker_rows = []
         if worker_inventory is not None:
             for worker in worker_inventory["workers"]:
+                state_key = f"personal_worker_state_{worker['state']}"
+                state_label = get_string(state_key)
+                if state_label == state_key:
+                    state_label = get_string("personal_error_worker_unavailable")
                 metrics = worker["metrics"]
                 memory = (
                     get_string(
@@ -385,7 +389,7 @@ class PersonalDesktop:
                                 controls=[
                                     ft.Text(worker["worker_id"], font_family=FONT_BOLD),
                                     ft.Text(
-                                        f"{worker['state']} · {memory} · "
+                                        f"{state_label} · {memory} · "
                                         + get_string(
                                             "personal_worker_runs", count=len(worker["runs"])
                                         ),
@@ -537,13 +541,10 @@ class PersonalHandlers(AppHandlers):
                 self.log(error_text(error))
 
     def on_launch(self, identifier):
-        def effect():
-            if self.binding.bl.is_running(identifier):
-                self.binding.bl.stop_profile(identifier)
-            else:
-                self.report_results(self.binding.bl.start_profiles([identifier]))
+        self.perform(lambda: self.report_results(self.binding.bl.start_profiles([identifier])))
 
-        self.perform(effect)
+    def on_stop(self, identifier):
+        self.perform(lambda: self.binding.bl.stop_profile(identifier))
 
     def report_results(self, results):
         for result in results:

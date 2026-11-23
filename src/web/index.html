@@ -146,8 +146,9 @@ main { min-width: 0; padding: 26px 32px 40px; }
 .actions .main { width: 96px; margin-right: 8px; height: 36px; }
 
 /* The entry stamp */
-.stamp { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; min-width: 86px; padding: 3px 9px 2px; border: 1.5px solid currentColor; outline: 1px solid currentColor; outline-offset: 2px; border-radius: 6px; transform: rotate(-4deg); color: var(--live); font: 700 10.5px/1.2 var(--data); letter-spacing: .08em; text-transform: uppercase; background: rgba(255,255,255,.35); }
-.stamp small { font-weight: 500; font-size: 10px; letter-spacing: .02em; }
+.c-stamp { display: grid; grid-template-rows: 22px auto; align-items: center; }
+.stamp { display: inline-flex; align-items: center; justify-content: center; min-width: 86px; padding: 3px 9px 2px; border: 1.5px solid currentColor; outline: 1px solid currentColor; outline-offset: 2px; border-radius: 6px; transform: rotate(-4deg); color: var(--live); font: 700 10.5px/1.2 var(--data); letter-spacing: .08em; text-transform: uppercase; background: rgba(255,255,255,.35); }
+.stamp-description { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; text-transform: none; }
 .stamp.pending { color: var(--ink-2); border-style: dashed; outline: 0; transform: rotate(-2deg); }
 .stamp.failed { color: var(--err); outline: 0; text-decoration: line-through; text-decoration-thickness: 1.5px; }
 .stamp.land { animation: stamp-land .34s var(--ease-out) both; }
@@ -390,6 +391,8 @@ const I18N = {
     no_match_title: "Không tìm thấy profile", no_match: "Không có profile nào khớp “{q}” trong bộ lọc này.", clear_filters: "Xoá bộ lọc",
     launch: "Mở", stop: "Dừng", view: "Xem màn hình", cookies: "Cookie & fingerprint", edit: "Sửa", delete: "Xoá",
     stamp_live: "Đang chạy", stamp_starting: "Đang mở", stamp_stopping: "Đang dừng", stamp_failed: "Lỗi", idle: "Đã dừng",
+    stamp_recovering_short: "Khôi phục", stamp_uncertain_short: "Chưa rõ dừng", stamp_unsaved_short: "Chưa lưu",
+    stamp_no_details: "Chưa có chi tiết",
     direct: "Trực tiếp", follow_ip: "Theo IP", no_fp_short: "chưa có fingerprint", no_proxy_short: "không proxy", selected: "Đã chọn {n}", bulk_launch: "Mở", bulk_stop: "Dừng", bulk_delete: "Xoá", clear_sel: "Bỏ chọn",
     select_all: "Chọn tất cả", select_row: "Chọn {name}",
     confirm_bulk_delete: "Xoá {n} profile đã chọn? Cookie và dữ liệu của chúng sẽ mất vĩnh viễn.", bulk_skip_running: "Bỏ qua {n} profile",
@@ -441,6 +444,8 @@ const I18N = {
     no_match_title: "No profile found", no_match: "Nothing matches “{q}” in this filter.", clear_filters: "Clear filters",
     launch: "Launch", stop: "Stop", view: "View screen", cookies: "Cookies & fingerprint", edit: "Edit", delete: "Delete",
     stamp_live: "Running", stamp_starting: "Starting", stamp_stopping: "Stopping", stamp_failed: "Failed", idle: "Stopped",
+    stamp_recovering_short: "Recovering", stamp_uncertain_short: "Stop unclear", stamp_unsaved_short: "Unsaved",
+    stamp_no_details: "No run details",
     direct: "Direct", follow_ip: "Follows IP", no_fp_short: "no fingerprint yet", no_proxy_short: "no proxy", selected: "{n} selected", bulk_launch: "Launch", bulk_stop: "Stop", bulk_delete: "Delete", clear_sel: "Clear",
     select_all: "Select all", select_row: "Select {name}",
     confirm_bulk_delete: "Delete {n} selected profiles? Their cookies and data are removed permanently.", bulk_skip_running: "Skipped {n}",
@@ -682,19 +687,37 @@ function headRow(shown) {
     h("div", { class: "col-geo", role: "columnheader" }, t("col_geo")), h("div", { role: "columnheader" }, t("col_status")), h("div", { role: "columnheader" }));
 }
 
-function stamp(p) {
+function statusCell(p) {
   const key = profileKey(p);
   const state = busy.get(key) || (p.state === "reserved" ? "starting" : p.state);
-  if (state === "unsaved") return h("span", { class: "stamp failed", title: t("unsaved_hint") }, t("stamp_unsaved"));
-  const pending = { starting: "stamp_starting", stopping: "stamp_stopping", recovering: "stamp_recovering", transferring: "stamp_transferring", syncing: "stamp_syncing", uncertain: "stamp_uncertain" };
-  if (pending[state]) return h("span", { class: "stamp pending" }, t(pending[state]));
-  if (running.has(key)) {
-    const since = liveSince.get(key);
-    return h("span", { class: "stamp" + (justLanded.has(key) ? " land" : "") },
-      t("stamp_live"), since ? h("small", {}, hhmm(since)) : null);
+  const pending = ["starting", "stopping", "recovering", "transferring", "syncing", "uncertain"];
+  const compact = ["recovering", "uncertain", "unsaved"].includes(state);
+  let label = "idle", attrs = { class: "idle" }, since;
+  if (state === "unsaved") {
+    label = "stamp_unsaved";
+    attrs = { class: "stamp failed", title: t("unsaved_hint") };
+  } else if (pending.includes(state)) {
+    label = "stamp_" + state;
+    attrs = { class: "stamp pending", title: compact ? t(label) : null };
+  } else if (running.has(key)) {
+    label = "stamp_live";
+    attrs = { class: "stamp" + (justLanded.has(key) ? " land" : "") };
+    since = liveSince.get(key);
+  } else if (failed.has(key) || p.state === "failed") {
+    label = "stamp_failed";
+    attrs = { class: "stamp failed", title: failed.get(key) };
   }
-  if (failed.has(key) || p.state === "failed") return h("span", { class: "stamp failed", title: failed.get(key) }, t("stamp_failed"));
-  return h("span", { class: "idle" }, t("idle"));
+  const fullLabel = t(label);
+  const shortLabel = compact ? t(label + "_short") : fullLabel;
+  const primary = shortLabel === fullLabel ? fullLabel : [
+    h("span", { "aria-hidden": "true" }, shortLabel),
+    h("span", { class: "stamp-description" }, fullLabel),
+  ];
+  const location = p.execution_location ? t("location_" + p.execution_location) : null;
+  const details = [since ? hhmm(since) : null, location].filter(Boolean).join(" · ");
+  return h("div", { class: "c-stamp stack", role: "cell" },
+    h("span", attrs, primary),
+    h("span", { class: since ? "minor data" : "minor" }, details || t("stamp_no_details")));
 }
 
 function row(p) {
@@ -732,7 +755,7 @@ function row(p) {
     h("div", { class: "col-geo stack", role: "cell" },
       h("span", { class: p.timezone ? "data" : "muted" }, p.timezone || t("follow_ip")),
       h("span", { class: "minor" + (p.locale ? " data" : "") }, p.locale || t("follow_ip"))),
-    h("div", { class: "c-stamp stack", role: "cell" }, stamp(p), p.execution_location ? h("span", { class: "minor" }, t("location_" + p.execution_location)) : null),
+    statusCell(p),
     h("div", { class: "actions", role: "cell" }, main,
       iconBtn("monitor", t("view"), () => openViewer(p), "", !on || isBusy),
       iconBtn("cookie", t("cookies"), () => openCookies(p), "", occupied),

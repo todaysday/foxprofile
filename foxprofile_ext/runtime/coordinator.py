@@ -13,7 +13,7 @@ from ..dto import BrowserRunRefDTO, PrincipalDTO, ProfileRefDTO
 from ..errors import DomainError, ErrorCode
 from ..locking import catalog_lock
 from ..run_contracts import RunLaunchResult, RunStatusResult
-from ..storage.capacity import CapacityLedger, RunStatus
+from ..storage.capacity import CapacityLedger, RunRecord, RunStatus
 from .processes import RuntimeSupervisor
 
 
@@ -86,7 +86,7 @@ class RuntimeCoordinator:
         for run in admission.runs:
             ref = ProfileRefDTO(run.ref.profile_id, profile_names[run.ref.profile_id])
             state = _launch_state(run.status)
-            error_code = None
+            error_code = _launch_error(run.status) if state == "failed" else None
             if ref.profile_id in new_ids:
                 record = self.ledger.get(run.ref)
                 if record is not None:
@@ -100,17 +100,9 @@ class RuntimeCoordinator:
                         record = self.ledger.get(run.ref)
                     state = _launch_state(record.status) if record is not None else "failed"
                     if state == "failed" or (not ok and error != "timeout"):
-                        error_code = (
-                            "RUN_UNCERTAIN"
-                            if record is not None and record.status is RunStatus.UNCERTAIN
-                            else "LAUNCH_FAILED"
-                        )
+                        error_code = _launch_error(record.status if record is not None else None)
                 elif state == "failed":
-                    error_code = (
-                        "RUN_UNCERTAIN"
-                        if record is not None and record.status is RunStatus.UNCERTAIN
-                        else "LAUNCH_FAILED"
-                    )
+                    error_code = _launch_error(record.status if record is not None else None)
             results.append(
                 RunLaunchResult(
                     ref.profile_id,
@@ -188,12 +180,14 @@ class RuntimeCoordinator:
     def stop(
         self, principal: PrincipalDTO, profile: ProfileRefDTO, *, timeout: float = 30.0
     ) -> bool:
-        with catalog_lock(self.lock_path):
-            current, run = self._current_run(principal, profile)
-            if run is None:
-                return False
-            if run.status is RunStatus.RESERVED and self.ledger.cancel_unclaimed(run.ref):
-                return True
+        _, run = self._current_run(principal, profile)
+        return self._stop_local(run, timeout) if run is not None else False
+
+    def _stop_local(self, run: RunRecord, timeout: float) -> bool:
+        if run.status is RunStatus.RESERVED:
+            with catalog_lock(self.lock_path):
+                if self.ledger.cancel_unclaimed(run.ref):
+                    return True
         return self.runtime.request_stop(run.ref.profile_id, run.ref.run_id, timeout)
 
     def control(
@@ -203,11 +197,14 @@ class RuntimeCoordinator:
         action: str,
         params: dict[str, object] | None = None,
     ) -> object:
-        with catalog_lock(self.lock_path):
-            _, run = self._current_run(principal, profile)
-            if run is None:
-                raise DomainError(ErrorCode.STALE_BROWSER_RUN)
-            ref = run.ref
+        _, run = self._current_run(principal, profile)
+        if run is None:
+            raise DomainError(ErrorCode.STALE_BROWSER_RUN)
+        return self._control_local(run.ref, action, params)
+
+    def _control_local(
+        self, ref: BrowserRunRefDTO, action: str, params: dict[str, object] | None
+    ) -> object:
         return self.runtime.control(ref.profile_id, ref.run_id, action, params)
 
     def shutdown(self, *, timeout: float = 30.0) -> None:
@@ -215,7 +212,7 @@ class RuntimeCoordinator:
 
     def _current_run(
         self, principal: PrincipalDTO, ref: ProfileRefDTO
-    ) -> tuple[ProfileRefDTO, object | None]:
+    ) -> tuple[ProfileRefDTO, RunRecord | None]:
         if not isinstance(ref, ProfileRefDTO):
             raise DomainError(ErrorCode.VALIDATION_ERROR)
         with catalog_lock(self.lock_path):
@@ -251,6 +248,14 @@ def _unique_profiles(profiles: Sequence[ProfileRefDTO]) -> tuple[ProfileRefDTO, 
 def _launch_state(status: RunStatus) -> str:
     if status is RunStatus.RUNNING:
         return "running"
-    if status in {RunStatus.CANCELLED, RunStatus.CLOSED, RunStatus.UNCERTAIN}:
+    if status in {RunStatus.CANCELLED, RunStatus.CLOSED, RunStatus.UNCERTAIN, RunStatus.SYNCING}:
         return "failed"
     return "starting"
+
+
+def _launch_error(status: RunStatus | None) -> str:
+    if status is RunStatus.UNCERTAIN:
+        return "RUN_UNCERTAIN"
+    if status is RunStatus.SYNCING:
+        return "SYNC_FAILED"
+    return "LAUNCH_FAILED"

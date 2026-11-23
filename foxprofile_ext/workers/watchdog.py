@@ -19,7 +19,7 @@ from ..dto import BrowserRunRefDTO, ProcessIdentity
 from ..runtime.processes import _runtime_liveness, _signal_group
 from ..runtime.registry import current_host_id, probe_process, process_identity
 from ..storage.capacity import CapacityLedger, ProcessLiveness, RunStatus
-from .execution import WorkerExecutionDatabase
+from .execution import WorkerExecutionDatabase, pre_spawn_stop_proof
 
 _MAX_CONTROL_LINE = 65536
 _MAX_LOSS_TIMEOUT = 30.0
@@ -27,6 +27,7 @@ _MAX_TERM_GRACE = 5.0
 _MAX_KILL_GRACE = 5.0
 _MAX_CLEANUP_TIME = 60.0
 _MAX_MANUAL_CLEANUP_TIME = 20.0
+_NO_CONTROL_MESSAGE = object()
 
 
 class WorkerWatchdog:
@@ -171,13 +172,25 @@ def _tree_liveness(
     ref: BrowserRunRefDTO,
     supervisor: ProcessIdentity,
 ) -> ProcessLiveness:
+    if host_id != current_host_id() or host_id.endswith(":unknown-boot"):
+        return ProcessLiveness.UNKNOWN
     supervisor_state = probe_process(host_id, supervisor)
     with database.read() as connection:
         row = connection.execute(
-            "SELECT * FROM runtime_descriptors WHERE run_id = ? AND profile_id = ?",
+            "SELECT d.*, r.host_id AS run_host_id, r.pid AS run_pid, "
+            "r.start_ticks AS run_start_ticks FROM runtime_descriptors d "
+            "JOIN browser_runs r ON r.run_id = d.run_id AND r.profile_id = d.profile_id "
+            "WHERE d.run_id = ? AND d.profile_id = ?",
             (ref.run_id, ref.profile_id),
         ).fetchone()
-    if row is None:
+    if (
+        row is None
+        or row["host_id"] != host_id
+        or row["run_host_id"] != host_id
+        or (row["supervisor_pid"], row["supervisor_start_ticks"])
+        != (supervisor.pid, supervisor.start_ticks)
+        or (row["run_pid"], row["run_start_ticks"]) != (supervisor.pid, supervisor.start_ticks)
+    ):
         return ProcessLiveness.UNKNOWN
     boundary = (
         ProcessIdentity(row["boundary_pid"], row["boundary_start_ticks"])
@@ -216,6 +229,8 @@ def _run_cleanup(
     reason: str,
 ) -> None:
     """Stop every exact owned tree; unknown process state never becomes proof."""
+    if host_id != current_host_id() or host_id.endswith(":unknown-boot"):
+        return
     cleanup_deadline = time.monotonic() + _MAX_CLEANUP_TIME
     manual_deadline = min(cleanup_deadline, time.monotonic() + _MAX_MANUAL_CLEANUP_TIME)
     ledger = CapacityLedger(database)
@@ -223,6 +238,15 @@ def _run_cleanup(
     active: dict[str, tuple[object, ProcessIdentity, ProcessIdentity | None, str | None]] = {}
     manual_stopped: dict[str, bool] = {}
     for run in rows:
+        if run.host_id != host_id:
+            continue
+        if run.process is None:
+            if run.status is RunStatus.RESERVED:
+                ledger.cancel_unclaimed(run.ref)
+            # A supervisor can claim after active_runs() took its snapshot.
+            run = ledger.get(run.ref)
+            if run is None or run.process is None or run.host_id != host_id:
+                continue
         context = database.run_context(run.ref.run_id) or {}
         manual_stopped[run.ref.run_id] = _stop_manual_helpers(
             database,
@@ -232,22 +256,18 @@ def _run_cleanup(
             kill_grace=kill_grace,
             deadline=manual_deadline,
         )
-        if run.process is None:
-            if run.status is RunStatus.RESERVED and ledger.cancel_unclaimed(run.ref):
-                proof = _loss_proof(context, run.ref, reason, manual_stopped[run.ref.run_id])
-                if proof is not None:
-                    database.record_stop_proof(run.ref.run_id, proof)
-            continue
         with database.read() as connection:
             descriptor = connection.execute(
                 "SELECT * FROM runtime_descriptors WHERE run_id = ? AND profile_id = ?",
                 (run.ref.run_id, run.ref.profile_id),
             ).fetchone()
-        if descriptor is None:
+        if descriptor is None or descriptor["host_id"] != run.host_id:
             continue
         supervisor = ProcessIdentity(
             descriptor["supervisor_pid"], descriptor["supervisor_start_ticks"]
         )
+        if supervisor != run.process:
+            continue
         boundary = (
             ProcessIdentity(descriptor["boundary_pid"], descriptor["boundary_start_ticks"])
             if descriptor["boundary_pid"] is not None
@@ -261,7 +281,7 @@ def _run_cleanup(
     term_deadline = min(time.monotonic() + term_grace, cleanup_deadline)
     while active and time.monotonic() < term_deadline:
         for run_id, (run, supervisor, _boundary, _namespace) in tuple(active.items()):
-            if _tree_liveness(database, host_id, run.ref, supervisor) is ProcessLiveness.DEAD:
+            if _tree_liveness(database, run.host_id, run.ref, supervisor) is ProcessLiveness.DEAD:
                 _record_dead_proof(
                     database, ledger, run, supervisor, reason, manual_stopped[run_id]
                 )
@@ -277,13 +297,31 @@ def _run_cleanup(
     kill_deadline = cleanup_deadline
     while active and time.monotonic() < kill_deadline:
         for run_id, (run, supervisor, _boundary, _namespace) in tuple(active.items()):
-            if _tree_liveness(database, host_id, run.ref, supervisor) is ProcessLiveness.DEAD:
+            if _tree_liveness(database, run.host_id, run.ref, supervisor) is ProcessLiveness.DEAD:
                 _record_dead_proof(
                     database, ledger, run, supervisor, reason, manual_stopped[run_id]
                 )
                 active.pop(run_id, None)
         if active:
             time.sleep(min(0.05, max(0.0, kill_deadline - time.monotonic())))
+
+    # A cancellation can commit before its proof, including in the agent or
+    # a previous watchdog. The exact owner remains available on the tombstone.
+    for ref in database.runs_to_reconcile():
+        run = ledger.get(ref)
+        if run is None or run.host_id != host_id or not database.cancelled_without_process(ref):
+            continue
+        context = database.run_context(ref.run_id) or {}
+        proof = pre_spawn_stop_proof(ref, context)
+        if proof is not None and _stop_manual_helpers(
+            database,
+            context,
+            host_id,
+            term_grace=term_grace,
+            kill_grace=kill_grace,
+            deadline=manual_deadline,
+        ):
+            database.record_stop_proof(ref.run_id, proof)
 
 
 def _loss_proof(
@@ -310,15 +348,25 @@ def _loss_proof(
 
 
 def _record_dead_proof(database, ledger, run, supervisor, reason, manual_helpers_stopped):
+    if run.host_id != current_host_id() or run.host_id.endswith(":unknown-boot"):
+        return
     context = database.run_context(run.ref.run_id) or {}
     proof = _loss_proof(context, run.ref, reason, manual_helpers_stopped)
     if proof is None:
         return
-    if ledger.release_after_exit(
+    released = ledger.release_after_exit(
         run.ref,
         supervisor,
         lambda _host, _process: ProcessLiveness.DEAD,
-    ):
+    )
+    latest = ledger.get(run.ref)
+    already_closed = (
+        latest is not None
+        and latest.status is RunStatus.CLOSED
+        and latest.host_id == run.host_id
+        and latest.process == supervisor
+    )
+    if released or already_closed:
         database.record_stop_proof(run.ref.run_id, proof)
 
 
@@ -414,21 +462,53 @@ def _read_manual_receipt(path: Path):
         return None
 
 
-def _read_control_line(stream) -> dict[str, object] | None:
-    raw = stream.readline(_MAX_CONTROL_LINE + 1)
-    if not raw:
-        return None
-    if len(raw.encode()) > _MAX_CONTROL_LINE or not raw.endswith("\n"):
-        raise ValueError("watchdog control line exceeds limit")
-    value = json.loads(raw)
-    if not isinstance(value, dict):
-        raise ValueError("watchdog control must be an object")
-    return value
+class _ControlReader:
+    """One byte buffer for configuration and renewals, including pipe read-ahead."""
+
+    def __init__(self, stream):
+        self.fd = stream.fileno()
+        os.set_blocking(self.fd, False)
+        self.buffer = bytearray()
+
+    def read(self, timeout):
+        deadline = time.monotonic() + timeout
+        while True:
+            end = self.buffer.find(b"\n")
+            if end >= 0:
+                if end + 1 > _MAX_CONTROL_LINE:
+                    raise ValueError("watchdog control line exceeds limit")
+                raw = bytes(self.buffer[: end + 1])
+                del self.buffer[: end + 1]
+                value = json.loads(raw)
+                if not isinstance(value, dict):
+                    raise ValueError("watchdog control must be an object")
+                return value
+            if len(self.buffer) > _MAX_CONTROL_LINE:
+                raise ValueError("watchdog control line exceeds limit")
+            remaining = max(0.0, deadline - time.monotonic())
+            ready, _, _ = select.select([self.fd], [], [], remaining)
+            if not ready:
+                return _NO_CONTROL_MESSAGE
+            try:
+                chunk = os.read(self.fd, _MAX_CONTROL_LINE + 1 - len(self.buffer))
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    return _NO_CONTROL_MESSAGE
+                continue
+            if not chunk:
+                if self.buffer:
+                    raise ValueError("watchdog control line is incomplete")
+                return None
+            self.buffer.extend(chunk)
 
 
 def _watchdog_loop(stream) -> int:
-    first = _read_control_line(stream)
-    if first is None or first.get("op") != "configure":
+    try:
+        reader = _ControlReader(stream)
+        first = reader.read(_MAX_LOSS_TIMEOUT)
+    except (OSError, ValueError):
+        return 2
+    if not isinstance(first, dict) or first.get("op") != "configure":
         return 2
     try:
         database = WorkerExecutionDatabase(first["database_path"])
@@ -464,13 +544,12 @@ def _watchdog_loop(stream) -> int:
         if time.monotonic() >= next_notify:
             _notify_systemd("WATCHDOG=1")
             next_notify = time.monotonic() + max(0.25, min(10.0, timeout / 3))
-        ready, _, _ = select.select([stream], [], [], min(0.25, remaining))
-        if not ready:
-            continue
         try:
-            message = _read_control_line(stream)
-        except (ValueError, json.JSONDecodeError):
+            message = reader.read(min(0.25, remaining))
+        except (OSError, ValueError):
             break
+        if message is _NO_CONTROL_MESSAGE:
+            continue
         if message is None:
             break
         operation = message.get("op")

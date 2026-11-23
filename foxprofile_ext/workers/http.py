@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import hashlib
 import os
 import re
 import tempfile
+from functools import partial
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr
-from starlette.concurrency import run_in_threadpool
 
 from src.api.dependencies import domain_http_error, get_request_principal, require_cookie_csrf
 
@@ -61,7 +63,7 @@ def _credential(connection):
     return supplied[7:]
 
 
-def _transfer_binding(request, run_id, operation):
+def _transfer_binding(request, run_id, operation, *, consume=False):
     coordinator = _coordinator(request)
     token = _credential(request)
     with coordinator.ledger.database.read() as db:
@@ -94,7 +96,7 @@ def _transfer_binding(request, run_id, operation):
             worker_id=run.worker_id,
             worker_boot_id=run.worker_boot_id,
             connection_generation=run.connection_generation,
-            consume=False,
+            consume=consume,
         )
     except (ValueError, TypeError):
         raise HTTPException(422, detail="Invalid transfer binding") from None
@@ -165,9 +167,12 @@ def revoke_worker(
     worker_id: str, request: Request, principal: PrincipalDTO = Depends(get_request_principal)
 ):
     coordinator = _admin(request, principal)
-    coordinator.workers.revoke(worker_id)
-    coordinator.hub.disconnect(worker_id)
-    return {"revoked": True}
+    try:
+        coordinator.workers.revoke(worker_id)
+        coordinator.hub.disconnect(worker_id)
+        return {"revoked": True}
+    except (ValueError, DomainError) as error:
+        raise _transfer_error(error) from None
 
 
 @router.post("/{worker_id}/drain", dependencies=[Depends(require_cookie_csrf)])
@@ -196,10 +201,10 @@ def fence_run(
     coordinator = _admin(request, principal)
     if body.host_fenced is not True:
         raise HTTPException(422, detail="Verified host shutdown evidence is required")
-    run = coordinator.ledger.get(BrowserRunRefDTO(body.profile_id, run_id))
-    if run is None:
-        raise HTTPException(404, detail="Run unavailable")
     try:
+        run = coordinator.ledger.get(BrowserRunRefDTO(body.profile_id, run_id))
+        if run is None:
+            raise HTTPException(404, detail="Run unavailable")
         return {"released": coordinator.fence(run, body.evidence)}
     except DomainError as error:
         raise domain_http_error(error) from error
@@ -221,9 +226,33 @@ def download_snapshot(run_id: str, request: Request):
         raise _transfer_error(error) from None
 
 
+async def _transfer_io(coordinator, function, *args, **kwargs):
+    """Join owned file work before cancellation can close or remove its files."""
+    future = asyncio.get_running_loop().run_in_executor(
+        coordinator.transfer_executor, partial(function, *args, **kwargs)
+    )
+    cancelled = False
+    while not future.done():
+        try:
+            await asyncio.shield(future)
+        except asyncio.CancelledError:
+            cancelled = True
+        except Exception:
+            if not cancelled:
+                raise
+    if cancelled:
+        with contextlib.suppress(Exception):
+            future.result()
+        raise asyncio.CancelledError
+    return future.result()
+
+
 @router.post("/runs/{run_id}/upload")
 async def upload_snapshot(run_id: str, request: Request):
-    coordinator, run, grant = await run_in_threadpool(_transfer_binding, request, run_id, "upload")
+    coordinator = _coordinator(request)
+    coordinator, run, grant = await _transfer_io(
+        coordinator, _transfer_binding, request, run_id, "upload"
+    )
     expected = request.headers.get("x-archive-digest", "")
     if not re.fullmatch(r"[a-f0-9]{64}", expected):
         raise HTTPException(422, detail="Archive checksum required")
@@ -231,36 +260,85 @@ async def upload_snapshot(run_id: str, request: Request):
         raise HTTPException(409, detail="Archive differs from the granted upload")
     limit = coordinator.profiles.max_archive_bytes
     try:
-        if int(request.headers.get("content-length", "0")) > limit:
+        declared = request.headers.get("content-length")
+        size = int(declared) if declared is not None else limit
+        if size < 0:
+            raise ValueError("negative content length")
+        if size > limit:
             raise HTTPException(413, detail="Archive exceeds limit")
     except ValueError:
         raise HTTPException(422, detail="Invalid content length") from None
-    fd, pathname = tempfile.mkstemp(
-        prefix="upload-", suffix=".zip", dir=coordinator.profiles.staging_dir
-    )
-    path = Path(pathname)
+    reservation = object()
+    path = None
+    fd = -1
     digest = hashlib.sha256()
     count = 0
     try:
-        with os.fdopen(fd, "wb") as stream:
+        receipt = await _transfer_io(
+            coordinator,
+            coordinator.profiles.committed_receipt,
+            run,
+            grant.base_revision,
+            expected,
+        )
+        await _transfer_io(
+            coordinator,
+            coordinator.profiles.reserve_upload,
+            run_id,
+            size if receipt is None else 0,
+            reservation,
+        )
+        if receipt is None:
+
+            def open_upload():
+                nonlocal fd, path
+                fd, pathname = tempfile.mkstemp(
+                    prefix="upload-", suffix=".zip", dir=coordinator.profiles.staging_dir
+                )
+                path = Path(pathname)
+
+            await _transfer_io(coordinator, open_upload)
+        upload_file = os.fdopen(fd, "wb") if fd >= 0 else contextlib.nullcontext()
+        with upload_file as stream:
+            fd = -1
             async for chunk in request.stream():
                 count += len(chunk)
-                if count > limit:
+                if count > size:
                     raise HTTPException(413, detail="Archive exceeds limit")
                 digest.update(chunk)
-                await run_in_threadpool(stream.write, chunk)
-            await run_in_threadpool(stream.flush)
-            await run_in_threadpool(os.fsync, stream.fileno())
+                if stream is not None:
+                    await _transfer_io(
+                        coordinator,
+                        coordinator.profiles.write_upload,
+                        run_id,
+                        reservation,
+                        stream,
+                        chunk,
+                    )
+            if stream is not None:
+                await _transfer_io(coordinator, stream.flush)
+                await _transfer_io(coordinator, os.fsync, stream.fileno())
+        if declared is not None and count != size:
+            raise HTTPException(422, detail="Archive size mismatch")
         if digest.hexdigest() != expected:
             raise HTTPException(422, detail="Archive checksum mismatch")
         # Recheck generation/revocation after the last byte, before promotion.
-        await run_in_threadpool(_transfer_binding, request, run_id, "upload")
-        try:
-            return await run_in_threadpool(coordinator.commit_upload, run, path, expected)
-        except Exception as error:
-            raise _transfer_error(error) from None
+        await _transfer_io(coordinator, _transfer_binding, request, run_id, "upload", consume=True)
+        if receipt is not None:
+            return await _transfer_io(coordinator, coordinator.acknowledge_upload, run, receipt)
+        return await _transfer_io(coordinator, coordinator.commit_upload, run, path, expected)
+    except DomainError as error:
+        raise _transfer_error(error) from None
     finally:
-        path.unlink(missing_ok=True)
+        try:
+            if fd >= 0:
+                os.close(fd)
+            if path is not None:
+                path.unlink(missing_ok=True)
+        finally:
+            await _transfer_io(
+                coordinator, coordinator.profiles.release_upload, run_id, reservation
+            )
 
 
 @router.websocket("/manual/{relay_id}")

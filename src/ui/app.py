@@ -285,7 +285,9 @@ class App:
                     p,
                     self.state.is_loading(self._profile_key(p)),
                     p.is_running if self.personal else self.bl.is_running(self._profile_key(p)),
-                    self._row_callback(self.h.on_launch, p),
+                    self._row_callback(
+                        self.h.on_stop if self.personal and p.is_running else self.h.on_launch, p
+                    ),
                     self._row_callback(self.h.on_edit, p),
                     self._row_callback(self.h.on_delete, p),
                     is_selected=self.state.is_selected(self._profile_key(p)),

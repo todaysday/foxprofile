@@ -35,6 +35,7 @@ def panel_server():
         assignments=["profile-a"],
         limit=2,
         occupied=2,
+        workers=None,
         manual=None,
         native=None,
         block_detail=None,
@@ -87,7 +88,13 @@ def panel_server():
         )
         state.requests.append((request.method, path, body, dict(request.headers)))
         if path == "info":
-            return JSONResponse(dict(auth_required=True, auth_mode=state.mode))
+            return JSONResponse(
+                dict(
+                    auth_required=True,
+                    auth_mode=state.mode,
+                    workers_enabled=state.workers is not None,
+                )
+            )
         if path == "ext/auth/login":
             state.actor = "admin" if body["username"] == "admin" else "user"
             response = JSONResponse(
@@ -165,6 +172,8 @@ def panel_server():
             if body:
                 state.limit = body["max_concurrent_profiles"]
             return JSONResponse(dict(max_concurrent_profiles=state.limit, occupied=state.occupied))
+        if path == "workers":
+            return JSONResponse({"workers": state.workers})
         if path.endswith("/profile-assignments"):
             if body:
                 state.assignments = body["profile_ids"]
@@ -908,6 +917,87 @@ def test_detached_editor_and_row_callbacks_cannot_act_as_next_user(panel_page):
         request[0] == "PATCH" and request[1].startswith("profiles/") for request in state.requests
     )
     assert not any(request[1] == "ext/browser/start-batch" for request in state.requests)
+
+
+@pytest.mark.parametrize(
+    ("language", "labels", "unknown", "zero"),
+    [
+        (
+            "en",
+            ["Revoked", "Incompatible", "Offline", "Draining", "Ready"],
+            "Available RAM unavailable",
+            "Available RAM: 0 MiB",
+        ),
+        (
+            "vi",
+            ["Đã thu hồi", "Không tương thích", "Ngoại tuyến", "Ngừng nhận run mới", "Sẵn sàng"],
+            "Không có số liệu RAM khả dụng",
+            "RAM khả dụng: 0 MiB",
+        ),
+    ],
+)
+def test_admin_worker_status_and_memory_are_localized(panel_page, language, labels, unknown, zero):
+    page, state = panel_page
+    states = ["revoked", "incompatible", "offline", "draining", "ready"]
+    state.workers = [
+        dict(
+            worker_id=f"fixture-{status}",
+            state=status,
+            metrics={"mem_available_bytes": 0} if status == "ready" else None,
+            runs=[],
+            draining=status == "draining",
+        )
+        for status in states
+    ]
+    page.reload()
+    login(page)
+    page.locator(f"[data-lang={language}]").click()
+    page.locator("#admin-btn").click()
+    for status, label in zip(states, labels, strict=True):
+        worker = page.locator(".admin-user").filter(
+            has=page.get_by_text(f"fixture-{status}", exact=True)
+        )
+        assert worker.locator("span").first.inner_text() == label
+        assert worker.locator(".data").inner_text() == (zero if status == "ready" else unknown)
+
+
+@pytest.mark.parametrize(
+    ("language", "placeholder", "warnings"),
+    [
+        (
+            "en",
+            "No run details",
+            [("uncertain", "Stop unverified"), ("unsaved", "Session not saved")],
+        ),
+        (
+            "vi",
+            "Chưa có chi tiết",
+            [("uncertain", "Chưa xác minh dừng"), ("unsaved", "Session chưa được lưu")],
+        ),
+    ],
+)
+def test_profile_status_keeps_two_readable_lines(panel_page, language, placeholder, warnings):
+    page, state = panel_page
+    state.profiles[0]["execution_location"] = "remote"
+    login(page)
+    page.locator(f"[data-lang={language}]").click()
+    page.evaluate("liveSince.set('profile-a', new Date(2026, 1, 1, 12, 34)); render()")
+    page.evaluate("document.fonts.ready.then(() => true)")
+    live, idle = page.locator(".row.body .c-stamp").all()
+    assert live.locator(":scope > span").count() == 2
+    assert live.locator(":scope > span").first.locator("small").count() == 0
+    assert live.locator(".minor").text_content() == "12:34 · Worker"
+    assert idle.locator(":scope > span").count() == 2
+    assert idle.locator(".minor").text_content() == placeholder
+    for runtime_state, full_label in warnings:
+        state.profiles[0].update(state=runtime_state, is_running=runtime_state != "unsaved")
+        page.evaluate("refresh()")
+        assert live.locator(".minor").text_content() == "Worker"
+        assert full_label in live.aria_snapshot()
+        for viewport, width in [(1660, 112), (1280, 108)]:
+            page.set_viewport_size({"width": viewport, "height": 800})
+            assert live.evaluate("el => el.clientWidth") == width
+            assert live.locator(".stamp").evaluate("el => el.scrollWidth <= el.clientWidth")
 
 
 def test_authoritative_starting_stopping_stamps_and_embedded_fingerprint(panel_page):

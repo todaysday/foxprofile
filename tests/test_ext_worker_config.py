@@ -27,12 +27,20 @@ def test_workers_require_explicit_enablement(monkeypatch):
         "https://master.example.test/api",
         "https://master.example.test?secret=value",
         "https://master.example.test#fragment",
+        "https://master.example.test:wrong",
+        "https://master.example.test:65536",
+        "https://master.example.test:-1",
     ],
 )
 def test_unsafe_or_ambiguous_master_origin_fails_closed(configured, monkeypatch, origin):
     monkeypatch.setenv("FOXPROFILE_MASTER_URL", origin)
     with pytest.raises(ValueError, match="HTTPS origin"):
         DistributedSettings.from_environment()
+
+
+def test_master_origin_accepts_valid_custom_port(configured, monkeypatch):
+    monkeypatch.setenv("FOXPROFILE_MASTER_URL", "https://master.example.test:8443")
+    assert DistributedSettings.from_environment().public_url == "https://master.example.test:8443"
 
 
 @pytest.mark.parametrize("digest", ["", "a" * 63, "g" * 64, "A" * 64])

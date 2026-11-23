@@ -97,6 +97,37 @@ def login(api, username):
     return {"Origin": ORIGIN, "X-CSRF-Token": response.json()["csrf_token"]}
 
 
+@pytest.mark.parametrize(
+    ("state", "pending_or_running"),
+    [("transferring", True), ("starting", True), ("running", True), ("syncing", False)],
+)
+def test_legacy_status_poll_preserves_pending_remote_start(ui_api, state, pending_or_running):
+    from foxprofile_ext.run_contracts import RunStatusResult
+
+    api = ui_api
+    api.coordinator.status = lambda actor, ref: RunStatusResult(
+        ref.profile_id, ref.name, "owned-run", state, execution_location="remote"
+    )
+    login(api, "alice")
+    response = api.client.get("/api/v1/browser/Own/status")
+    assert response.status_code == 200, response.text
+    assert response.json()["is_running"] is pending_or_running
+
+
+def test_launch_route_reports_retained_failed_save(ui_api):
+    from foxprofile_ext.run_contracts import RunLaunchResult
+
+    api = ui_api
+    api.coordinator.reserve_and_start = lambda actor, refs, **kwargs: tuple(
+        RunLaunchResult(ref.profile_id, ref.name, "retained-run", "failed", "SYNC_FAILED")
+        for ref in refs
+    )
+    headers = login(api, "alice")
+    response = api.client.post("/api/v1/browser/Own/launch?wait=true", headers=headers)
+    assert response.status_code == 503, response.text
+    assert response.json()["detail"]["code"] == "SYNC_FAILED"
+
+
 @pytest.mark.parametrize("origin", ["https://[", "https://]"])
 def test_malformed_origin_login_mutation_is_forbidden_before_session_issue(monkeypatch, origin):
     monkeypatch.setenv("FOXPROFILE_EXT_ENABLED", "true")

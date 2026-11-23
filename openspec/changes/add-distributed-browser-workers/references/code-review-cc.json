@@ -1,0 +1,237 @@
+[
+  {
+    "id": "CC31",
+    "file": "foxprofile_ext/workers/profile_store.py",
+    "line": 157,
+    "summary": "A legal pre-existing profile and the new synchronization journal can resolve to the same directory.",
+    "failure_scenario": "When Workers are enabled on a protected Master with an existing private profile named .foxprofile-sync, ProfileStore accepts that profile as its journal. A later local launch of the profile puts the temporary synchronization data of other profiles within its writable profile mount. A permitted rename or deletion of the stopped profile also operates on the journal directory.",
+    "category": "tenant-isolation-filesystem-namespace-collision",
+    "verdict": "CONFIRMED",
+    "severity": "P1",
+    "outcome": "fixed",
+    "resolution": "Place synchronization journal outside legal profile names and preserve old pending journal data for offline recovery.",
+    "finder_candidates": [
+      "F1"
+    ]
+  },
+  {
+    "id": "CC54",
+    "file": "foxprofile_ext/workers/profile_store.py",
+    "line": 1534,
+    "summary": "Distributed capture verifies each opened file's identity but does not bind it to the original source directory chain.",
+    "failure_scenario": "A concurrent filesystem writer changes a nested directory during snapshot discovery. The next pathname lookup can enumerate a different directory than the one initially inspected. Its files then become the expected leaf identities used by the copy phase. A redirected subtree can therefore contribute unrelated bytes under apparently valid data member names.",
+    "category": "reuse",
+    "verdict": "CONFIRMED",
+    "severity": "P2",
+    "outcome": "fixed",
+    "resolution": "Anchor profile ancestry and read identity and archive bytes through checked directory/file descriptors.",
+    "finder_candidates": [
+      "REUSE-07"
+    ]
+  },
+  {
+    "id": "CC32",
+    "file": "foxprofile_ext/workers/coordinator.py",
+    "line": 375,
+    "summary": "Master accepts authenticated stop proofs without positive confirmation that the browser process tree ended.",
+    "failure_scenario": "A matching Worker reports termination but omits or contradicts the tree-death assertion. During loss handling Master closes the run and releases its active claim. With a current connection and valid clean archive digest, it instead accepts the clean proof and enables synchronization. If the tree remained alive, the authoritative state would permit conflicting ownership.",
+    "category": "protocol-validation-premature-release-of-exclusive-ownership",
+    "verdict": "CONFIRMED",
+    "severity": "P1",
+    "outcome": "fixed",
+    "resolution": "Require explicit process_tree_dead true in the authenticated stop proof.",
+    "finder_candidates": [
+      "F4"
+    ]
+  },
+  {
+    "id": "CC72",
+    "file": "foxprofile_ext/workers/profile_store.py",
+    "line": 1761,
+    "summary": "Master acknowledges a durable save after explicit EIO syncing the canonical parent following promotion.",
+    "failure_scenario": "The profile filesystem reports EIO when Master flushes the parent directory after renaming the staged profile into place. The new directory remains readable, so digest verification succeeds. Healthy SQLite records the new revision as saved, Master removes the old backup, and receipt processing allows the Worker to delete its copy.",
+    "category": "canonical-commit-durability",
+    "verdict": "CONFIRMED",
+    "severity": "P1",
+    "outcome": "fixed",
+    "resolution": "Require successful filesystem directory sync before commit acknowledgment; retain the prepared intent and verified copies on EIO and resync moved trees on retry/recovery.",
+    "finder_candidates": [
+      "SWEEP-05"
+    ]
+  },
+  {
+    "id": "CC10",
+    "file": "foxprofile_ext/workers/profile_store.py",
+    "line": 1570,
+    "summary": "Chrome snapshots and return uploads discard numbered LevelDB transaction logs containing durable writes.",
+    "failure_scenario": "A LevelDB-backed Chrome profile closes after a small synced write that remains in 000003.log. A complete control copy reopens with the value. The Master snapshot restores with the value missing. A new synced write on that Worker also disappears despite a successful revision-2 upload commit.",
+    "category": "persistent-data-loss",
+    "verdict": "CONFIRMED",
+    "severity": "P1",
+    "outcome": "fixed",
+    "resolution": "Retain numbered LevelDB transaction logs in browser-data archives.",
+    "finder_candidates": [
+      "A2-02",
+      "C2",
+      "F7",
+      "D1"
+    ]
+  },
+  {
+    "id": "CC09",
+    "file": "foxprofile_ext/workers/profile_store.py",
+    "line": 935,
+    "summary": "Master startup fails after an interruption between the two canonical promotion renames.",
+    "failure_scenario": "A valid upload has a durable prepared intent. Master moves the original profile to its backup and exits before moving the verified stage into place. Restart leaves the old and new directories intact in the journal, the canonical path absent and the commit still prepared.",
+    "category": "crash-recovery",
+    "verdict": "CONFIRMED",
+    "severity": "P1",
+    "outcome": "fixed",
+    "resolution": "Recover the prepared canonical swap when the old directory has already moved to backup.",
+    "finder_candidates": [
+      "A2-01",
+      "G1",
+      "C1"
+    ]
+  },
+  {
+    "id": "CC08",
+    "file": "foxprofile_ext/workers/agent.py",
+    "line": 1170,
+    "summary": "An unexpected nonzero exit of a previously ready browser supervisor is recorded as clean and permits replacing the canonical revision.",
+    "failure_scenario": "A running browser exits without the normal final tab save, while Worker and Master remain connected. Its last periodic checkpoint has the expected fingerprint and a valid archive. Master promotes that checkpoint over its prior revision and marks the run saved even though the Worker observed no graceful exit.",
+    "category": "stop-outcome-and-data-integrity",
+    "verdict": "CONFIRMED",
+    "severity": "P2",
+    "outcome": "fixed",
+    "resolution": "Require trusted normal completion, readiness and verified tree death before clean save.",
+    "finder_candidates": [
+      "A1-8"
+    ]
+  },
+  {
+    "id": "CC25",
+    "file": "foxprofile_ext/workers/agent.py",
+    "line": 970,
+    "summary": "Temporary archive staging exhaustion turns a clean Stop into irreversible unsaved success.",
+    "failure_scenario": "A reachable Worker has verified the process stopped and still holds all browser changes. The archive’s free-space preflight fails. Master reports successful Stop and releases the run as unsaved. After staging space returns, the same directory packs successfully, but a second Stop cannot save it and a matching terminal cleanup deletes the only updated copy.",
+    "category": "clean-stop-persistence-and-retry",
+    "verdict": "CONFIRMED",
+    "severity": "P2",
+    "outcome": "fixed",
+    "resolution": "Retain clean stopped source data after temporary archive-space failure and allow normal sync retry.",
+    "finder_candidates": [
+      "A4-06"
+    ]
+  },
+  {
+    "id": "CC52",
+    "file": "foxprofile_ext/workers/watchdog.py",
+    "line": 257,
+    "summary": "Watchdog cleanup signals and assesses persisted browser identities without establishing their boot ownership.",
+    "failure_scenario": "After reboot, unresolved local run and descriptor rows survive in the Worker execution database. A normal watchdog stop or loss deadline considers these rows. A matching PID and start-tick pair on the new boot can receive the old run's signal. Independently of any collision, if the new host's process group and namespace probes report DEAD, cleanup can close the old Worker row and store a loss proof using only observations of the new boot.",
+    "category": "reuse",
+    "verdict": "CONFIRMED",
+    "severity": "P2",
+    "outcome": "fixed",
+    "resolution": "Validate exact current host boot and supervisor identity before watchdog signals and death proofs.",
+    "finder_candidates": [
+      "REUSE-03"
+    ]
+  },
+  {
+    "id": "CC33",
+    "file": "foxprofile_ext/workers/agent.py",
+    "line": 119,
+    "summary": "The Worker validates transport schemes but accepts transfer and manual relay targets outside its configured Master origin.",
+    "failure_scenario": "The Worker connects to its configured Master, but the Master's independently configured public URL names a different valid TLS service or port. The first snapshot request would send the run-scoped capability and binding headers to that endpoint. An otherwise eligible upload or manual relay would likewise send its scoped credential and, if the corresponding operation proceeds, profile bytes or display traffic.",
+    "category": "credential-disclosure-outbound-destination-validation",
+    "verdict": "CONFIRMED",
+    "severity": "P2",
+    "outcome": "fixed",
+    "resolution": "Bind download, upload and relay endpoints to the configured Master TLS origin.",
+    "finder_candidates": [
+      "F5"
+    ]
+  },
+  {
+    "id": "CC64",
+    "file": "foxprofile_ext/workers/agent.py",
+    "line": 458,
+    "summary": "The Worker's control and manual WebSockets can upgrade at an origin other than the Master URL.",
+    "failure_scenario": "A proxy in front of Master redirects one of the Worker WebSocket endpoints to a different origin that accepts the upgrade. The control client emits its hello with Worker ID, boot ID and manifest digest before authenticating the peer as the configured Master. The manual relay forwards its backend RFB bytes on the upgraded connection. Both behaviors violate the documented Master-only authenticated transport.",
+    "category": "repository-convention-outbound-transport",
+    "verdict": "CONFIRMED",
+    "severity": "P2",
+    "outcome": "fixed",
+    "resolution": "Reject control and RFB handshake redirects in the production-owned TLS session before contacting another origin.",
+    "finder_candidates": [
+      "CONVENTIONS-01"
+    ]
+  },
+  {
+    "id": "CC51",
+    "file": "foxprofile_ext/workers/channel.py",
+    "line": 147,
+    "summary": "An already-pending old-connection control result can pass correlation after its durable transport generation is invalidated.",
+    "failure_scenario": "A valid control request is outstanding when the Worker is administratively revoked, rotated, or re-registers. During the interval between durable invalidation and local channel cleanup, a matching result for the original pending request passes the receive checks. The originating caller can receive the result if the personal ACL and run state still pass their independent checks.",
+    "category": "stale-transport-result-forwarding",
+    "verdict": "CONFIRMED",
+    "severity": "P2",
+    "outcome": "fixed",
+    "resolution": "Linearize pending result delivery with durable Worker generation and revocation checks.",
+    "finder_candidates": [
+      "E8"
+    ]
+  },
+  {
+    "id": "CC01",
+    "file": "foxprofile_ext/workers/agent.py",
+    "line": 536,
+    "summary": "A healthy new Worker connection can keep the watchdog renewed while an older, still-running assignment has no routable Master control lease.",
+    "failure_scenario": "A fully started browser survives an ordinary brief transport interruption. The same Worker boot reconnects in time. Its new node heartbeats arrive normally, while its original Master reservation stays uncertain on the previous connection generation. A normal Stop cannot reach that assignment, and valid node acknowledgments continue to postpone lease expiry.",
+    "category": "run-lease-and-reconnect",
+    "verdict": "CONFIRMED",
+    "severity": "P1",
+    "outcome": "fixed",
+    "resolution": "Retire prior generation runtimes before accepting and renewing a replacement connection.",
+    "finder_candidates": [
+      "A1-1",
+      "A4-01",
+      "G3",
+      "C3",
+      "F3",
+      "ALTITUDE-1"
+    ]
+  },
+  {
+    "id": "CC69",
+    "file": "foxprofile_ext/workers/agent.py",
+    "line": 1196,
+    "summary": "A transient local telemetry error permanently stops heartbeat emission for the current connection.",
+    "failure_scenario": "An active Worker receives a valid heartbeat ACK, then one disk, cgroup, or inventory measurement fails. Later reads could succeed, and WebSocket receive continues, but the heartbeat task has exited. The last valid ACK ages out, the independent watchdog begins loss cleanup, and known runs can lose unsaved changes despite healthy transport.",
+    "category": "heartbeat-task-lifecycle",
+    "verdict": "CONFIRMED",
+    "severity": "P1",
+    "outcome": "fixed",
+    "resolution": "Bound single-flight off-loop telemetry sampling; unavailable samples clear placement while authenticated current-generation heartbeats and exact controls remain live.",
+    "finder_candidates": [
+      "SWEEP-02"
+    ]
+  },
+  {
+    "id": "CC70",
+    "file": "foxprofile_ext/workers/metrics.py",
+    "line": 70,
+    "summary": "An unreadable cgroup membership or mount table is accepted as unconstrained memory.",
+    "failure_scenario": "A Worker in a memory-limited cgroup can read high host MemAvailable but cannot read self/cgroup or self/mountinfo. Its cgroup has less usable memory than the new browser budget. Master admits placement and the Worker's final memory check admits the start based on host memory.",
+    "category": "memory-admission",
+    "verdict": "CONFIRMED",
+    "severity": "P1",
+    "outcome": "fixed",
+    "resolution": "Require readable and complete Linux cgroup memory evidence, failing admission closed when effective headroom is unknown.",
+    "finder_candidates": [
+      "SWEEP-03"
+    ]
+  }
+]

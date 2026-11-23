@@ -22,7 +22,11 @@ class DistributedSettings:
         if os.getenv("FOXPROFILE_WORKERS_ENABLED", "false").lower() not in {"true", "1", "yes"}:
             return None
         url = os.getenv("FOXPROFILE_MASTER_URL", "").rstrip("/")
-        parsed = urlsplit(url)
+        try:
+            parsed = urlsplit(url)
+            _ = parsed.port  # Validate malformed and out-of-range explicit ports.
+        except ValueError:
+            raise ValueError("FOXPROFILE_MASTER_URL must be an HTTPS origin") from None
         if (
             parsed.scheme != "https"
             or not parsed.hostname
@@ -104,7 +108,11 @@ def build_distributed_coordinator(local, database, catalog, assignments, setting
         registry,
         MasterWorkerHub(registry),
         ProfileStore(
-            database, Path(catalog.manager.data_dir), staging, profile_by_id=local.profile_by_id
+            database,
+            Path(catalog.manager.data_dir),
+            staging,
+            profile_by_id=local.profile_by_id,
+            staging_reserve_bytes=settings.staging_reserve_bytes,
         ),
         settings.public_url,
     )

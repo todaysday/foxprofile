@@ -74,7 +74,7 @@ def browser_status(
             raise domain_http_error(error) from error
         return BrowserStatusResponse(
             name=state.profile_name if state else name,
-            is_running=state is not None and state.state in {"running", "starting"},
+            is_running=state is not None and state.state in {"running", "starting", "transferring"},
         )
     require_profile(name, pm)
     return BrowserStatusResponse(name=name, is_running=bl.is_running(name))
@@ -113,8 +113,8 @@ def launch_browser(
             )
         except DomainError as error:
             raise domain_http_error(error) from error
-        if result.error_code == "RUN_UNCERTAIN":
-            raise domain_http_error(DomainError(ErrorCode.RUN_UNCERTAIN))
+        if result.error_code in {"RUN_UNCERTAIN", "SYNC_FAILED"}:
+            raise domain_http_error(DomainError(ErrorCode(result.error_code)))
         if result.state == "starting":
             response.status_code = 202
             return LaunchResponse(

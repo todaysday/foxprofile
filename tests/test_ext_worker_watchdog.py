@@ -18,6 +18,7 @@ from foxprofile_ext.runtime.registry import process_identity
 from foxprofile_ext.storage.capacity import RunStatus
 from foxprofile_ext.workers.execution import WorkerExecutionDatabase
 from foxprofile_ext.workers.watchdog import WorkerWatchdog
+from tests.test_ext_worker_agent import _worker_owner
 
 
 def test_watchdog_budgets_cannot_extend_loss_or_cleanup_contract(tmp_path):
@@ -32,6 +33,7 @@ def test_watchdog_budgets_cannot_extend_loss_or_cleanup_contract(tmp_path):
             WorkerWatchdog(database, **values)
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux Worker process supervision")
 def test_watchdog_kills_exact_owned_groups_without_event_loop_progress(tmp_path):
     database = WorkerExecutionDatabase(tmp_path / "worker.sqlite")
     code_root = Path(__file__).resolve().parents[1]
@@ -43,7 +45,8 @@ def test_watchdog_kills_exact_owned_groups_without_event_loop_progress(tmp_path)
         worker_execution=True,
     )
     ref = BrowserRunRefDTO("profile-watchdog", "master-run-watchdog")
-    assert database.reserve_exact(ref, runtime.host_id)
+    context = _worker_owner(ref, worker_id="worker-watchdog", boot_id="boot-watchdog", generation=7)
+    assert database.reserve_exact(ref, runtime.host_id, context=context)
     watchdog = WorkerWatchdog(
         database,
         loss_timeout=0.8,
@@ -77,25 +80,20 @@ def test_watchdog_kills_exact_owned_groups_without_event_loop_progress(tmp_path)
             tmp_path=str(tmp_path / "runtime"),
             xauthority_path=None,
         )
-        database.put_run_context(
-            ref.run_id,
-            {
-                "profile_id": ref.profile_id,
-                "run_id": ref.run_id,
-                "worker_id": "worker-watchdog",
-                "worker_boot_id": "boot-watchdog",
-                "connection_generation": 7,
-                "manual_sessions": {},
-            },
-        )
-
         # Deliberately block this process; only the separate watchdog can react.
         time.sleep(1.1)
         for child in children:
             child.wait(timeout=3)
-        proof = next(
-            value for value in database.stopped_proofs() if value.get("run_id") == ref.run_id
-        )
+        # Process death precedes the watchdog's SQLite proof publication.
+        proof = None
+        deadline = time.monotonic() + 2
+        while proof is None and time.monotonic() < deadline:
+            proof = next(
+                (value for value in database.stopped_proofs() if value.get("run_id") == ref.run_id),
+                None,
+            )
+            if proof is None:
+                time.sleep(0.01)
         assert proof == {
             "profile_id": ref.profile_id,
             "run_id": ref.run_id,

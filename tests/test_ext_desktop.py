@@ -380,6 +380,60 @@ def test_starting_and_stopping_stamps_keep_stop_available(desktop):
     assert not button(row, get_string("stop")).disabled
 
 
+def test_rendered_stop_keeps_stop_intent_after_run_closes(desktop):
+    from foxprofile_ext.dto import ProcessIdentity
+    from foxprofile_ext.storage.capacity import ProcessLiveness
+
+    instance, page, access = desktop
+    login(instance, page)
+    profile = instance.pm.list_profiles()[0]
+    run = access["ledger"].reserve([profile.profile_id], "test-host").newly_reserved[0]
+    process = ProcessIdentity(12345, 1)
+    assert access["ledger"].claim(run, "test-host", process)
+    assert access["ledger"].mark_running(run)
+    instance._refresh_profiles()
+    stop = button(instance.refs.profile_list_area.controls[0], get_string("stop"))
+    assert access["ledger"].release_after_exit(run, process, lambda *_: ProcessLiveness.DEAD)
+
+    stop.on_click(None)
+
+    assert access["coordinator"].calls == []
+    assert [effect[0] for effect in access["coordinator"].effect_calls] == ["stop"]
+    button(instance.refs.profile_list_area.controls[0], get_string("launch")).on_click(None)
+    assert len(access["coordinator"].calls) == 1
+
+
+@pytest.mark.parametrize("state", ["starting", "stopping", "uncertain", "syncing"])
+def test_busy_row_allows_metadata_edit_through_normal_dialog(desktop, state):
+    from tests.test_ext_distributed_capacity import _remote_run
+
+    instance, page, access = desktop
+    login(instance, page)
+    profile = instance.pm.list_profiles()[0]
+    _remote_run(access["ledger"].database, profile_id=profile.profile_id, status=state)
+    instance._refresh_profiles()
+    row = instance.refs.profile_list_area.controls[0]
+    edit = next(
+        control
+        for control in controls(row)
+        if isinstance(control, ft.IconButton) and control.icon == ft.Icons.EDIT_OUTLINED
+    )
+    assert not edit.disabled
+    edit.on_click(None)
+    dialog = page.dialogs[-1]
+    locale = next(
+        control
+        for control in controls(dialog)
+        if isinstance(control, ft.TextField) and control.hint_text == "vi-VN"
+    )
+    locale.value = "fr-FR"
+    button(dialog, get_string("save_changes")).on_click(None)
+    assert access["catalog"].get_profile(profile.profile_id).locale == "fr-FR"
+    with pytest.raises(DomainError) as blocked:
+        access["app"].update_profile(access["user_a"], profile.profile_id, {"name": "Renamed"})
+    assert blocked.value.code is ErrorCode.PROFILE_BUSY
+
+
 def test_recovery_lifecycle_state_refreshes_card_with_unchanged_run_status(desktop, monkeypatch):
     import asyncio
 
@@ -424,7 +478,7 @@ def test_recovery_lifecycle_state_refreshes_card_with_unchanged_run_status(deskt
     [
         ("transferring", "personal_state_transferring"),
         ("syncing", "personal_state_syncing"),
-        ("uncertain", "personal_state_uncertain"),
+        ("uncertain", "personal_state_uncertain_short"),
     ],
 )
 def test_distributed_profile_state_shows_worker_and_keeps_safe_actions_locked(
@@ -454,7 +508,7 @@ def test_distributed_profile_state_shows_worker_and_keeps_safe_actions_locked(
     icon_buttons = [control for control in controls(row) if isinstance(control, ft.IconButton)]
     cookies, edit, delete = icon_buttons
     assert cookies.disabled
-    assert edit.disabled
+    assert not edit.disabled
     assert delete.disabled
     assert not any(value in str(texts) for value in ("worker-id", "host-name", "12345"))
 
@@ -476,13 +530,50 @@ def test_unsaved_remote_session_warns_without_marking_profile_occupied(desktop, 
     row = instance.refs.profile_list_area.controls[0]
     assert instance.personal.run_snapshot() == set()
     texts = [control.value for control in controls(row) if isinstance(control, ft.Text)]
-    assert get_string("personal_state_unsaved").upper() in texts
+    assert get_string("personal_state_unsaved_short").upper() in texts
     assert get_string("personal_location_remote") in texts
     assert not button(row, get_string("launch")).disabled
     assert not any(
         isinstance(control, ft.Button) and control.content == get_string("stop")
         for control in controls(row)
     )
+
+
+@pytest.mark.parametrize("language", ["en", "vi"])
+def test_profile_status_places_time_and_location_on_one_minor_line(desktop, language):
+    from src.ui.components.profile_card import COLUMNS, build_profile_card
+
+    instance, _, _ = desktop
+    instance._set_language(language)
+    profile = SimpleNamespace(
+        name="Fixture", os_type="linux", engine="camoufox", proxy="", timezone="", locale=""
+    )
+    for state, location, since, minor in [
+        ("running", "remote", "12:34", "12:34 · Worker"),
+        ("running", "local", "12:34", "12:34 · Master"),
+        ("running", None, "12:34", "12:34"),
+        ("starting", "remote", "12:34", "Worker"),
+        ("recovering", "remote", "12:34", "Worker"),
+        ("uncertain", "remote", "12:34", "Worker"),
+        ("unsaved", "remote", "", "Worker"),
+        ("stopped", None, "", "No run details" if language == "en" else "Chưa có chi tiết"),
+    ]:
+        profile.execution_location = location
+        row = build_profile_card(
+            profile, False, state == "running", bool, bool, bool, since=since, runtime_state=state
+        )
+        status = row.content.controls[list(COLUMNS).index("status")].content
+        assert len(status.controls) == 2
+        primary_texts = [
+            child for child in controls(status.controls[0]) if isinstance(child, ft.Text)
+        ]
+        assert len(primary_texts) == 1
+        assert status.controls[1].value == minor
+        assert status.controls[1].no_wrap
+        if state in {"recovering", "uncertain", "unsaved"}:
+            assert primary_texts[0].no_wrap
+            assert primary_texts[0].semantics_label == get_string(f"personal_state_{state}")
+            assert primary_texts[0].value == get_string(f"personal_state_{state}_short").upper()
 
 
 def test_external_run_clears_failed_profile_id(desktop, monkeypatch):
@@ -754,6 +845,54 @@ def test_admin_controls_create_assign_reset_and_capacity(desktop):
         == 1
     )
     assert len(access["ledger"].active_runs()) == 3
+
+
+@pytest.mark.parametrize(
+    ("language", "labels", "unknown", "zero", "runs"),
+    [
+        (
+            "en",
+            ["Revoked", "Incompatible", "Offline", "Draining", "Ready"],
+            "Available RAM unavailable",
+            "Available RAM: 0 MiB",
+            "Assigned runs: 0",
+        ),
+        (
+            "vi",
+            ["Đã thu hồi", "Không tương thích", "Ngoại tuyến", "Ngừng nhận run mới", "Sẵn sàng"],
+            "Không có số liệu RAM khả dụng",
+            "RAM khả dụng: 0 MiB",
+            "Run được cấp: 0",
+        ),
+    ],
+)
+def test_admin_worker_status_and_memory_are_localized(
+    desktop, monkeypatch, language, labels, unknown, zero, runs
+):
+    from foxprofile_ext.storage import SettingsDAO
+
+    instance, page, access = desktop
+    access["app"]._settings = SettingsDAO(access["ledger"].database)
+    instance._set_language(language)
+    login(instance, page, "admin", "admin password")
+    binding = instance.personal.session.binding
+    states = ["revoked", "incompatible", "offline", "draining", "ready"]
+    workers = [
+        {
+            "worker_id": f"fixture-{state}",
+            "state": state,
+            "metrics": {"mem_available_bytes": 0} if state == "ready" else None,
+            "runs": [],
+            "draining": state == "draining",
+        }
+        for state in states
+    ]
+    monkeypatch.setattr(binding.application, "admin_workers", lambda _: {"workers": workers})
+    instance.personal.open_admin(binding)
+    texts = [c.value for c in controls(page.dialogs[-1]) if isinstance(c, ft.Text)]
+    for state, label in zip(states, labels, strict=True):
+        memory = zero if state == "ready" else unknown
+        assert f"{label} · {memory} · {runs}" in texts
 
 
 def test_admin_controls_reject_last_admin_and_invalid_capacity(desktop):

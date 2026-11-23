@@ -36,6 +36,9 @@ class _LaunchResult:
     def __init__(self, run_id: str | None = None) -> None:
         self.run_id = run_id
         self.settled = threading.Event()
+        self.exited = threading.Event()
+        self.clean_exit = False
+        self.completed_gracefully = False
         self.ok = False
         self.error: str | None = None
         self._lock = threading.Lock()
@@ -118,6 +121,16 @@ class BrowserLauncher:
             return False, "timeout"
         return result.ok, result.error
 
+    def clean_exit(self, profile_name: str, run_id: str, timeout: float) -> bool | None:
+        """Return the exact launch's observed outcome, or None while its waiter is pending."""
+        with self._lock:
+            result = self._launch_results.get(profile_name)
+        if result is None or result.run_id != run_id:
+            return False
+        if not result.exited.wait(timeout):
+            return None
+        return result.clean_exit
+
     def shutdown_all(self) -> None:
         if self._protected_mode():
             if self._runtime_adapter is None:
@@ -143,6 +156,7 @@ class BrowserLauncher:
         *,
         run_id: str | None = None,
         profile_id: str | None = None,
+        on_exit: Callable[[bool], None] | None = None,
     ) -> bool:
         """Launch a profile's browser in the background.
 
@@ -150,6 +164,7 @@ class BrowserLauncher:
         has a browser. Otherwise returns True and later calls on_ready or
         on_stop, also when spawning fails. Raises ProfileBusyError while
         another launch or a stopped-profile operation holds the profile.
+        on_exit reports the trusted Worker supervisor's graceful completion and exit status.
         """
         with self._lock:
             protected = self._protected_mode()
@@ -211,7 +226,7 @@ class BrowserLauncher:
                     self._busy.discard(profile.name)
                     registered = True
 
-                threading.Thread(
+                monitor = threading.Thread(
                     target=self._monitor_process,
                     args=(
                         proc,
@@ -223,13 +238,31 @@ class BrowserLauncher:
                         (profile_id, run_id)
                         if profile_id is not None and run_id is not None
                         else None,
+                        on_exit is not None,
                     ),
                     daemon=True,
-                ).start()
+                )
+                monitor.start()
+                wait_options = {"cleanup_runner": False} if protected else {}
+                if on_exit is not None:
+
+                    def report_exit(returncode: int | None) -> None:
+                        # A fast exit can precede the stdout thread reading readiness.
+                        monitor.join(timeout=2)
+                        result.clean_exit = (
+                            returncode == 0
+                            and result.ok
+                            and result.completed_gracefully
+                            and not monitor.is_alive()
+                        )
+                        result.exited.set()
+                        on_exit(result.clean_exit)
+
+                    wait_options["on_exit"] = report_exit
                 threading.Thread(
                     target=wait_for_exit,
                     args=(proc, profile.name, notify_stopped),
-                    kwargs={"cleanup_runner": False} if protected else {},
+                    kwargs=wait_options,
                     daemon=True,
                 ).start()
             except Exception as e:
@@ -240,6 +273,9 @@ class BrowserLauncher:
                     logger.exception("Error starting browser for %s: %s", profile.name, e)
                     error = str(e)
                 result.settle(False, error)
+                if on_exit is not None:
+                    result.exited.set()
+                    on_exit(False)
                 stopped = False
                 if protected:
                     try:
@@ -379,6 +415,7 @@ class BrowserLauncher:
         notify_stopped: Callable[[], None],
         result: _LaunchResult,
         run_binding: tuple[str, str] | None = None,
+        observe_exit: bool = False,
     ) -> None:
         ready_notified = False
         try:
@@ -395,6 +432,9 @@ class BrowserLauncher:
                         with self._lock:
                             self._controls[name] = (int(port), token)
                     continue
+                if line.rstrip("\r\n") == "RUNTIME:CLEAN_EXIT" and observe_exit and ready_notified:
+                    result.completed_gracefully = True
+                    continue
                 if msg.startswith("RUNTIME:"):
                     # Private supervisor metadata: never surface in logs or UI.
                     continue
@@ -410,7 +450,8 @@ class BrowserLauncher:
                 if msg == "BROWSER_CLOSED":
                     logger.info("Browser close detected for profile: %s", name)
                     if self._protected_mode():
-                        if self._stop_exact_run(run_binding):
+                        # The Worker waits for the runner to finish its own normal close.
+                        if not observe_exit and self._stop_exact_run(run_binding):
                             notify_stopped()
                     else:
                         notify_stopped()

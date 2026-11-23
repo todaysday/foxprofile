@@ -12,6 +12,8 @@ import threading
 import time
 from dataclasses import dataclass, field
 
+from anyio import CancelScope
+
 from ..dto import BrowserRunRefDTO, ProcessIdentity
 from ..errors import DomainError, ErrorCode
 from ..manual.contracts import BackendSession
@@ -73,18 +75,23 @@ class ManualRelay:
                 )
             ):
                 raise DomainError(ErrorCode.FORBIDDEN_OR_NOT_FOUND)
-            self.coordinator.hub.connection_for(relay.run)
+        await asyncio.to_thread(self.coordinator.hub.connection_for, relay.run)
+        with self._lock:
+            if (
+                self._relays.get(relay_id) is not relay
+                or relay.consumed
+                or relay.expires_at <= time.time()
+            ):
+                raise DomainError(ErrorCode.FORBIDDEN_OR_NOT_FOUND)
             relay.consumed = True
-        await websocket.accept()
         loop = asyncio.get_running_loop()
-        relay.peer.setblocking(False)
 
         async def incoming():
             while True:
                 data = await websocket.receive_bytes()
                 if len(data) > 65536:
                     raise DomainError(ErrorCode.VALIDATION_ERROR)
-                self.coordinator.hub.connection_for(relay.run)
+                await asyncio.to_thread(self.coordinator.hub.connection_for, relay.run)
                 await loop.sock_sendall(relay.peer, data)
 
         async def outgoing():
@@ -92,19 +99,24 @@ class ManualRelay:
                 data = await loop.sock_recv(relay.peer, 65536)
                 if not data:
                     return
-                self.coordinator.hub.connection_for(relay.run)
+                await asyncio.to_thread(self.coordinator.hub.connection_for, relay.run)
                 await websocket.send_bytes(data)
 
-        tasks = [asyncio.create_task(incoming()), asyncio.create_task(outgoing())]
+        tasks = []
         try:
+            await websocket.accept()
+            relay.peer.setblocking(False)
+            tasks = [asyncio.create_task(incoming()), asyncio.create_task(outgoing())]
             await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
         finally:
-            for task in tasks:
-                task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
-            self.revoke(relay_id)
-            with contextlib.suppress(Exception):
-                await websocket.close()
+            with CancelScope(shield=True):
+                self.revoke(relay_id)
+                for task in tasks:
+                    task.cancel()
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), 5)
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(websocket.close(), 5)
 
 
 @dataclass
@@ -129,12 +141,16 @@ class DistributedManualBackend:
         self._lock = threading.RLock()
         self.leases = ManualLeaseDAO(coordinator.ledger.database)
 
-    @property
-    def local(self):
+    def prepare_local(self) -> None:
+        """Validate and cache the local backend before a new local lease can be acquired."""
         with self._lock:
             if self._local_backend is None:
                 self._local_backend = self.local_factory()
-            return self._local_backend
+
+    @property
+    def local(self):
+        self.prepare_local()
+        return self._local_backend
 
     def _session(self, session_id):
         with self._lock:

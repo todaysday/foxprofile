@@ -12,27 +12,50 @@ from pathlib import Path
 
 import pytest
 
-from foxprofile_ext.dto import ProcessIdentity
+from foxprofile_ext.dto import BrowserRunRefDTO, ProcessIdentity
 from foxprofile_ext.runtime import supervisor as supervisor_module
 from foxprofile_ext.runtime.processes import RuntimeSupervisor
 from foxprofile_ext.runtime.registry import current_host_id, process_identity
 from foxprofile_ext.runtime.supervisor import _confined_arguments, _runtime_details
 from foxprofile_ext.storage import CapacityLedger, ExtensionDatabase
 from foxprofile_ext.storage.capacity import ProcessLiveness, RunStatus
+from foxprofile_ext.workers.execution import WorkerExecutionDatabase
+from tests.test_ext_worker_agent import _worker_owner
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def start_supervisor(tmp_path, code, *, cancelled=False, helper_stdin=None):
-    database = ExtensionDatabase(tmp_path / "state.sqlite3")
-    ledger = CapacityLedger(database)
-    ref = ledger.reserve(("profile-a",), current_host_id()).newly_reserved[0]
+def start_supervisor(
+    tmp_path,
+    code,
+    *,
+    cancelled=False,
+    helper_stdin=None,
+    worker=False,
+    local_store=False,
+    hash_gate=None,
+):
+    path = tmp_path / "state.sqlite3"
+    if worker:
+        database = WorkerExecutionDatabase(path)
+        ref = BrowserRunRefDTO("profile-a", "master-assigned-run")
+        assert database.reserve_exact(ref, current_host_id(), context=_worker_owner(ref))
+        ledger = CapacityLedger(database)
+    else:
+        database = ExtensionDatabase(path)
+        ledger = CapacityLedger(database)
+        ref = ledger.reserve(("profile-a",), current_host_id()).newly_reserved[0]
     if cancelled:
         ledger.cancel_unclaimed(ref)
     profile = tmp_path / "data" / "alpha"
     profile.mkdir(parents=True)
     private_tmp = tmp_path / "data" / ".foxprofile-runtime" / ref.run_id
     private_tmp.mkdir(mode=0o700, parents=True)
+    if local_store:
+        from foxprofile_ext.workers.profile_store import ProfileStore
+
+        ProfileStore(database, profile.parent, tmp_path / "staging")
+        (profile / "fingerprint.json").write_text('{"os":"linux","fingerprint":{"fixture":1}}')
     wrapper = tmp_path / "bwrap_standin.py"
     wrapper.write_text("import os,sys\na=sys.argv[sys.argv.index('--')+1:]\nos.execv(a[0],a)\n")
     config = dict(
@@ -47,7 +70,22 @@ def start_supervisor(tmp_path, code, *, cancelled=False, helper_stdin=None):
         settings={},
         command=[sys.executable, "-c", code],
         helper_stdin=helper_stdin,
+        worker_execution=worker,
+        track_local_browser_data=local_store,
     )
+    hash_barrier = ""
+    if hash_gate:
+        hash_barrier = "\n".join(
+            (
+                "from foxprofile_ext.workers import profile_store",
+                "from foxprofile_ext.locking import catalog_lock",
+                "read_content = profile_store._profile_content",
+                "def wait_for_hash(*args):",
+                " print('reading-profile', flush=True)",
+                f" with catalog_lock({str(hash_gate)!r}): return read_content(*args)",
+                "profile_store._profile_content = wait_for_hash",
+            )
+        )
     bootstrap = "\n".join(
         (
             "import importlib,sys,os",
@@ -58,6 +96,7 @@ def start_supervisor(tmp_path, code, *, cancelled=False, helper_stdin=None):
             "m.build_confined_command=build",
             "m._verified_namespace=lambda boundary,ns: True",
             "m._runtime_liveness=lambda boundary,ns: m._process_group_liveness(boundary)",
+            hash_barrier,
             "sys.exit(m.supervise(sys.stdin,sys.stdout))",
         )
     )
@@ -392,3 +431,36 @@ def test_browser_mapping_rejects_wrong_executable_or_generation(tmp_path):
     finally:
         child.terminate()
         child.wait(timeout=5)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux /proc supervisor protocol")
+@pytest.mark.parametrize("outcome", ["normal-close", "requested", "unexplained", "failure"])
+def test_worker_supervisor_attests_graceful_outcome_only(tmp_path, outcome):
+    code = """
+import json, os, signal, sys
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+print("RUNTIME:" + json.dumps(dict(display=None, namespace=os.readlink("/proc/self/ns/pid"),
+                                    tmp_path="/tmp", xauthority_path=None)), flush=True)
+print("CONTROL:9001:fixture-run-token", flush=True)
+print("BROWSER_STARTED", flush=True)
+"""
+    endings = {
+        "normal-close": 'print("BROWSER_CLOSED", flush=True)',
+        "requested": "signal.pause()",
+        "unexplained": "sys.exit(0)",
+        "failure": 'print("BROWSER_CLOSED", flush=True); sys.exit(17)',
+    }
+    _, ledger, ref, process, _ = start_supervisor(tmp_path, code + endings[outcome], worker=True)
+    try:
+        assert line(process).startswith("CONTROL:")
+        assert line(process) == "BROWSER_STARTED"
+        if outcome == "requested":
+            process.terminate()
+        output, error = process.communicate(timeout=8)
+        assert process.returncode == (17 if outcome == "failure" else 0), error
+        assert ("RUNTIME:CLEAN_EXIT" in output.splitlines()) == (
+            outcome in {"normal-close", "requested"}
+        )
+        assert ledger.get(ref).status is RunStatus.CLOSED
+    finally:
+        stop_owned(process)

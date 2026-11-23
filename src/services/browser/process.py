@@ -100,10 +100,12 @@ def wait_for_exit(
     notify_stopped: Callable[[], None],
     *,
     cleanup_runner: bool = True,
+    on_exit: Callable[[int | None], None] | None = None,
 ) -> None:
     """Block until the process exits, then fire the callback."""
+    returncode = None
     try:
-        proc.wait()
+        returncode = proc.wait()
     except Exception as e:
         logger.exception("Wait error for profile %s: %s", name, e)
     finally:
@@ -113,4 +115,8 @@ def wait_for_exit(
         # the runner's X server; a source-side PID lookup would be ambiguous.
         if cleanup_runner:
             cleanup(proc)
-        notify_stopped()
+        try:
+            if on_exit is not None:
+                on_exit(returncode)
+        finally:
+            notify_stopped()

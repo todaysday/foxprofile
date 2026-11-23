@@ -414,6 +414,7 @@ def generate_runtime_manifest(
     architecture = architecture_name()
     if (
         not isinstance(evidence, dict)
+        or evidence.get("format_version") != 1
         or evidence.get("status") != "PASS"
         or evidence.get("architecture") != architecture
     ):

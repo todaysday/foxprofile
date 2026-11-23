@@ -4,10 +4,12 @@ No native browser is claimed: this fixture changes the worker's private browser
 files and exercises the actual revision/identity/exclusivity boundaries.
 """
 
+import asyncio
 import hashlib
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 from types import SimpleNamespace
 
 import pytest
@@ -146,6 +148,7 @@ def stop_proof(run, *, reason="clean"):
         "worker_boot_id": run.worker_boot_id,
         "connection_generation": run.connection_generation,
         "terminated": True,
+        "process_tree_dead": True,
         "reason": reason,
         "manual_helpers_stopped": True,
     }
@@ -303,6 +306,14 @@ def test_https_streams_are_scoped_and_exact_upload_retry_returns_same_receipt(cl
         assert foreign.status_code == 409
         assert cluster.coordinator.stop(ACTOR, cluster.ref)
         upload = cluster.hub.last_upload
+        with cluster.db.read() as db:
+            assert (
+                db.execute(
+                    "SELECT consumed_at FROM profile_sync_grants WHERE token_hash = ?",
+                    (hashlib.sha256(upload["token"].encode()).hexdigest(),),
+                ).fetchone()[0]
+                is not None
+            )
         archive = (cluster.hub.path.parent / "return.zip").read_bytes()
         digest = hashlib.sha256(archive).hexdigest()
         headers = {**cluster.hub.headers(run, upload["token"]), "X-Archive-Digest": digest}
@@ -351,6 +362,53 @@ def test_interrupted_https_upload_preserves_canonical_and_occupied_slot(cluster)
     assert cluster.ledger.get(run.ref).status is RunStatus.SYNCING
     assert (cluster.directory / "cookies.sqlite").read_bytes() == b"old-cookies"
     assert not list(cluster.store.staging_dir.glob("upload-*"))
+    with cluster.db.read() as db:
+        assert (
+            db.execute(
+                "SELECT consumed_at FROM profile_sync_grants WHERE token_hash = ?",
+                (hashlib.sha256(upload["token"].encode()).hexdigest(),),
+            ).fetchone()[0]
+            is None
+        )
+
+
+def test_complete_upload_attempt_consumes_grant_and_sync_retry_issues_a_new_one(
+    cluster, monkeypatch
+):
+    run = launch(cluster)
+    cluster.hub.fail_sync = True
+    with pytest.raises(DomainError):
+        cluster.coordinator.stop(ACTOR, cluster.ref)
+    upload = cluster.hub.last_upload
+    archive = (cluster.hub.path.parent / "return.zip").read_bytes()
+    headers = {
+        **cluster.hub.headers(run, upload["token"]),
+        "X-Archive-Digest": hashlib.sha256(archive).hexdigest(),
+    }
+    commit = cluster.coordinator.commit_upload
+
+    def unavailable(*_):
+        raise DomainError(ErrorCode.SYNC_FAILED)
+
+    monkeypatch.setattr(cluster.coordinator, "commit_upload", unavailable)
+    app = FastAPI()
+    app.state.container = SimpleNamespace(worker_coordinator=cluster.coordinator)
+    app.include_router(router, prefix="/api/v1")
+    with TestClient(app, base_url="https://master.example.test") as client:
+        failed = client.post(upload["url"], headers=headers, content=archive)
+        assert failed.status_code == 503
+        monkeypatch.setattr(cluster.coordinator, "commit_upload", commit)
+        refused = client.post(upload["url"], headers=headers, content=archive)
+        assert refused.status_code != 200
+        assert cluster.ledger.get(run.ref).status is RunStatus.SYNCING
+        assert (cluster.directory / "cookies.sqlite").read_bytes() == b"old-cookies"
+        cluster.hub.client = client
+        cluster.hub.fail_sync = False
+        assert cluster.coordinator.stop(ACTOR, cluster.ref)
+        assert cluster.hub.last_upload["token"] != upload["token"]
+        assert cluster.store.revision(run.ref.profile_id)[0] == 2
+        assert (cluster.directory / "cookies.sqlite").read_bytes() == b"new-cookie-session"
+        cluster.hub.client = None
 
 
 def test_verified_host_fence_proves_old_manual_helpers_dead(cluster):
@@ -405,10 +463,9 @@ def test_upload_retry_does_not_restart_or_release_unsaved_run(cluster):
     assert cluster.ledger.get(run.ref).status is RunStatus.SYNCING
     assert (cluster.directory / "cookies.sqlite").read_bytes() == b"old-cookies"
     assert cluster.coordinator.remote_helpers_stopped(run)
-    assert (
-        cluster.coordinator.reserve_and_start(ACTOR, (cluster.ref,))[0].browser_run_id
-        == run.ref.run_id
-    )
+    retry = cluster.coordinator.reserve_and_start(ACTOR, (cluster.ref,), wait=True)[0]
+    assert retry.browser_run_id == run.ref.run_id
+    assert retry.state == "failed" and retry.error_code == "SYNC_FAILED"
     cluster.hub.fail_sync = False
     assert cluster.coordinator.stop(ACTOR, cluster.ref)
     assert cluster.hub.calls.count("start") == 1
@@ -570,3 +627,362 @@ def test_snapshot_failure_releases_only_never_dispatched_assignment(cluster, mon
     assert cluster.ledger.active_runs() == ()
     assert cluster.ledger.lifecycle_snapshot() == {}
     assert cluster.hub.calls == []
+
+
+def test_cancel_before_local_supervisor_claim_does_not_record_a_revision(cluster, monkeypatch):
+    scheduler = cluster.coordinator.capacity.scheduler
+    monkeypatch.setattr(
+        scheduler, "local_metrics", lambda: NodeMetrics(12 * GIB, None, 8 * GIB, ("camoufox",))
+    )
+    preparing, resume = Event(), Event()
+
+    def prepare(*_):
+        preparing.set()
+        assert resume.wait(5)
+
+    runtime = cluster.coordinator.runtime
+    monkeypatch.setattr(runtime, "prepare_browser", prepare, raising=False)
+    monkeypatch.setattr(runtime, "discard_prepared", lambda _: None, raising=False)
+    with ThreadPoolExecutor(1) as pool:
+        launch_result = pool.submit(cluster.coordinator.reserve_and_start, ACTOR, (cluster.ref,))
+        try:
+            assert preparing.wait(5)
+            (run,) = cluster.ledger.active_runs()
+            assert run.worker_id is None and run.status is RunStatus.RESERVED
+            assert cluster.coordinator.stop(ACTOR, cluster.ref)
+        finally:
+            resume.set()
+        launch_result.result(timeout=5)
+    assert cluster.ledger.get(run.ref).status is RunStatus.CANCELLED
+    assert not cluster.ledger.active_runs()
+    assert cluster.store.revision(run.ref.profile_id) is None
+
+
+@pytest.mark.parametrize("terminal_action", ["replayed_proof", "fence"])
+def test_admitted_commit_keeps_ownership_until_durable_outcome(
+    cluster, monkeypatch, terminal_action
+):
+    run = launch(cluster)
+    cluster.hub.fail_sync = True
+    with pytest.raises(DomainError):
+        cluster.coordinator.stop(ACTOR, cluster.ref)
+    archive = cluster.hub.path.parent / "return.zip"
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    promote = cluster.store._promote
+
+    def disconnect_after_durable_intent(*args, **kwargs):
+        cluster.coordinator._disconnected(cluster.hub.connection_for(run))
+
+        def unavailable(_):
+            raise DomainError(ErrorCode.WORKER_UNAVAILABLE)
+
+        monkeypatch.setattr(cluster.hub, "connection_for", unavailable)
+        if terminal_action == "fence":
+            assert not cluster.coordinator.fence(run, "Owned fixture process tree is dead")
+        else:
+            cluster.coordinator.accept_stop_proof(run, cluster.hub.last_stop_proof)
+        assert cluster.ledger.get(run.ref).status is RunStatus.UNCERTAIN
+        assert len(cluster.ledger.active_runs()) == 1
+        return promote(*args, **kwargs)
+
+    monkeypatch.setattr(cluster.store, "_promote", disconnect_after_durable_intent)
+    receipt = cluster.coordinator.commit_upload(run, archive, digest)
+    assert receipt["revision"] == 2
+    assert cluster.ledger.get(run.ref).status is RunStatus.CLOSED
+    assert cluster.ledger.lifecycle_snapshot() == {}
+    assert (cluster.directory / "cookies.sqlite").read_bytes() == b"new-cookie-session"
+
+
+def test_restart_repairs_unsaved_outcome_only_with_exact_committed_receipt(cluster):
+    run = launch(cluster)
+    cluster.hub.fail_sync = True
+    with pytest.raises(DomainError):
+        cluster.coordinator.stop(ACTOR, cluster.ref)
+    archive = cluster.hub.path.parent / "return.zip"
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    cluster.store.commit(cluster.profile, run, archive, run.base_revision, digest)
+    # Reproduce the persisted outcome of a pre-fix concurrent quarantine.
+    assert cluster.ledger.complete_remote(
+        *cluster.coordinator._owner(run), process_stopped=True, quarantined=True
+    )
+    assert cluster.ledger.lifecycle_snapshot()[run.ref.profile_id] == ("unsaved", "remote")
+    assert not cluster.ledger.complete_remote(
+        *cluster.coordinator._owner(run),
+        process_stopped=True,
+        sync_verified=True,
+        commit_receipt_id="unknown-receipt",
+    )
+    assert cluster.ledger.lifecycle_snapshot()[run.ref.profile_id] == ("unsaved", "remote")
+    restarted = DistributedCoordinator(
+        cluster.local,
+        cluster.coordinator.capacity,
+        cluster.registry,
+        ProtocolWorker(archive.parent),
+        cluster.store,
+        "https://master.example.test",
+    )
+    try:
+        assert cluster.ledger.get(run.ref).status is RunStatus.CLOSED
+        assert cluster.ledger.lifecycle_snapshot() == {}
+        assert cluster.store.revision(run.ref.profile_id)[0] == 2
+    finally:
+        restarted.shutdown(timeout=0)
+
+
+def test_exact_upload_receipt_survives_authorized_profile_deletion(cluster, monkeypatch):
+    from foxprofile_ext.application import ProtectedApplication
+    from foxprofile_ext.auth import AuthService
+    from foxprofile_ext.catalog import CatalogOperationError, ProfileCatalog
+    from foxprofile_ext.storage import CatalogOperationDAO, SessionDAO, UserDAO
+    from src.services.profile import manager as manager_module
+
+    profiles_file = cluster.directory.parent / "profiles.json"
+    profiles_file.write_text(json.dumps({cluster.profile.name: cluster.profile.to_dict()}))
+    monkeypatch.setattr(manager_module, "DATA_DIR", cluster.directory.parent)
+    monkeypatch.setattr(manager_module, "PROFILES_FILE", profiles_file)
+    catalog = ProfileCatalog(
+        manager_module.ProfileManager(),
+        CatalogOperationDAO(cluster.db),
+        AssignmentDAO(cluster.db),
+        cluster.local.lock_path,
+    )
+
+    def profile_by_id(profile_id):
+        try:
+            return catalog.get_profile(profile_id)
+        except CatalogOperationError:
+            raise DomainError(ErrorCode.FORBIDDEN_OR_NOT_FOUND) from None
+
+    monkeypatch.setattr(cluster.coordinator, "profile_by_id", profile_by_id)
+    app = FastAPI()
+    app.state.container = SimpleNamespace(worker_coordinator=cluster.coordinator)
+    app.include_router(router, prefix="/api/v1")
+    with TestClient(app, base_url="https://master.example.test") as client:
+        cluster.hub.client = client
+        run = launch(cluster)
+        assert cluster.coordinator.stop(ACTOR, cluster.ref)
+        upload = cluster.hub.last_upload
+        data = (cluster.hub.path.parent / "return.zip").read_bytes()
+        headers = {
+            **cluster.hub.headers(run, upload["token"]),
+            "X-Archive-Digest": hashlib.sha256(data).hexdigest(),
+        }
+        first = client.post(upload["url"], headers=headers, content=data)
+        assert first.status_code == 200
+        application = ProtectedApplication(
+            AuthService(UserDAO(cluster.db), SessionDAO(cluster.db)),
+            catalog,
+            AssignmentDAO(cluster.db),
+            cluster.ledger,
+            cluster.coordinator,
+        )
+        application.delete_profile(ACTOR, run.ref.profile_id)
+        assert not catalog.list_profiles() and not cluster.directory.exists()
+        replay = client.post(upload["url"], headers=headers, content=data)
+        assert replay.status_code == 200, replay.text
+        assert replay.json() == first.json()
+        assert not cluster.directory.exists()
+        changed = client.post(upload["url"], headers=headers, content=data + b"changed")
+        assert changed.status_code != 200
+        assert not cluster.directory.exists()
+
+
+@pytest.mark.parametrize("boundary", ["queued", "grant_committed"])
+def test_disconnect_before_dispatch_retires_only_proven_unstarted_run(
+    cluster, monkeypatch, boundary
+):
+    reservation = cluster.coordinator.capacity.reserve(ACTOR, (cluster.ref,), "master")
+    run = cluster.ledger.get(reservation.newly_reserved[0])
+    connection = cluster.hub.connection_for(run)
+
+    def disconnect():
+        assert cluster.registry.disconnect(
+            connection.worker_id, connection.boot_id, connection.generation
+        )
+        cluster.coordinator._disconnected(connection)
+
+    if boundary == "queued":
+        disconnect()
+    else:
+        issue_grant = cluster.store.issue_grant
+
+        def disconnect_after_grant(*args, **kwargs):
+            grant = issue_grant(*args, **kwargs)
+            disconnect()
+            return grant
+
+        monkeypatch.setattr(cluster.store, "issue_grant", disconnect_after_grant)
+    cluster.coordinator._start_remote(ACTOR, cluster.profile, run, cluster.profile.name)
+    assert cluster.hub.calls == []
+    assert not cluster.ledger.active_runs()
+    assert cluster.ledger.lifecycle_snapshot() == {}
+    assert cluster.store.get_snapshot(run.ref.run_id) is None
+
+
+@pytest.mark.parametrize("reason", ["clean", "loss"])
+@pytest.mark.parametrize("tree_evidence", [None, False, 1])
+def test_stop_proof_requires_positive_full_tree_death(cluster, reason, tree_evidence):
+    run = launch(cluster)
+    proof = {**stop_proof(run, reason=reason), "archive_digest": "a" * 64}
+    if tree_evidence is None:
+        proof.pop("process_tree_dead")
+    else:
+        proof["process_tree_dead"] = tree_evidence
+    with pytest.raises(DomainError) as rejected:
+        cluster.coordinator.accept_stop_proof(run, proof)
+    assert rejected.value.code is ErrorCode.STALE_RUN
+    assert cluster.ledger.get(run.ref).status is RunStatus.RUNNING
+    assert len(cluster.ledger.active_runs()) == 1
+    assert cluster.store.revision(run.ref.profile_id)[0] == run.base_revision
+
+
+def test_simultaneous_upload_retry_uses_one_staging_slot_then_replays_without_disk(
+    cluster, monkeypatch
+):
+    from foxprofile_ext.workers import http
+
+    run = launch(cluster)
+    cluster.hub.fail_sync = True
+    with pytest.raises(DomainError):
+        cluster.coordinator.stop(ACTOR, cluster.ref)
+    upload = cluster.hub.last_upload
+    data = (cluster.hub.path.parent / "return.zip").read_bytes()
+    headers = {
+        **cluster.hub.headers(run, upload["token"]),
+        "X-Archive-Digest": hashlib.sha256(data).hexdigest(),
+    }
+    entered, resume = Event(), Event()
+    write_upload = cluster.store.write_upload
+
+    def hold_first_write(*args):
+        entered.set()
+        assert resume.wait(5)
+        return write_upload(*args)
+
+    monkeypatch.setattr(cluster.store, "write_upload", hold_first_write)
+    app = FastAPI()
+    app.state.container = SimpleNamespace(worker_coordinator=cluster.coordinator)
+    app.include_router(router, prefix="/api/v1")
+    with (
+        TestClient(app, base_url="https://master.example.test") as client,
+        ThreadPoolExecutor(1) as pool,
+    ):
+        first = pool.submit(client.post, upload["url"], headers=headers, content=data)
+        try:
+            assert entered.wait(5)
+            retry = client.post(upload["url"], headers=headers, content=data)
+            assert retry.status_code == 409, retry.text
+            assert len(list(cluster.store.staging_dir.glob("upload-*"))) == 1
+        finally:
+            resume.set()
+        saved = first.result(timeout=5)
+        assert saved.status_code == 200, saved.text
+        assert not list(cluster.store.staging_dir.glob("upload-*"))
+        monkeypatch.setattr(
+            http.tempfile, "mkstemp", lambda **_: pytest.fail("Receipt replay allocated a file")
+        )
+        replay = client.post(upload["url"], headers=headers, content=data)
+        assert replay.status_code == 200 and replay.json() == saved.json()
+        changed = client.post(upload["url"], headers=headers, content=data + b"changed")
+        assert changed.status_code == 422
+
+
+def test_upload_completes_while_stop_occupies_the_only_sync_endpoint_slot(cluster, monkeypatch):
+    import anyio.to_thread
+    import httpx
+
+    run = launch(cluster)
+    command = cluster.hub.command
+    upload_requested = Event()
+    uploaded = Event()
+    transfer = {}
+
+    def wait_for_upload(run, operation, payload=None, *, timeout=30):
+        if operation != "sync":
+            return command(run, operation, payload, timeout=timeout)
+        transfer["upload"] = payload["upload"]
+        upload_requested.set()
+        assert uploaded.wait(5), "Upload was blocked behind its waiting Stop request"
+        return {"commit_receipt": transfer["receipt"]}
+
+    monkeypatch.setattr(cluster.hub, "command", wait_for_upload)
+    app = FastAPI()
+    app.state.container = SimpleNamespace(worker_coordinator=cluster.coordinator)
+    app.include_router(router, prefix="/api/v1")
+
+    @app.post("/stop")
+    def stop_endpoint():
+        return cluster.coordinator.stop(ACTOR, cluster.ref, timeout=3)
+
+    async def scenario():
+        limiter = anyio.to_thread.current_default_thread_limiter()
+        previous_limit = limiter.total_tokens
+        limiter.total_tokens = 1
+        try:
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="https://master.example.test"
+            ) as client:
+                stop = asyncio.create_task(client.post("/stop"))
+                try:
+                    assert await asyncio.to_thread(upload_requested.wait, 3)
+                    assert limiter.borrowed_tokens == 1
+                    data = (cluster.hub.path.parent / "return.zip").read_bytes()
+                    upload = transfer["upload"]
+                    response = await asyncio.wait_for(
+                        client.post(
+                            upload["url"],
+                            headers={
+                                **cluster.hub.headers(run, upload["token"]),
+                                "X-Archive-Digest": hashlib.sha256(data).hexdigest(),
+                            },
+                            content=data,
+                        ),
+                        timeout=3,
+                    )
+                    assert response.status_code == 200, response.text
+                    transfer["receipt"] = response.json()
+                finally:
+                    uploaded.set()
+                    stopped = await stop
+                assert stopped.status_code == 200 and stopped.json() is True
+        finally:
+            limiter.total_tokens = previous_limit
+
+    asyncio.run(scenario())
+    assert cluster.ledger.get(run.ref).status is RunStatus.CLOSED
+    assert (cluster.directory / "cookies.sqlite").read_bytes() == b"new-cookie-session"
+
+
+def test_transfer_cancellation_joins_owned_file_work_before_cleanup(tmp_path):
+    from foxprofile_ext.workers.http import _transfer_io
+
+    started = Event()
+    release = Event()
+    completed = Event()
+    path = tmp_path / "owned-upload"
+
+    def write_file():
+        started.set()
+        assert release.wait(3)
+        path.write_bytes(b"complete")
+        completed.set()
+
+    async def scenario(coordinator):
+        task = asyncio.create_task(_transfer_io(coordinator, write_file))
+        try:
+            assert await asyncio.to_thread(started.wait, 2)
+            task.cancel()
+            await asyncio.sleep(0)
+            task.cancel()
+            await asyncio.sleep(0)
+            assert not task.done() and not completed.is_set()
+        finally:
+            release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert completed.is_set()
+        path.unlink()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        asyncio.run(scenario(SimpleNamespace(transfer_executor=executor)))
+    assert not path.exists()

@@ -9,7 +9,8 @@ import re
 import secrets
 import sqlite3
 from collections.abc import Sequence
-from dataclasses import dataclass
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass, replace
 from math import isfinite
 from time import time
 
@@ -136,14 +137,13 @@ class WorkerRegistry:
             generation = row["connection_generation"] + 1
             connection.execute(
                 "UPDATE workers SET boot_id = ?, connection_generation = ?, manifest_digest = ?, "
-                "preflight_ok = ?, connected = 1, metrics_json = NULL, active_run_ids_json = '[]', last_seen = ? "
+                "preflight_ok = ?, connected = 1, metrics_json = NULL, active_run_ids_json = '[]', last_seen = NULL "
                 "WHERE worker_id = ? AND revoked = 0",
                 (
                     boot_id,
                     generation,
                     manifest_digest,
                     int(preflight_ok),
-                    now,
                     worker_id,
                 ),
             )
@@ -157,15 +157,27 @@ class WorkerRegistry:
         worker_id: str,
         boot_id: str,
         connection_generation: int,
-        metrics: NodeMetrics,
-        active_run_ids: Sequence[str] = (),
+        metrics: NodeMetrics | None,
+        active_run_ids: Sequence[str] | None = (),
+        *,
+        memory_accounted_run_ids: Sequence[str] = (),
     ) -> WorkerRecord:
         _worker_id(worker_id)
         _boot_id(boot_id)
         if type(connection_generation) is not int or connection_generation < 1:
             raise ValueError("connection_generation must be a positive integer")
-        parsed_metrics = _metrics(metrics)
-        active_ids = _active_ids(active_run_ids)
+        active_ids = _active_ids(active_run_ids) if active_run_ids is not None else None
+        accounted_ids = _active_ids(memory_accounted_run_ids)
+        if not set(accounted_ids).issubset(active_ids or ()):
+            raise ValueError("memory-accounted runs must be active in the same sample")
+        measured = None
+        if metrics is not None:
+            if active_ids is None or not isinstance(metrics, NodeMetrics):
+                raise ValueError("metrics require an active run inventory and NodeMetrics")
+            measured = asdict(replace(metrics))
+            measured["memory_accounted_run_ids"] = accounted_ids
+        elif accounted_ids:
+            raise ValueError("memory-accounted runs require a memory sample")
         now = self._now()
         with self.database.transaction() as connection:
             row = connection.execute(
@@ -180,11 +192,13 @@ class WorkerRegistry:
             ):
                 raise DomainError(ErrorCode.WORKER_UNAVAILABLE)
             connection.execute(
-                "UPDATE workers SET metrics_json = ?, active_run_ids_json = ?, last_seen = ? "
+                "UPDATE workers SET metrics_json = ?, active_run_ids_json = COALESCE(?, active_run_ids_json), last_seen = ? "
                 "WHERE worker_id = ? AND boot_id = ? AND connection_generation = ? AND connected = 1 AND revoked = 0",
                 (
-                    json.dumps(_metrics_dict(parsed_metrics), separators=(",", ":")),
-                    json.dumps(active_ids, separators=(",", ":")),
+                    json.dumps(measured, separators=(",", ":")) if measured is not None else None,
+                    json.dumps(active_ids, separators=(",", ":"))
+                    if active_ids is not None
+                    else None,
                     now,
                     worker_id,
                     boot_id,
@@ -218,6 +232,26 @@ class WorkerRegistry:
             ).fetchone()
         return self._record(row, now) if row is not None else None
 
+    @contextmanager
+    def connection_guard(self, worker_id: str, boot_id: str, generation: int):
+        """Serialize a short result publication with durable owner invalidation.
+
+        The caller must not await or perform I/O while this guard is held.
+        """
+        _worker_id(worker_id)
+        with self.database.transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM workers WHERE worker_id = ?", (worker_id,)
+            ).fetchone()
+            if row is None or (row["boot_id"], row["connection_generation"]) != (
+                boot_id,
+                generation,
+            ):
+                raise DomainError(ErrorCode.STALE_RUN)
+            if self._control_state(row, self._now()) not in {"ready", "draining"}:
+                raise DomainError(ErrorCode.WORKER_UNAVAILABLE)
+            yield
+
     def list(self) -> tuple[WorkerRecord, ...]:
         now = self._now()
         with self.database.read() as connection:
@@ -229,27 +263,26 @@ class WorkerRegistry:
         rows = tuple(connection.execute("SELECT * FROM workers ORDER BY worker_id"))
         return tuple(self._record(row, now) for row in rows)
 
-    def _active_run_inventory_in_transaction(self, connection, now: float):
-        """Return exact, fresh heartbeat run IDs keyed by worker connection generation."""
+    def _memory_accounted_inventory_in_transaction(self, connection, now: float):
+        """Return only running IDs already reflected in the same memory sample."""
         rows = connection.execute(
             "SELECT worker_id, boot_id, connection_generation, active_run_ids_json, last_seen, "
-            "connected, revoked, manifest_digest, preflight_ok, metrics_json FROM workers"
+            "connected, revoked, draining, manifest_digest, preflight_ok, metrics_json FROM workers"
         )
         inventory = {}
         for row in rows:
             if (
-                not row["connected"]
-                or row["revoked"]
-                or not row["preflight_ok"]
-                or row["manifest_digest"] != self.expected_manifest_digest
-                or row["last_seen"] is None
-                or now - row["last_seen"] >= _FRESH_SECONDS
+                self._control_state(row, now) not in {"ready", "draining"}
                 or _metrics_from_json(row["metrics_json"]) is None
                 or row["boot_id"] is None
             ):
                 continue
             try:
-                run_ids = _active_ids(json.loads(row["active_run_ids_json"]))
+                active_ids = _active_ids(json.loads(row["active_run_ids_json"]))
+                metrics = json.loads(row["metrics_json"])
+                run_ids = _active_ids(metrics.get("memory_accounted_run_ids", ()))
+                if not set(run_ids).issubset(active_ids):
+                    run_ids = ()
             except (TypeError, ValueError, json.JSONDecodeError):
                 run_ids = ()
             inventory[(row["worker_id"], row["boot_id"], row["connection_generation"])] = frozenset(
@@ -257,28 +290,30 @@ class WorkerRegistry:
             )
         return inventory
 
-    def _record(self, row, now: float) -> WorkerRecord:
+    def _control_state(self, row, now: float) -> str:
         if row["revoked"]:
-            state = "revoked"
-        elif row["manifest_digest"] != self.expected_manifest_digest or not row["preflight_ok"]:
-            state = "incompatible"
-        elif (
+            return "revoked"
+        if row["manifest_digest"] != self.expected_manifest_digest or not row["preflight_ok"]:
+            return "incompatible"
+        if (
             not row["connected"]
             or row["last_seen"] is None
             or now - row["last_seen"] >= _FRESH_SECONDS
-            or _metrics_from_json(row["metrics_json"]) is None
         ):
+            return "offline"
+        return "draining" if row["draining"] else "ready"
+
+    def _record(self, row, now: float) -> WorkerRecord:
+        state = self._control_state(row, now)
+        metrics = _metrics_from_json(row["metrics_json"])
+        if metrics is None and state in {"ready", "draining"}:
             state = "offline"
-        elif row["draining"]:
-            state = "draining"
-        else:
-            state = "ready"
         return WorkerRecord(
             row["worker_id"],
             row["boot_id"],
             row["connection_generation"],
             state,
-            _metrics_from_json(row["metrics_json"]),
+            metrics,
             row["last_seen"],
             row["manifest_digest"],
             bool(row["draining"]),
@@ -314,38 +349,16 @@ def _is_integrity_error(error: Exception) -> bool:
     return isinstance(error, sqlite3.IntegrityError)
 
 
-def _metrics(value: NodeMetrics) -> NodeMetrics:
-    if not isinstance(value, NodeMetrics):
-        raise ValueError("metrics must be NodeMetrics")
-    return NodeMetrics(
-        value.mem_available_bytes,
-        value.cgroup_headroom_bytes,
-        value.staging_free_bytes,
-        value.ready_engines,
-    )
-
-
-def _metrics_dict(value: NodeMetrics) -> dict[str, object]:
-    return {
-        "mem_available_bytes": value.mem_available_bytes,
-        "cgroup_headroom_bytes": value.cgroup_headroom_bytes,
-        "staging_free_bytes": value.staging_free_bytes,
-        "ready_engines": value.ready_engines,
-    }
-
-
 def _metrics_from_json(raw: str | None) -> NodeMetrics | None:
     if raw is None:
         return None
     try:
         values = json.loads(raw)
-        return NodeMetrics(
-            values["mem_available_bytes"],
-            values["cgroup_headroom_bytes"],
-            values["staging_free_bytes"],
-            tuple(values["ready_engines"]),
-        )
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        if not isinstance(values, dict):
+            return None
+        values.pop("memory_accounted_run_ids", None)
+        return NodeMetrics.from_report(**values)
+    except (TypeError, ValueError):
         return None
 
 

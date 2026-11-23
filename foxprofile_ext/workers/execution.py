@@ -142,8 +142,25 @@ class WorkerExecutionDatabase:
         finally:
             connection.close()
 
-    def reserve_exact(self, ref: BrowserRunRefDTO, host_id: str) -> bool:
-        """Insert only an authenticated Master-issued generation; never mint IDs."""
+    def reserve_exact(
+        self, ref: BrowserRunRefDTO, host_id: str, *, context: dict[str, object]
+    ) -> bool:
+        """Insert the Master-issued generation and its owner atomically."""
+        return self._insert_exact(ref, host_id, RunStatus.RESERVED, context)
+
+    def record_cancelled_exact(
+        self, ref: BrowserRunRefDTO, host_id: str, *, context: dict[str, object]
+    ) -> bool:
+        """Tombstone an exact Master run that cannot spawn because a local slot is busy."""
+        return self._insert_exact(ref, host_id, RunStatus.CANCELLED, context)
+
+    def _insert_exact(
+        self,
+        ref: BrowserRunRefDTO,
+        host_id: str,
+        status: RunStatus,
+        context: dict[str, object],
+    ) -> bool:
         if (
             not isinstance(ref, BrowserRunRefDTO)
             or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", ref.run_id)
@@ -151,48 +168,29 @@ class WorkerExecutionDatabase:
             or not host_id.strip()
         ):
             raise ValueError("invalid exact worker run identity")
-        now = time.time()
+        if _run_owner(ref, context) is None:
+            raise ValueError("invalid exact worker run owner")
         with self.transaction() as connection:
             existing = connection.execute(
-                "SELECT profile_id, host_id FROM browser_runs WHERE run_id = ?",
+                "SELECT 1 FROM browser_runs WHERE run_id = ?",
                 (ref.run_id,),
             ).fetchone()
             if existing is not None:
                 return False
-            active = connection.execute(
-                "SELECT 1 FROM browser_runs WHERE profile_id = ? "
-                "AND status IN ('reserved', 'starting', 'running', 'stopping')",
-                (ref.profile_id,),
-            ).fetchone()
-            if active is not None:
-                raise RuntimeError("profile already has an active worker execution")
+            if status is RunStatus.RESERVED:
+                active = connection.execute(
+                    "SELECT 1 FROM browser_runs WHERE profile_id = ? "
+                    "AND status IN ('reserved', 'starting', 'running', 'stopping')",
+                    (ref.profile_id,),
+                ).fetchone()
+                if active is not None:
+                    raise RuntimeError("profile already has an active worker execution")
             connection.execute(
                 "INSERT INTO browser_runs (run_id, profile_id, host_id, status, created_at) "
-                "VALUES (?, ?, ?, 'reserved', ?)",
-                (ref.run_id, ref.profile_id, host_id, now),
+                "VALUES (?, ?, ?, ?, ?)",
+                (ref.run_id, ref.profile_id, host_id, status.value, time.time()),
             )
-        return True
-
-    def record_cancelled_exact(self, ref: BrowserRunRefDTO, host_id: str) -> bool:
-        """Tombstone an exact Master run that cannot spawn because a local slot is busy."""
-        if (
-            not isinstance(ref, BrowserRunRefDTO)
-            or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", ref.run_id)
-            or not isinstance(host_id, str)
-            or not host_id.strip()
-        ):
-            raise ValueError("invalid exact worker run identity")
-        with self.transaction() as connection:
-            existing = connection.execute(
-                "SELECT profile_id FROM browser_runs WHERE run_id = ?", (ref.run_id,)
-            ).fetchone()
-            if existing is not None:
-                return False
-            connection.execute(
-                "INSERT INTO browser_runs (run_id, profile_id, host_id, status, created_at) "
-                "VALUES (?, ?, ?, 'cancelled', ?)",
-                (ref.run_id, ref.profile_id, host_id, time.time()),
-            )
+            self._put_run_context(connection, ref.run_id, context)
         return True
 
     def run_status(self, ref: BrowserRunRefDTO) -> RunStatus | None:
@@ -213,10 +211,34 @@ class WorkerExecutionDatabase:
             return tuple(dict(row) for row in rows)
 
     def put_run_context(self, run_id: str, value: dict[str, object]) -> None:
-        self._update_json_map("run_context_json", run_id, value)
+        with self.transaction() as connection:
+            self._put_run_context(connection, run_id, value)
 
     def run_context(self, run_id: str) -> dict[str, object] | None:
         return self._read_json_map("run_context_json").get(run_id)
+
+    def runs_to_reconcile(self) -> tuple[BrowserRunRefDTO, ...]:
+        """Include recovered terminal rows and any helpers still awaiting cleanup."""
+        with self.read() as connection:
+            row = connection.execute(
+                "SELECT run_context_json, stopped_proofs_json FROM capacity_recovery WHERE singleton = 1"
+            ).fetchone()
+        proofs = json.loads(row["stopped_proofs_json"])
+        return tuple(
+            BrowserRunRefDTO(context["profile_id"], run_id)
+            for run_id, context in json.loads(row["run_context_json"]).items()
+            if run_id not in proofs or context.get("manual_sessions")
+        )
+
+    def cancelled_without_process(self, ref: BrowserRunRefDTO) -> bool:
+        with self.read() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM browser_runs WHERE run_id = ? AND profile_id = ? "
+                "AND status = 'cancelled' AND pid IS NULL AND start_ticks IS NULL "
+                "AND NOT EXISTS (SELECT 1 FROM runtime_descriptors WHERE run_id = browser_runs.run_id)",
+                (ref.run_id, ref.profile_id),
+            ).fetchone()
+        return row is not None
 
     def record_stop_proof(
         self, run_id: str, proof: dict[str, object], *, context: dict[str, object] | None = None
@@ -346,24 +368,24 @@ class WorkerExecutionDatabase:
             }
         return tuple(values.values())
 
-    def _update_json_map(self, column: str, key: str, value: dict[str, object]) -> None:
-        if column not in {"run_context_json", "stopped_proofs_json"}:
-            raise ValueError("invalid worker state column")
+    @staticmethod
+    def _put_run_context(
+        connection: sqlite3.Connection, run_id: str, value: dict[str, object]
+    ) -> None:
         encoded_value = json.dumps(value, separators=(",", ":"))
         if len(encoded_value.encode()) > 65536:
             raise ValueError("worker run state item is too large")
-        with self.transaction() as connection:
-            row = connection.execute(
-                f"SELECT {column} FROM capacity_recovery WHERE singleton = 1"
-            ).fetchone()
-            values = json.loads(row[column])
-            values[key] = value
-            encoded = json.dumps(values, separators=(",", ":"))
-            if len(encoded.encode()) > _MAX_STATE_JSON_BYTES:
-                raise ValueError("worker run state exceeds its size limit")
-            connection.execute(
-                f"UPDATE capacity_recovery SET {column} = ? WHERE singleton = 1", (encoded,)
-            )
+        row = connection.execute(
+            "SELECT run_context_json FROM capacity_recovery WHERE singleton = 1"
+        ).fetchone()
+        values = json.loads(row["run_context_json"])
+        values[run_id] = value
+        encoded = json.dumps(values, separators=(",", ":"))
+        if len(encoded.encode()) > _MAX_STATE_JSON_BYTES:
+            raise ValueError("worker run state exceeds its size limit")
+        connection.execute(
+            "UPDATE capacity_recovery SET run_context_json = ? WHERE singleton = 1", (encoded,)
+        )
 
     def _read_json_map(self, column: str) -> dict[str, dict[str, object]]:
         if column not in {"run_context_json", "stopped_proofs_json"}:
@@ -378,6 +400,48 @@ class WorkerExecutionDatabase:
         ):
             raise RuntimeError("Worker execution state is corrupt")
         return value
+
+
+def _run_owner(ref: BrowserRunRefDTO, context: dict[str, object]) -> dict[str, object] | None:
+    if not isinstance(context, dict):
+        return None
+    worker_id = context.get("worker_id")
+    boot_id = context.get("worker_boot_id")
+    generation = context.get("connection_generation")
+    if (
+        context.get("profile_id") != ref.profile_id
+        or context.get("run_id") != ref.run_id
+        or not isinstance(worker_id, str)
+        or not worker_id.strip()
+        or not isinstance(boot_id, str)
+        or not boot_id.strip()
+        or type(generation) is not int
+        or generation < 1
+    ):
+        return None
+    return {
+        "profile_id": ref.profile_id,
+        "run_id": ref.run_id,
+        "worker_id": worker_id,
+        "worker_boot_id": boot_id,
+        "connection_generation": generation,
+    }
+
+
+def pre_spawn_stop_proof(
+    ref: BrowserRunRefDTO, context: dict[str, object]
+) -> dict[str, object] | None:
+    owner = _run_owner(ref, context)
+    if owner is None or not isinstance(context.get("manual_sessions", {}), dict):
+        return None
+    return {
+        **owner,
+        "terminated": True,
+        "process_tree_dead": True,
+        "manual_helpers_stopped": True,
+        "reason": "loss",
+        "shutdown_kind": "pre-spawn",
+    }
 
 
 def assert_worker_only_database(path: str | Path) -> None:

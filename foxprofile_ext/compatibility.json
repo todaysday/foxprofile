@@ -5,9 +5,10 @@
     "version": "2.4.0"
   },
   "candidate": {
-    "commit": "1b58eb746e20bae2d11f777891fba28fe05c9a76",
-    "status": "locked",
-    "note": "Locked distributed Worker runtime-source checkpoint. Subsequent evidence metadata does not change executable source. Available offline regression passes; native/two-host acceptance and prior manual-browser slice 09 remain open."
+    "commit": null,
+    "status": "uncommitted-draft",
+    "review_base": "ed68c3b69c745f27f25109e966a94901c6b9c7f2",
+    "note": "Reviewed runtime fixes passed the integrated suite. The source checkpoint and matching distribution digests are locked by the following metadata-only evidence commit; historical release inputs remain separate."
   },
   "schema": {
     "version": 6,
@@ -16,59 +17,46 @@
     "sql_sha256": "a49280990de1987baf143560858523b87329e1742ae5aaf66b7b0f48dd65adaa"
   },
   "offline_evidence": {
-    "status": "PASS for available offline regression; native/deployed-host acceptance remains incomplete",
-    "environment": {
-      "system": "Linux",
-      "architecture": "x86_64",
-      "python": "3.12.14"
-    },
-    "commands": [
+    "status": "PASS on Linux x86_64 / Python 3.12.14; native and deployed two-host gates remain open",
+    "record": "openspec/changes/add-distributed-browser-workers/references/code-review-cc.md",
+    "checks": [
       {
         "command": "python -m pytest -q -rs -m 'not browser' --maxfail=10",
-        "result": "1181 passed, 60 skipped, 24 deselected, 8 warnings; 234.45 seconds; no failures"
+        "result": "1375 passed, 64 skipped, 24 deselected, 11 warnings in 279.27s (0:04:39); log SHA-256 996536ce5d6c535c141d4b1e22453b021f472706110999ddd9d6b5477f12ec51"
+      },
+      {
+        "command": "ruff check src tests chrome_engine foxprofile_ext tools",
+        "result": "PASS; the subsequently corrected test fixture also passed its scoped lint check."
+      },
+      {
+        "command": "ruff format --check src tests chrome_engine foxprofile_ext tools",
+        "result": "PASS: 257 files formatted; the subsequently corrected fixture also passed its scoped format check."
       },
       {
         "command": "python tools/check_extension_compatibility.py",
-        "result": "PASS: 84 route/method entries, 93 hooks, 42 launch callsites"
+        "result": "PASS: 84 route/method entries, 94 hooks, 42 launch callsites."
       },
       {
         "command": "python tools/check_extension_compatibility.py --rehearse",
-        "result": "PASS: four synthetic unsafe drifts rejected; restored disposable candidate passes"
+        "result": "PASS: unclassified route, missing admission hook, adapter signature drift and new browser factory rejected; restored disposable candidate passes. Log SHA-256 8f9f15e8aec671d1f3310762e43eb0807cc1f3bada893f169ee2b2715e0e2ca8"
       },
       {
-        "command": "ruff check src tests chrome_engine foxprofile_ext tools/worker_preflight.py",
-        "result": "PASS"
+        "command": "node --check (panel.js and extracted web inline script)",
+        "result": "PASS: both JavaScript surfaces parse."
       },
       {
-        "command": "ruff format --check src tests chrome_engine foxprofile_ext tools/worker_preflight.py",
-        "result": "PASS: 243 Python files"
-      },
-      {
-        "command": "node --check --input-type=module (panel.js and inline web module)",
-        "result": "PASS: two JavaScript sources"
-      },
-      {
-        "command": "python -m pytest -q tests/test_ext_compatibility_gate.py tests/test_ext_compatibility.py tests/test_ext_packaging.py",
-        "result": "39 passed, 3 warnings, 40.67 seconds; publication checkpoint metadata, wheel/sdist payload, rebuild and isolated installation checks pass"
+        "command": "git diff --check",
+        "result": "PASS."
       }
     ],
-    "log_sha256": "94e99b66913578d7132307cd1564a101c248a34635c9d4cfe42d310fce8ce390",
-    "artifact_sha256": {
-      "foxprofile_ext/compatibility.py": "7e151685ebbfc555241ac29e1970f835dbe38ad7485be49870762b507931177c",
-      "tests/test_ext_compatibility_gate.py": "f75396afd07397ad4d9d450727eb30f2ee2702e5e1f32d4166196d9000170e72",
-      "tools/check_extension_compatibility.py": "e4ff5ef99a001481741c0c82b44e4a35b7d73ad1a76af87391ad2cbaa7e17b76",
-      "deploy/extension/schema-v6.json": "a49280990de1987baf143560858523b87329e1742ae5aaf66b7b0f48dd65adaa",
-      "tests/test_ext_distributed_integration.py": "c83486a8a747d1fce8366f74c7406f357a889975a09746ac1cb467725049a160",
-      "tests/test_ext_worker_roundtrip.py": "03e2210f7a702d0682ad8ed1a6318b5492e094c50fdea07dacd1a6bf8ebdadc7"
-    },
-    "limits": "40 Chromium DOM/module and 20 native/confinement cases skipped; 24 real Chromium engine cases deselected. Local trusted TLS/WSS and archive integration uses a native-runtime fixture. Independent watchdog uses owned stand-in process groups. Ubuntu 24.04 two-host/native equivalence and prior manual-browser slice 09 remain open.",
-    "runtime_source_checkpoint": "1b58eb746e20bae2d11f777891fba28fe05c9a76",
-    "metadata_gate_log_sha256": "1c328f27290db9adcd75abf1c49fc69953da89e336b702c02af73a984fc04cb0"
+    "integrated_log_sha256": "996536ce5d6c535c141d4b1e22453b021f472706110999ddd9d6b5477f12ec51",
+    "limits": "64 prerequisite skips: 44 Chromium DOM/module cases and 20 native/confinement cases. 24 actual Chromium-engine cases deselected. Local trusted TLS and filesystem faults do not establish deployed two-host or physical power-loss acceptance.",
+    "integration_corrections": "The initial integrated run exposed an incomplete runtime fixture and invalid candidate status. The metadata follow-up also corrected the new hook baseline to the common upstream baseline. Production behavior and assertions were preserved; 9 targeted checks and the definitive integrated rerun passed."
   },
   "live_evidence": {
     "status": "NOT RUN for distributed Workers; prior bounded manual-browser evidence remains historical and does not establish two-host acceptance",
     "owner": "separate authorized Ubuntu 24.04 deployment acceptance; x86-64 and ARM64",
-    "record": "openspec/changes/add-distributed-browser-workers/references/implementation-evidence.md"
+    "record": "openspec/changes/add-distributed-browser-workers/references/code-review-cc.md"
   },
   "hooks": [
     {
@@ -645,6 +633,13 @@
             "required": false,
             "default": "None",
             "annotation": "str | None"
+          },
+          {
+            "name": "on_exit",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "None",
+            "annotation": "Callable[[bool], None] | None"
           }
         ],
         "returns": "bool"
@@ -762,6 +757,13 @@
             "required": false,
             "default": "None",
             "annotation": "tuple[str, str] | None"
+          },
+          {
+            "name": "observe_exit",
+            "kind": "positional_or_keyword",
+            "required": false,
+            "default": "False",
+            "annotation": "bool"
           }
         ],
         "returns": "None"
@@ -3577,16 +3579,12 @@
           "callee": "self.profiles.commit"
         },
         {
-          "callee": "self.ledger.complete_remote",
-          "keyword_values": {
-            "process_stopped": "True",
-            "sync_verified": "True"
-          }
+          "callee": "self.acknowledge_upload"
         }
       ],
       "call_order": [
         "self.profiles.commit",
-        "self.ledger.complete_remote"
+        "self.acknowledge_upload"
       ]
     },
     {
@@ -3624,7 +3622,7 @@
       "file": "foxprofile_ext/workers/http.py",
       "symbol": "_transfer_binding",
       "purpose": "Validate current connection ownership and exact Worker/run capability before serving or committing profile bytes.",
-      "contract": "Validate current connection ownership and exact Worker/run capability before serving or committing profile bytes.",
+      "contract": "Validate current connection ownership and exact Worker/run capability; consume a new upload grant only after its complete stream verifies, preserving exact committed receipt replay.",
       "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
       "covering_test": "tests/test_ext_distributed_integration.py::test_https_streams_are_scoped_and_exact_upload_retry_returns_same_receipt",
       "signature": {
@@ -3648,6 +3646,13 @@
             "kind": "positional_or_keyword",
             "required": true,
             "default": null,
+            "annotation": null
+          },
+          {
+            "name": "consume",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "False",
             "annotation": null
           }
         ],
@@ -3936,7 +3941,7 @@
       "file": "foxprofile_ext/workers/agent.py",
       "symbol": "WorkerRuntime.start",
       "purpose": "Reuse the existing gated confined launcher for the reserved exact run; no Worker-specific browser process path.",
-      "contract": "Reuse the existing gated confined launcher for the reserved exact run; no Worker-specific browser process path.",
+      "contract": "Prepare the exact admitted run off the control loop, recheck capacity immediately before launcher dispatch, and carry trusted exit outcome.",
       "covering_test": "tests/test_ext_worker_agent.py::test_runtime_supervisor_and_capacity_ledger_recover_worker_execution_db",
       "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
       "signature": {
@@ -3970,7 +3975,14 @@
             "annotation": "Callable[[], None]"
           },
           {
-            "name": "on_stop",
+            "name": "on_exit",
+            "kind": "keyword_only",
+            "required": true,
+            "default": null,
+            "annotation": "Callable[[bool], None]"
+          },
+          {
+            "name": "check_capacity",
             "kind": "keyword_only",
             "required": true,
             "default": null,
@@ -3991,15 +4003,28 @@
           "callee": "self.ledger.get"
         },
         {
-          "callee": "self.supervisor.prepare_browser"
+          "callee": "asyncio.to_thread",
+          "arguments": [
+            "self.supervisor.prepare_browser",
+            "profile",
+            "ref.profile_id",
+            "ref.run_id"
+          ]
         },
         {
-          "callee": "self.launcher.start_thread"
+          "callee": "check_capacity"
+        },
+        {
+          "callee": "self.launcher.start_thread",
+          "keyword_values": {
+            "on_exit": "on_exit"
+          }
         }
       ],
       "call_order": [
         "self.ledger.get",
-        "self.supervisor.prepare_browser",
+        "asyncio.to_thread",
+        "check_capacity",
         "self.launcher.start_thread"
       ]
     },
@@ -4250,6 +4275,57 @@
         "self.current_principal",
         "require_admin",
         "workers.set_draining"
+      ]
+    },
+    {
+      "file": "foxprofile_ext/workers/coordinator.py",
+      "symbol": "DistributedCoordinator.acknowledge_upload",
+      "purpose": "Release a remote claim only for an exact committed receipt and process-death proof.",
+      "contract": "The ledger validates the durable receipt owner, revision and matching stop-proof digest before saved completion and snapshot cleanup.",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "covering_test": "tests/test_ext_distributed_integration.py::test_exact_upload_receipt_survives_authorized_profile_deletion",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "run",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "receipt",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          }
+        ],
+        "returns": null
+      },
+      "required_calls": [
+        {
+          "callee": "self.ledger.complete_remote",
+          "keyword_values": {
+            "process_stopped": "True",
+            "sync_verified": "True",
+            "commit_receipt_id": "receipt.receipt_id"
+          }
+        },
+        {
+          "callee": "self._cleanup_snapshot"
+        }
+      ],
+      "call_order": [
+        "self.ledger.complete_remote",
+        "self._cleanup_snapshot"
       ]
     }
   ],
@@ -5406,37 +5482,40 @@
     "src/core/container.py:Container.worker_coordinator"
   ],
   "runtime": {
-    "python": "3.12.3",
+    "python": "3.12.14",
     "libraries": {
       "camoufox": "0.5.9",
       "playwright": "1.62.0",
-      "fastapi": "0.162.0",
-      "starlette": "1.10.0",
+      "fastapi": "0.165.0",
+      "starlette": "1.6.0",
       "argon2-cffi": "25.1.0",
-      "websockets": "17.4"
+      "websockets": "16.0",
+      "aiohttp": "3.14.5",
+      "flet": "1.1.3"
     },
-    "camoufox_browser": "x86:156.0.1-beta.36 build72637885; ARM:158.0.1-beta.41. Actual bounded ready/navigation/manual/stop checked on both, with exact independently retained binary/archive hashes. Full source acceptance incomplete.",
+    "camoufox_browser": "NOT RUN for this review: real browser binaries and native display/helper prerequisites are unavailable. Historical target versions are recorded in historical_evidence.",
     "novnc": "63107bd06d9e1f6136ff21aeda8cd62cbf0d433e",
-    "vnc_adapter": "Independently identified targets: x86 x11vnc0.9.16-10 SHA2564954921ae9c4e2bf7061603eb6a2d52c2292a0973eb2da5d6f48a9bd49570ffc; ARM x11vnc0.9.17 SHA2561851418d77b91a6e7eba3aa4b0ac0ad74cf7cb425dc18715447e81c981bcf092. Actual input/Back checked; full N/X matrix incomplete. Earlier offline fixture is historical, not an identical-version requirement.",
-    "confinement": "x86 stage bubblewrap0.9.0: private resolver mount, read-only GeoIP and private dynamic cache; browser used host UID0. Dedicated non-root user/PID namespace preflight was blocked by host policy, without a privileged helper or policy change. ARM uses a dedicated stable UID and private read-only native-library view. Full native boundary acceptance incomplete; earlier offline fixture is historical."
+    "vnc_adapter": "Native x11vnc tests unavailable in this review environment; no new installed-host claim.",
+    "confinement": "Exact supervisor/watchdog/descriptor logic tested with owned process fixtures and offline checks. Native browser/helper confinement remains a deployed-host acceptance gate."
   },
   "deployment": {
-    "topology": "Single host, one lifecycle manager and one ASGI worker per installation; shared SQLite admission does not supply cross-worker gateway/backend IPC; exact run supervisor owns child group.",
-    "engines": "Camoufox manual access; Chrome management/capacity supported, manual access explicitly unsupported.",
+    "topology": "One Master lifecycle manager and one ASGI worker per installation, optional outbound-only Ubuntu 24.04 Workers, shared exact-run SQLite admission. Worker PIDs are never local Master death proof.",
+    "engines": "Camoufox and Chrome management/capacity; manual access only for supported Camoufox confinement.",
     "offline_host": "Linux/x86_64",
     "live_hosts": {
-      "linux_arm64": "PARTIAL: Python3.12.14, compatible Camoufox158.0.1-beta.41, dedicated stable staging UID and private read-only native-library view; real ready/control/noVNC input/Back/stop checked. Selected external HTTPS proxy/WebRTC path passed; full source/resource/renderer/persistence acceptance incomplete; untouched host production prerequisites not accepted.",
-      "linux_x86_64": "PARTIAL: fork access/CRUD subchecks, noVNC input/Back/disconnect/replay denials, service-restart settings/grant persistence and capacity-ten denial observed. Earlier host-UID0 staging does not establish dedicated-service identity isolation; non-root Bubblewrap namespace preflight blocked by host policy. Full fork acceptance incomplete; generic upstream rechecks excluded from current review."
+      "linux_arm64": "NOT RUN for distributed Worker review; historical single-host evidence remains separate.",
+      "linux_x86_64": "NOT RUN for distributed Worker review; historical single-host evidence remains separate."
     }
   },
   "release_inputs": {
-    "dependency_report": "deploy/extension/dependencies-tested-py312-linux.txt",
-    "dependency_report_sha256": "56a45b7ce21c1a2cce32067d4b408e2ca394dd19e81f7bd675cd68877ed74127",
-    "dependency_report_scope": "Observed Linux Python 3.12.14 development/test environment; pip freeze --all includes test/build tools, no private URLs/paths, not a production-only artifact lock. Matching dependency wheels/image remain separate release inputs.",
-    "final_packaged_release_revision": "a37cd813606dfdb4accaeb27fd35aa29e769bf20; immutable runtime-source test candidate; later evidence metadata is separate",
-    "final_distribution_sha256": "Exact public a37cd81 runtime-source rebuild: wheel 9a26bbd644b03f2200f587b3023c30620bd8cbac9df4732ce617a5d5c7e7ca48; sdist 04cbda78f45550973ee9a08788beca85d3cbd8b25a447d8ab6659ad524b02ab1. All wheel bytes and sdist file contents match the original tested input; author metadata alone was normalized before publication. Later rebuilt artifacts require their own digests.",
-    "definitive_full_regression": "a37cd81:1113 passed,24 actual Chromium-engine cases deselected,3 warnings,no failures or skips; completion.review records command and log digest",
-    "post_lock_verification": "225 installed runtime files byte-verified; installed source and assembled-route gate passed for a37cd81; later register/distribution gate:29 passed in24.87seconds, including complete rebuilt wheel/sdist payloads. Later artifacts are separate froma37cd81 hashes."
+    "status": "pending current reviewed distribution build",
+    "runtime_source_revision": null,
+    "wheel_sha256": null,
+    "sdist_sha256": null,
+    "dependency_report": "deploy/extension/dependencies-review-py312-linux.txt",
+    "dependency_report_sha256": "6c8ecc19d7dff777ab69f0296ae68b351ddf1402400e81b7c4d1cf16e5dd2288",
+    "dependency_report_scope": "Observed Linux x86_64 Python 3.12.14 review environment, including inherited build/test tools. Installed package versions; direct-source locations are omitted. This is not a production-only dependency or artifact lock.",
+    "note": "Pre-Worker a37cd81 artifact hashes belong only to historical_evidence. Current packaging checks and artifact hashes must be produced from the matching reviewed source."
   },
   "historical_evidence": [
     {
@@ -5487,6 +5566,101 @@
       "live_evidence": {
         "status": "INCOMPLETE; bounded real x86 and ARM browser/control/noVNC/Back checks executed; complete source matrices, renderer proof, remaining ARM resource/persistence and production rollout open",
         "owner": "separate deployment agent; both target architectures"
+      },
+      "release_inputs": {
+        "dependency_report": "deploy/extension/dependencies-tested-py312-linux.txt",
+        "dependency_report_sha256": "56a45b7ce21c1a2cce32067d4b408e2ca394dd19e81f7bd675cd68877ed74127",
+        "dependency_report_scope": "Observed Linux Python 3.12.14 development/test environment; pip freeze --all includes test/build tools, no private URLs/paths, not a production-only artifact lock. Matching dependency wheels/image remain separate release inputs.",
+        "final_packaged_release_revision": "a37cd813606dfdb4accaeb27fd35aa29e769bf20; immutable runtime-source test candidate; later evidence metadata is separate",
+        "final_distribution_sha256": "Exact public a37cd81 runtime-source rebuild: wheel 9a26bbd644b03f2200f587b3023c30620bd8cbac9df4732ce617a5d5c7e7ca48; sdist 04cbda78f45550973ee9a08788beca85d3cbd8b25a447d8ab6659ad524b02ab1. All wheel bytes and sdist file contents match the original tested input; author metadata alone was normalized before publication. Later rebuilt artifacts require their own digests.",
+        "definitive_full_regression": "a37cd81:1113 passed,24 actual Chromium-engine cases deselected,3 warnings,no failures or skips; completion.review records command and log digest",
+        "post_lock_verification": "225 installed runtime files byte-verified; installed source and assembled-route gate passed for a37cd81; later register/distribution gate:29 passed in24.87seconds, including complete rebuilt wheel/sdist payloads. Later artifacts are separate froma37cd81 hashes."
+      },
+      "runtime": {
+        "python": "3.12.3",
+        "libraries": {
+          "camoufox": "0.5.9",
+          "playwright": "1.62.0",
+          "fastapi": "0.162.0",
+          "starlette": "1.10.0",
+          "argon2-cffi": "25.1.0",
+          "websockets": "17.4"
+        },
+        "camoufox_browser": "x86:156.0.1-beta.36 build72637885; ARM:158.0.1-beta.41. Actual bounded ready/navigation/manual/stop checked on both, with exact independently retained binary/archive hashes. Full source acceptance incomplete.",
+        "novnc": "63107bd06d9e1f6136ff21aeda8cd62cbf0d433e",
+        "vnc_adapter": "Independently identified targets: x86 x11vnc0.9.16-10 SHA2564954921ae9c4e2bf7061603eb6a2d52c2292a0973eb2da5d6f48a9bd49570ffc; ARM x11vnc0.9.17 SHA2561851418d77b91a6e7eba3aa4b0ac0ad74cf7cb425dc18715447e81c981bcf092. Actual input/Back checked; full N/X matrix incomplete. Earlier offline fixture is historical, not an identical-version requirement.",
+        "confinement": "x86 stage bubblewrap0.9.0: private resolver mount, read-only GeoIP and private dynamic cache; browser used host UID0. Dedicated non-root user/PID namespace preflight was blocked by host policy, without a privileged helper or policy change. ARM uses a dedicated stable UID and private read-only native-library view. Full native boundary acceptance incomplete; earlier offline fixture is historical."
+      },
+      "deployment": {
+        "topology": "Single host, one lifecycle manager and one ASGI worker per installation; shared SQLite admission does not supply cross-worker gateway/backend IPC; exact run supervisor owns child group.",
+        "engines": "Camoufox manual access; Chrome management/capacity supported, manual access explicitly unsupported.",
+        "offline_host": "Linux/x86_64",
+        "live_hosts": {
+          "linux_arm64": "PARTIAL: Python3.12.14, compatible Camoufox158.0.1-beta.41, dedicated stable staging UID and private read-only native-library view; real ready/control/noVNC input/Back/stop checked. Selected external HTTPS proxy/WebRTC path passed; full source/resource/renderer/persistence acceptance incomplete; untouched host production prerequisites not accepted.",
+          "linux_x86_64": "PARTIAL: fork access/CRUD subchecks, noVNC input/Back/disconnect/replay denials, service-restart settings/grant persistence and capacity-ten denial observed. Earlier host-UID0 staging does not establish dedicated-service identity isolation; non-root Bubblewrap namespace preflight blocked by host policy. Full fork acceptance incomplete; generic upstream rechecks excluded from current review."
+        }
+      }
+    },
+    {
+      "candidate": {
+        "commit": "1b58eb746e20bae2d11f777891fba28fe05c9a76",
+        "status": "locked",
+        "note": "Locked distributed Worker runtime-source checkpoint. Subsequent evidence metadata does not change executable source. Available offline regression passes; native/two-host acceptance and prior manual-browser slice 09 remain open."
+      },
+      "offline_evidence": {
+        "status": "PASS for available offline regression; native/deployed-host acceptance remains incomplete",
+        "environment": {
+          "system": "Linux",
+          "architecture": "x86_64",
+          "python": "3.12.14"
+        },
+        "commands": [
+          {
+            "command": "python -m pytest -q -rs -m 'not browser' --maxfail=10",
+            "result": "1181 passed, 60 skipped, 24 deselected, 8 warnings; 234.45 seconds; no failures"
+          },
+          {
+            "command": "python tools/check_extension_compatibility.py",
+            "result": "PASS: 84 route/method entries, 93 hooks, 42 launch callsites"
+          },
+          {
+            "command": "python tools/check_extension_compatibility.py --rehearse",
+            "result": "PASS: four synthetic unsafe drifts rejected; restored disposable candidate passes"
+          },
+          {
+            "command": "ruff check src tests chrome_engine foxprofile_ext tools/worker_preflight.py",
+            "result": "PASS"
+          },
+          {
+            "command": "ruff format --check src tests chrome_engine foxprofile_ext tools/worker_preflight.py",
+            "result": "PASS: 243 Python files"
+          },
+          {
+            "command": "node --check --input-type=module (panel.js and inline web module)",
+            "result": "PASS: two JavaScript sources"
+          },
+          {
+            "command": "python -m pytest -q tests/test_ext_compatibility_gate.py tests/test_ext_compatibility.py tests/test_ext_packaging.py",
+            "result": "39 passed, 3 warnings, 40.67 seconds; publication checkpoint metadata, wheel/sdist payload, rebuild and isolated installation checks pass"
+          }
+        ],
+        "log_sha256": "94e99b66913578d7132307cd1564a101c248a34635c9d4cfe42d310fce8ce390",
+        "artifact_sha256": {
+          "foxprofile_ext/compatibility.py": "7e151685ebbfc555241ac29e1970f835dbe38ad7485be49870762b507931177c",
+          "tests/test_ext_compatibility_gate.py": "f75396afd07397ad4d9d450727eb30f2ee2702e5e1f32d4166196d9000170e72",
+          "tools/check_extension_compatibility.py": "e4ff5ef99a001481741c0c82b44e4a35b7d73ad1a76af87391ad2cbaa7e17b76",
+          "deploy/extension/schema-v6.json": "a49280990de1987baf143560858523b87329e1742ae5aaf66b7b0f48dd65adaa",
+          "tests/test_ext_distributed_integration.py": "c83486a8a747d1fce8366f74c7406f357a889975a09746ac1cb467725049a160",
+          "tests/test_ext_worker_roundtrip.py": "03e2210f7a702d0682ad8ed1a6318b5492e094c50fdea07dacd1a6bf8ebdadc7"
+        },
+        "limits": "40 Chromium DOM/module and 20 native/confinement cases skipped; 24 real Chromium engine cases deselected. Local trusted TLS/WSS and archive integration uses a native-runtime fixture. Independent watchdog uses owned stand-in process groups. Ubuntu 24.04 two-host/native equivalence and prior manual-browser slice 09 remain open.",
+        "runtime_source_checkpoint": "1b58eb746e20bae2d11f777891fba28fe05c9a76",
+        "metadata_gate_log_sha256": "1c328f27290db9adcd75abf1c49fc69953da89e336b702c02af73a984fc04cb0"
+      },
+      "live_evidence": {
+        "status": "NOT RUN for distributed Workers; prior bounded manual-browser evidence remains historical and does not establish two-host acceptance",
+        "owner": "separate authorized Ubuntu 24.04 deployment acceptance; x86-64 and ARM64",
+        "record": "openspec/changes/add-distributed-browser-workers/references/implementation-evidence.md"
       }
     }
   ]

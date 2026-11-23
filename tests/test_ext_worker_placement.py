@@ -6,7 +6,7 @@ import pytest
 
 from foxprofile_ext.dto import ProcessIdentity
 from foxprofile_ext.errors import DomainError, ErrorCode
-from foxprofile_ext.storage.capacity import CapacityLedger
+from foxprofile_ext.storage.capacity import CapacityLedger, RunStatus
 from foxprofile_ext.storage.database import ExtensionDatabase
 from foxprofile_ext.workers.metrics import NodeMetrics
 from foxprofile_ext.workers.placement import PlacementScheduler
@@ -34,6 +34,82 @@ def _add_worker(registry, worker_id, memory, *, boot_id="boot-a", engines=("camo
 
 def _empty_local():
     return NodeMetrics(0, 0, 0, ())
+
+
+def test_existing_only_retry_preserves_runs_after_capacity_is_lowered(tmp_path):
+    database = ExtensionDatabase(tmp_path / "capacity.sqlite3")
+    ledger = CapacityLedger(database)
+    scheduler = PlacementScheduler(
+        ledger,
+        WorkerRegistry(database, MANIFEST),
+        local_metrics=lambda: _metrics(1000),
+        browser_memory_bytes=100,
+        system_reserve_bytes=20,
+        staging_reserve_bytes=0,
+    )
+    first, second, new = Profile("First"), Profile("Second"), Profile("New")
+    admitted = scheduler.reserve((first, second), "master")
+    with database.transaction() as connection:
+        connection.execute(
+            "UPDATE settings SET setting_value = '1' WHERE setting_key = 'max_concurrent_profiles'"
+        )
+    retry = scheduler.reserve((first,), "master")
+    assert retry.newly_reserved == ()
+    assert retry.runs[0].ref == admitted.runs[0].ref
+    with pytest.raises(DomainError) as error:
+        scheduler.reserve((first, new), "master")
+    assert error.value.code is ErrorCode.PROFILE_CAPACITY_EXCEEDED
+    assert set(ledger.active_runs()) == set(admitted.runs)
+
+
+def test_starting_inventory_does_not_release_ram_until_a_running_memory_sample(tmp_path):
+    database = ExtensionDatabase(tmp_path / "capacity.sqlite3")
+    ledger = CapacityLedger(database)
+    registry = WorkerRegistry(database, MANIFEST)
+    _add_worker(registry, "worker-a", 130)
+    scheduler = PlacementScheduler(
+        ledger,
+        registry,
+        local_metrics=_empty_local,
+        browser_memory_bytes=100,
+        system_reserve_bytes=20,
+        staging_reserve_bytes=0,
+    )
+    (first,) = scheduler.reserve((Profile("First"),), "master").runs
+    owner = (first.ref, first.worker_id, first.worker_boot_id, first.connection_generation)
+    assert ledger.transition_remote(*owner, RunStatus.RESERVED, RunStatus.TRANSFERRING)
+    assert ledger.transition_remote(*owner, RunStatus.TRANSFERRING, RunStatus.STARTING)
+    registry.heartbeat(
+        first.worker_id,
+        first.worker_boot_id,
+        first.connection_generation,
+        _metrics(130),
+        active_run_ids=(first.ref.run_id,),
+    )
+    assert ledger.transition_remote(*owner, RunStatus.STARTING, RunStatus.RUNNING)
+    second = Profile("Second")
+    with pytest.raises(DomainError) as overbooked:
+        scheduler.reserve((second,), "master")
+    assert overbooked.value.code is ErrorCode.NO_WORKER_MEMORY
+    with pytest.raises(ValueError, match="same sample"):
+        registry.heartbeat(
+            first.worker_id,
+            first.worker_boot_id,
+            first.connection_generation,
+            _metrics(130),
+            active_run_ids=(first.ref.run_id,),
+            memory_accounted_run_ids=("foreign-run",),
+        )
+    registry.heartbeat(
+        first.worker_id,
+        first.worker_boot_id,
+        first.connection_generation,
+        _metrics(130),
+        active_run_ids=(first.ref.run_id,),
+        memory_accounted_run_ids=(first.ref.run_id,),
+    )
+    (admitted,) = scheduler.reserve((second,), "master").runs
+    assert admitted.worker_id == first.worker_id
 
 
 def test_scheduler_prefers_local_then_selects_greatest_remaining_worker(tmp_path):
@@ -187,6 +263,7 @@ def test_exact_running_heartbeat_is_not_double_counted_and_old_uncertainty_is(tm
         registered.connection_generation,
         _metrics(130),
         active_run_ids=("current-run",),
+        memory_accounted_run_ids=("current-run",),
     )
     with database.transaction() as connection:
         connection.execute(
@@ -216,6 +293,7 @@ def test_exact_running_heartbeat_is_not_double_counted_and_old_uncertainty_is(tm
         registered.connection_generation,
         _metrics(300),
         active_run_ids=("current-run",),
+        memory_accounted_run_ids=("current-run",),
     )
     with database.transaction() as connection:
         connection.execute(

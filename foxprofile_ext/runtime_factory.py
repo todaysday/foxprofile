@@ -59,6 +59,9 @@ def build_run_coordinator(
     ledger: CapacityLedger,
 ) -> RuntimeCoordinator:
     """Build one launcher/supervisor pair and reconcile durable runs before use."""
+    from .workers.config import DistributedSettings, build_distributed_coordinator
+
+    distributed = DistributedSettings.from_environment()
     capacity = CapacityService(ledger, assignments)
 
     def profile_by_id(profile_id: str) -> Profile:
@@ -143,22 +146,23 @@ def build_run_coordinator(
         lock_path=str(catalog.lock_path),
         prepare_launch=prepare_launch,
     )
-    runtime.recover()
-    launcher = BrowserLauncher(runtime_adapter=runtime)
-    coordinator = RuntimeCoordinator(
-        capacity,
-        ledger,
-        runtime,
-        launcher,
-        profile_by_id=profile_by_id,
-        authorize=authorize,
-        lock_path=str(catalog.lock_path),
-    )
-    from .workers.config import DistributedSettings, build_distributed_coordinator
-
-    distributed = DistributedSettings.from_environment()
-    if distributed is not None:
-        return build_distributed_coordinator(
-            coordinator, database, catalog, assignments, distributed
+    try:
+        runtime.recover()
+        launcher = BrowserLauncher(runtime_adapter=runtime)
+        coordinator = RuntimeCoordinator(
+            capacity,
+            ledger,
+            runtime,
+            launcher,
+            profile_by_id=profile_by_id,
+            authorize=authorize,
+            lock_path=str(catalog.lock_path),
         )
-    return coordinator
+        if distributed is not None:
+            return build_distributed_coordinator(
+                coordinator, database, catalog, assignments, distributed
+            )
+        return coordinator
+    except BaseException:
+        runtime.close_unpublished()
+        raise

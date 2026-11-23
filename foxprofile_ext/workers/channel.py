@@ -7,7 +7,6 @@ import concurrent.futures
 import contextlib
 import json
 import threading
-import time
 from dataclasses import dataclass, field
 from uuid import uuid4
 
@@ -19,6 +18,26 @@ MAX_MESSAGE_BYTES = 16 * 1024 * 1024
 MAX_PENDING_COMMANDS = 128
 HEARTBEAT_INTERVAL_SECONDS = 10
 LOSS_TIMEOUT_SECONDS = 30
+
+
+def _run_inventory(values):
+    if (
+        not isinstance(values, list)
+        or len(values) > 10000
+        or any(
+            not isinstance(item, dict)
+            or any(
+                not isinstance(item.get(key), str) or not item[key].strip() or len(item[key]) > 128
+                for key in ("profile_id", "run_id")
+            )
+            for item in values
+        )
+    ):
+        raise DomainError(ErrorCode.VALIDATION_ERROR)
+    result = tuple((item["profile_id"], item["run_id"]) for item in values)
+    if len({run_id for _, run_id in result}) != len(result):
+        raise DomainError(ErrorCode.VALIDATION_ERROR)
+    return result
 
 
 @dataclass
@@ -56,23 +75,18 @@ class MasterWorkerHub:
     def _connection_for_owner(self, worker_id, boot_id, generation) -> WorkerConnection:
         with self._lock:
             connection = self._connections.get(worker_id)
-        if connection is None or (
-            connection.boot_id,
-            connection.generation,
-        ) != (boot_id, generation):
-            raise DomainError(ErrorCode.WORKER_UNAVAILABLE)
-        worker = self.registry.get(worker_id)
-        if worker is None or (
-            worker.boot_id,
-            worker.connection_generation,
-        ) != (connection.boot_id, connection.generation):
-            raise DomainError(ErrorCode.STALE_RUN)
         if (
-            worker.state not in {"ready", "draining"}
-            or time.time() - worker.last_seen >= LOSS_TIMEOUT_SECONDS
+            connection is None
+            or connection.dropped
+            or (
+                connection.boot_id,
+                connection.generation,
+            )
+            != (boot_id, generation)
         ):
             raise DomainError(ErrorCode.WORKER_UNAVAILABLE)
-        return connection
+        with self.registry.connection_guard(worker_id, boot_id, generation):
+            return connection
 
     def command(self, run, operation: str, payload: dict | None = None, *, timeout=30.0):
         connection = self.connection_for(run)
@@ -122,19 +136,20 @@ class MasterWorkerHub:
         if len(connection.pending) >= MAX_PENDING_COMMANDS:
             raise DomainError(ErrorCode.WORKER_UNAVAILABLE)
         command_id = message["command_id"]
-        future = connection.loop.create_future()
+        future = concurrent.futures.Future()
         connection.pending[command_id] = (message, future)
         try:
             await self._send(connection, message)
-            return await asyncio.wait_for(future, timeout)
+            return await asyncio.wait_for(asyncio.wrap_future(future), timeout)
         finally:
             connection.pending.pop(command_id, None)
+            future.cancel()
 
     async def _send(self, connection, message):
         async with connection.send_lock:
             await asyncio.wait_for(connection.websocket.send_json(message), 10)
 
-    def _result(self, connection, message):
+    async def _result(self, connection, message):
         pending = connection.pending.get(message.get("command_id"))
         if pending is None:
             return
@@ -144,14 +159,35 @@ class MasterWorkerHub:
             for key in ("worker_id", "boot_id", "connection_generation", "profile_id", "run_id")
         ):
             return
-        if message.get("ok") is True:
-            future.set_result(message.get("result"))
-        else:
-            try:
-                code = ErrorCode(message.get("error_code"))
-            except (TypeError, ValueError):
-                code = ErrorCode.WORKER_UNAVAILABLE
-            future.set_exception(DomainError(code))
+        # A timeout or disconnect can settle the request while its owner check waits.
+        with contextlib.suppress(asyncio.InvalidStateError):
+            await asyncio.to_thread(self._publish_result, connection, message, future)
+
+    def _publish_result(self, connection, message, future):
+        try:
+            # Acquire the durable guard before the short pointer lock so an unrelated
+            # SQLite writer cannot block the WebSocket event loop through either lock.
+            with (
+                self.registry.connection_guard(
+                    connection.worker_id, connection.boot_id, connection.generation
+                ),
+                self._lock,
+            ):
+                if (
+                    connection.dropped
+                    or self._connections.get(connection.worker_id) is not connection
+                ):
+                    raise DomainError(ErrorCode.STALE_RUN)
+                if message.get("ok") is True:
+                    future.set_result(message.get("result"))
+                else:
+                    try:
+                        code = ErrorCode(message.get("error_code"))
+                    except (TypeError, ValueError):
+                        code = ErrorCode.WORKER_UNAVAILABLE
+                    future.set_exception(DomainError(code))
+        except DomainError as error:
+            future.set_exception(error)
 
     async def serve(self, websocket, credential: str):
         from .metrics import NodeMetrics
@@ -211,23 +247,13 @@ class MasterWorkerHub:
                         raise DomainError(ErrorCode.STALE_RUN)
                 kind = message.get("type")
                 if kind == "heartbeat":
-                    values = dict(message.get("metrics", {}))
-                    values["ready_engines"] = tuple(values.get("ready_engines", ()))
-                    metrics = NodeMetrics(**values)
-                    active = message.get("active_runs")
-                    if (
-                        not isinstance(active, list)
-                        or len(active) > 10000
-                        or any(
-                            not isinstance(item, dict)
-                            or any(
-                                not isinstance(item.get(key), str)
-                                or not item[key].strip()
-                                or len(item[key]) > 128
-                                for key in ("profile_id", "run_id")
-                            )
-                            for item in active
-                        )
+                    sample = message["metrics"]
+                    metrics = NodeMetrics.from_report(**sample) if sample is not None else None
+                    inventory = message["active_runs"]
+                    active = _run_inventory(inventory) if inventory is not None else None
+                    accounted = _run_inventory(message.get("memory_accounted_runs", []))
+                    if (metrics is not None and active is None) or not set(accounted).issubset(
+                        active or ()
                     ):
                         raise DomainError(ErrorCode.VALIDATION_ERROR)
                     await asyncio.to_thread(
@@ -236,7 +262,8 @@ class MasterWorkerHub:
                         connection.boot_id,
                         connection.generation,
                         metrics,
-                        tuple(item["run_id"] for item in active),
+                        tuple(run_id for _, run_id in active) if active is not None else None,
+                        memory_accounted_run_ids=tuple(run_id for _, run_id in accounted),
                     )
                     heartbeat_deadline = connection.loop.time() + LOSS_TIMEOUT_SECONDS
                     await self._send(
@@ -250,7 +277,7 @@ class MasterWorkerHub:
                     )
                     await asyncio.to_thread(self.on_event, connection, message)
                 elif kind == "result":
-                    self._result(connection, message)
+                    await self._result(connection, message)
                 elif kind in {"stopped", "event"}:
                     await asyncio.to_thread(self.on_event, connection, message)
                 else:
@@ -280,14 +307,14 @@ class MasterWorkerHub:
         return value
 
     async def _drop(self, connection):
-        if connection.dropped:
-            return
-        connection.dropped = True
         with self._lock:
+            if connection.dropped:
+                return
+            connection.dropped = True
             if self._connections.get(connection.worker_id) is connection:
                 self._connections.pop(connection.worker_id, None)
         for _, future in tuple(connection.pending.values()):
-            if not future.done():
+            with contextlib.suppress(concurrent.futures.InvalidStateError):
                 future.set_exception(DomainError(ErrorCode.WORKER_UNAVAILABLE))
         await asyncio.to_thread(
             self.registry.disconnect,

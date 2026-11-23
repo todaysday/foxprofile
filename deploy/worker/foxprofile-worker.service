@@ -12,8 +12,9 @@ EnvironmentFile=/etc/foxprofile-worker/worker.env
 LoadCredential=worker-token:/etc/foxprofile-worker/worker-token
 StateDirectory=foxprofile-worker
 StateDirectoryMode=0700
+Environment=XDG_CACHE_HOME=/var/lib/foxprofile-worker/cache
 ExecStart=/opt/foxprofile/.venv/bin/python -m foxprofile_ext.workers.agent
-Restart=on-failure
+Restart=always
 RestartSec=2s
 KillMode=control-group
 KillSignal=SIGTERM

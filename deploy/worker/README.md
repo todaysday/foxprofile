@@ -10,11 +10,16 @@ Install the locked FoxProfile distribution, Python dependencies, Camoufox/Chrome
 
 Create a dedicated `foxprofile` service account. Install the locked application at `/opt/foxprofile`, the virtual environment at `/opt/foxprofile/.venv`, and the service template at `/etc/systemd/system/foxprofile-worker.service`. Resolve executable paths and ownership for the actual host. Keep the application and browser runtimes read-only; `/var/lib/foxprofile-worker` is the private writable state directory.
 
+The unit sets `XDG_CACHE_HOME=/var/lib/foxprofile-worker/cache` for trusted cache
+preparation, including the pinned GeoIP data required by Camoufox. The browser
+receives only the selected read-only cache mount; it does not write into the
+installation or the protected service home.
+
 Create `/etc/foxprofile-worker` as a root-owned directory with mode `0700`. Copy `worker.env.example` to `worker.env`; set its Worker ID, HTTPS Master origin as `wss://...`, runtime manifest paths, expected manifest digest and measured resource reserves. This file contains configuration only. Set mode `0600` and do not place any token in it.
 
 Create `/etc/foxprofile-worker/worker-token` with the unique credential enrolled for this `worker_id`, using the deployment secret manager or a private terminal. Keep it root-owned and mode `0600`. systemd injects it through `LoadCredential`; the agent reads it from `CREDENTIALS_DIRECTORY`. Never add the credential to command arguments, environment files, URLs, logs, browser settings or profile data. Before rotation, drain the Worker and cleanly stop/save its current runs. Rotation immediately invalidates the previous credential and disconnects its control channel. Replace the credential file, restart this unit and verify the new authenticated connection. Do not call the revoke route afterward: it revokes the Worker enrollment, including the current credential.
 
-Install the runtime manifest and host-specific native evidence as root-owned, read-only JSON files. Their contents must come from the locked runtime and a real browser run on the exact host. Worker preflight deliberately rejects missing or `NOT_RUN` evidence. A report must cover every installed engine and include `runtime_pins_sha256`, the SHA-256 from `runtime_pins_digest` over the exact measured Python version, binary paths and hashes, package versions and font inventory in the selected architecture entry.
+Install the runtime manifest and host-specific native evidence in `/etc/foxprofile-worker-runtime`, owned by `root:foxprofile` with mode `0750`. Install both JSON files there as `root:foxprofile` with mode `0640`, so the service can traverse the directory and read its preflight inputs. The token and environment file remain in the separate root-only `/etc/foxprofile-worker` directory. The JSON contents must come from the locked runtime and a real browser run on the exact host. Worker preflight deliberately rejects missing or `NOT_RUN` evidence. A report must cover every installed engine and include `runtime_pins_sha256`, the SHA-256 from `runtime_pins_digest` over the exact measured Python version, binary paths and hashes, package versions and font inventory in the selected architecture entry.
 
 First collect the exact software and font pins without making a native compatibility claim:
 
@@ -72,12 +77,20 @@ python tools/worker_preflight.py \
 
 Repeat on each supported architecture against the same private manifest, then distribute the final identical manifest and digest to every Worker. The generator rejects differing measured geometry, renderer, font inventory or package versions across architectures. If actual native outputs differ, stop and investigate; do not edit evidence to force a pass.
 
-Verify on every host before service start:
+The generator creates private files with mode `0600`. After generation and distribution, install the resulting inputs with the service-readable ownership and modes:
 
 ```bash
-python tools/worker_preflight.py \
-  --manifest /etc/foxprofile-worker/runtime-manifest.json \
-  --native-evidence /etc/foxprofile-worker/native-evidence.json \
+sudo install -d -o root -g foxprofile -m 0750 /etc/foxprofile-worker-runtime
+sudo install -o root -g foxprofile -m 0640 /etc/foxprofile-worker/runtime-manifest.json /etc/foxprofile-worker-runtime/runtime-manifest.json
+sudo install -o root -g foxprofile -m 0640 /etc/foxprofile-worker/native-evidence.json /etc/foxprofile-worker-runtime/native-evidence.json
+```
+
+Verify the installed inputs as the service account on every host before service start:
+
+```bash
+sudo -u foxprofile /opt/foxprofile/.venv/bin/python /opt/foxprofile/tools/worker_preflight.py \
+  --manifest /etc/foxprofile-worker-runtime/runtime-manifest.json \
+  --native-evidence /etc/foxprofile-worker-runtime/native-evidence.json \
   --expected-sha256 "paste-the-shared-manifest-sha256-here"
 ```
 
@@ -108,6 +121,35 @@ the host itself.
 
 ## Start and operate
 
+### Master profile journal upgrades
+
+Master stores the promotion journal beside its profile data root, at
+`.<data-directory-name>-foxprofile-sync`, outside the directory names available
+to user profiles. The journal and profile root must share a filesystem; mount
+their common parent when placing profile data on a separate volume.
+
+An older build used `<data-directory>/.foxprofile-sync`, which is also a legal
+profile name. If a durable commit still references entries there, startup fails
+with `Legacy profile journal requires verified offline recovery` and preserves
+the entries and receipt. With Master stopped, an administrator must compare the
+catalog and `profile_sync_commits` records, preserve any actual profile with that
+name, and relocate only verified journal stage/backup entries to the new private
+journal directory. Do not rename or remove the whole legacy directory.
+
+Older interrupted intents may also lack the verified archive-to-content digest
+binding used by the current recovery path. Those intents and their profile copies
+remain intact for verified offline recovery; moving the directories alone does
+not establish missing content evidence. Resolve the exact pending intent before
+restarting Master. A completed legacy revision without a content association can
+conservatively advance once on its first clean local completion.
+
+Startup reconciliation removes abandoned generated incoming directories only
+when no prepared intent references them. It preserves prepared stages, backups,
+links and unrelated journal entries. A required directory-sync failure during
+promotion returns a save failure and keeps the exact intent and recoverable
+copies. Restore healthy storage before retrying; recovery must successfully sync
+the moved directories before it can issue the durable receipt.
+
 Run `systemd-analyze verify /etc/systemd/system/foxprofile-worker.service`, then enable the service:
 
 ```bash
@@ -118,9 +160,33 @@ sudo systemctl status foxprofile-worker.service
 
 The Worker opens outbound WSS to `/api/v1/workers/connect`, sends 10-second heartbeats, and accepts commands only for the connection generation returned by Master. Snapshot GET and upload POST use run-scoped HTTPS capabilities. There is no Worker listener to expose at a firewall. Keep outbound HTTPS/WSS routing to the configured Master, and do not mount a shared live profile directory.
 
-The unit uses `KillMode=control-group`, a 90-second systemd watchdog, a 70-second stop budget and an independent lease watchdog. The independent watchdog is armed before any browser spawn; a verified Master heartbeat acknowledgment renews it. After loss, it sends TERM and then KILL to exact owned process groups, stores only verified stop proofs, and terminates the agent. The independent watchdog also catches systemd's stop signal and completes its bounded cleanup before the unit stop deadline; systemd then cleans any remaining child processes in the unit cgroup. A PID disappearing by itself is never recorded as browser-tree proof. Unknown process state remains blocked for Master recovery.
+Each Worker reports its own memory reserve in bytes. Missing, late or unreadable
+memory samples make that Worker unavailable for new placement until a valid
+sample arrives. Authenticated heartbeats still renew its control lease, and a
+missing inventory preserves known runs. Master subtracts each node's reported
+reserve and continues charging reservations not reflected in its sample. Linux
+memory admission requires readable cgroup membership, mount information and the
+full applicable memory hierarchy; an unknown limit is not treated as unlimited.
+
+`FOXPROFILE_WORKER_LOSS_TIMEOUT` must be greater than the 10-second heartbeat
+interval and at most 30 seconds. Invalid local or negotiated timing is rejected
+before a new connection generation can renew the watchdog.
+
+Configure the final Master origin directly: transfer and relay endpoints must
+use its hostname and TLS port, and Worker WebSocket redirects are rejected.
+An interrupted upload can retry its unconsumed capability; a completed, verified
+body consumes it. A failed save obtains a fresh capability through the ordinary Stop
+retry, while a committed exact retry returns the same durable receipt.
+
+The unit uses `KillMode=control-group`, a 90-second systemd watchdog, a 70-second stop budget and an independent lease watchdog. The independent watchdog is armed before any browser spawn; a verified Master heartbeat acknowledgment renews it. After loss, it sends TERM and then KILL to exact owned process groups, stores only verified stop proofs, and terminates the agent. `Restart=always` retries after this clean watchdog exit, with a two-second delay; an explicit `systemctl stop` keeps the unit stopped. The independent watchdog also catches systemd's stop signal and completes its bounded cleanup before the unit stop deadline; systemd then cleans any remaining child processes in the unit cgroup. A PID disappearing by itself is never recorded as browser-tree proof. Unknown process state remains blocked for Master recovery.
 
 Use Master administrator controls to drain a Worker before maintenance. A drained Worker accepts no new placements; cleanly stop active profiles through Master so their current browser data uploads first. After Master durably closes a run as committed or quarantined, it sends an exact-run cleanup acknowledgment over the same Worker boot's authenticated channel. The Worker then removes only that isolated run's profile bytes and transfer archive while retaining the recent stop proof/receipt window. If the Worker cannot reconnect on the same OS boot, keep its state directory for reconciliation. After updating a runtime or rotating credentials, verify the Worker returns with the expected manifest digest and fresh heartbeat before removing the old host. Do not clear Worker state or delete a Worker entry to resolve an uncertain run; use exact stop proof or verified host fencing.
+
+If temporary archive-space exhaustion prevents a clean stopped copy from being
+packed, keep that copy and retry Stop after restoring space. A later replacement
+connection cannot automatically adopt the old copy or authorize its upload;
+preserve it for exact-run operator recovery and do not merge it into a newer
+canonical revision.
 
 ## Manual browser access
 

@@ -4,6 +4,7 @@ import sqlite3
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from enum import Enum
+from fnmatch import fnmatchcase
 from time import time
 from uuid import uuid4
 
@@ -34,6 +35,7 @@ class ProcessLiveness(str, Enum):
 _ACTIVE_SQL = (
     "'reserved', 'transferring', 'starting', 'running', 'stopping', 'syncing', 'uncertain'"
 )
+_REMOTE_HOST_GLOB = "worker:?*:?*"
 _REMOTE_TRANSITIONS = {
     RunStatus.RESERVED: {RunStatus.TRANSFERRING, RunStatus.UNCERTAIN},
     RunStatus.TRANSFERRING: {RunStatus.STARTING, RunStatus.UNCERTAIN},
@@ -168,7 +170,7 @@ class CapacityLedger:
                 "ON p.run_id = later.run_id WHERE later.profile_id = browser_runs.profile_id "
                 "AND later.rowid > browser_runs.rowid "
                 f"AND (later.status IN ({_ACTIVE_SQL}) OR (later.status = 'closed' "
-                "AND COALESCE(p.storage_outcome, 'saved') != 'not_started')))))"
+                "AND p.storage_outcome IN ('saved', 'unsaved'))))))"
             )
             states = {}
             for row in rows:
@@ -198,14 +200,29 @@ class CapacityLedger:
                 "AND pid IS NULL AND NOT EXISTS (SELECT 1 FROM browser_run_placements "
                 "WHERE browser_run_placements.run_id = browser_runs.run_id "
                 "AND browser_run_placements.worker_id IS NOT NULL) "
-                "AND host_id NOT LIKE 'worker:%' "
+                f"AND host_id NOT GLOB '{_REMOTE_HOST_GLOB}' "
                 "AND EXISTS (SELECT 1 FROM capacity_recovery WHERE singleton = 1 AND blocked = 0)",
                 (process.pid, process.start_ticks, ref.run_id, ref.profile_id, host_id),
             )
             return cursor.rowcount == 1
 
-    def mark_running(self, ref: BrowserRunRefDTO) -> bool:
-        return self._transition_local(ref, "starting", "running")
+    def mark_running(self, ref: BrowserRunRefDTO, *, track_local_data: bool = False) -> bool:
+        with self.database.transaction() as connection:
+            cursor = connection.execute(
+                "UPDATE browser_runs SET status = 'running' WHERE run_id = ? AND profile_id = ? "
+                "AND status = 'starting' AND NOT EXISTS (SELECT 1 FROM browser_run_placements "
+                "WHERE browser_run_placements.run_id = browser_runs.run_id "
+                f"AND browser_run_placements.worker_id IS NOT NULL) AND host_id NOT GLOB '{_REMOTE_HOST_GLOB}'",
+                (ref.run_id, ref.profile_id),
+            )
+            if cursor.rowcount and track_local_data:
+                # A supervisor crash after readiness has no clean save proof.
+                connection.execute(
+                    "INSERT INTO browser_run_placements (run_id, storage_outcome) VALUES (?, 'unsaved') "
+                    "ON CONFLICT(run_id) DO UPDATE SET storage_outcome = 'unsaved'",
+                    (ref.run_id,),
+                )
+            return cursor.rowcount == 1
 
     def mark_stopping(self, ref: BrowserRunRefDTO) -> bool:
         with self.database.transaction() as connection:
@@ -213,7 +230,7 @@ class CapacityLedger:
                 "UPDATE browser_runs SET status = 'stopping' WHERE run_id = ? AND profile_id = ? "
                 "AND status IN ('starting', 'running') AND NOT EXISTS "
                 "(SELECT 1 FROM browser_run_placements WHERE browser_run_placements.run_id = browser_runs.run_id "
-                "AND browser_run_placements.worker_id IS NOT NULL) AND host_id NOT LIKE 'worker:%'",
+                f"AND browser_run_placements.worker_id IS NOT NULL) AND host_id NOT GLOB '{_REMOTE_HOST_GLOB}'",
                 (ref.run_id, ref.profile_id),
             )
             return cursor.rowcount == 1
@@ -225,7 +242,7 @@ class CapacityLedger:
                 "UPDATE browser_runs SET status = 'cancelled' WHERE run_id = ? AND profile_id = ? "
                 "AND status = 'reserved' AND pid IS NULL AND NOT EXISTS "
                 "(SELECT 1 FROM browser_run_placements WHERE browser_run_placements.run_id = browser_runs.run_id "
-                "AND browser_run_placements.worker_id IS NOT NULL) AND host_id NOT LIKE 'worker:%'",
+                f"AND browser_run_placements.worker_id IS NOT NULL) AND host_id NOT GLOB '{_REMOTE_HOST_GLOB}'",
                 (ref.run_id, ref.profile_id),
             )
             return cursor.rowcount == 1
@@ -256,7 +273,7 @@ class CapacityLedger:
                 "AND host_id = ? AND pid = ? AND start_ticks = ? "
                 "AND status IN ('starting', 'running', 'stopping') AND NOT EXISTS "
                 "(SELECT 1 FROM browser_run_placements WHERE browser_run_placements.run_id = browser_runs.run_id "
-                "AND browser_run_placements.worker_id IS NOT NULL) AND host_id NOT LIKE 'worker:%'",
+                f"AND browser_run_placements.worker_id IS NOT NULL) AND host_id NOT GLOB '{_REMOTE_HOST_GLOB}'",
                 (ref.run_id, ref.profile_id, current.host_id, process.pid, process.start_ticks),
             )
             return cursor.rowcount == 1
@@ -332,6 +349,7 @@ class CapacityLedger:
         sync_verified: bool = False,
         quarantined: bool = False,
         no_process_created: bool = False,
+        commit_receipt_id: str | None = None,
     ) -> bool:
         """Close an exact remote run only after stop and a safe storage outcome."""
         if not _valid_remote_identity(worker_id, worker_boot_id, connection_generation):
@@ -347,9 +365,35 @@ class CapacityLedger:
         ):
             return False
         with self.database.transaction() as connection:
+            allowed_states = "'syncing', 'uncertain'"
+            if commit_receipt_id is not None:
+                if not sync_verified or quarantined or no_process_created:
+                    return False
+                receipt = connection.execute(
+                    "SELECT 1 FROM profile_sync_commits c "
+                    "JOIN worker_stop_proofs s ON s.run_id = c.run_id "
+                    "JOIN browser_run_placements p ON p.run_id = c.run_id "
+                    "WHERE c.run_id = ? AND c.profile_id = ? AND c.receipt_id = ? "
+                    "AND c.status = 'committed' AND c.worker_id = ? "
+                    "AND c.worker_boot_id = ? AND c.connection_generation = ? "
+                    "AND c.base_revision = p.base_revision AND s.archive_digest = c.archive_digest",
+                    (
+                        ref.run_id,
+                        ref.profile_id,
+                        commit_receipt_id,
+                        worker_id,
+                        worker_boot_id,
+                        connection_generation,
+                    ),
+                ).fetchone()
+                if receipt is None:
+                    return False
+                # A committed, proof-bound journal is authoritative even if an
+                # earlier process quarantined the run before observing its save.
+                allowed_states += ", 'closed'"
             cursor = connection.execute(
                 "UPDATE browser_runs SET status = 'closed' WHERE run_id = ? AND profile_id = ? "
-                "AND status IN ('syncing', 'uncertain') AND EXISTS "
+                f"AND status IN ({allowed_states}) AND EXISTS "
                 "(SELECT 1 FROM browser_run_placements p WHERE p.run_id = browser_runs.run_id "
                 "AND p.worker_id = ? AND p.worker_boot_id = ? AND p.connection_generation = ?)",
                 (ref.run_id, ref.profile_id, worker_id, worker_boot_id, connection_generation),
@@ -444,17 +488,6 @@ class CapacityLedger:
             )
         return RecoveryReport(cancelled, confirmed, released, uncertain)
 
-    def _transition_local(self, ref: BrowserRunRefDTO, old: str, new: str) -> bool:
-        with self.database.transaction() as connection:
-            cursor = connection.execute(
-                "UPDATE browser_runs SET status = ? WHERE run_id = ? AND profile_id = ? "
-                "AND status = ? AND NOT EXISTS (SELECT 1 FROM browser_run_placements "
-                "WHERE browser_run_placements.run_id = browser_runs.run_id "
-                "AND browser_run_placements.worker_id IS NOT NULL) AND host_id NOT LIKE 'worker:%'",
-                (new, ref.run_id, ref.profile_id, old),
-            )
-            return cursor.rowcount == 1
-
     @staticmethod
     def _run_select() -> str:
         return (
@@ -487,7 +520,7 @@ class CapacityLedger:
 
 
 def _is_remote_host(host_id: str) -> bool:
-    return host_id.startswith("worker:")
+    return fnmatchcase(host_id, _REMOTE_HOST_GLOB)
 
 
 def _valid_remote_identity(worker_id: str, worker_boot_id: str, generation: int) -> bool:

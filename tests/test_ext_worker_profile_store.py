@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
 import shutil
 import stat
 import zipfile
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -23,6 +25,7 @@ from foxprofile_ext.storage.database import ExtensionDatabase
 from foxprofile_ext.workers.metrics import NodeMetrics
 from foxprofile_ext.workers.placement import PlacementScheduler
 from foxprofile_ext.workers.profile_store import (
+    ArchiveStagingError,
     ProfileStore,
     ProfileStoreError,
     pack_browser_data,
@@ -39,6 +42,42 @@ _FINGERPRINT = {
         "screen": {"width": 1366, "height": 768},
     },
 }
+
+
+def test_journal_is_outside_preexisting_profile_namespace(tmp_path):
+    database = ExtensionDatabase(tmp_path / "state.sqlite3")
+    data = tmp_path / "canonical"
+    profile = Profile(".foxprofile-sync", os_type="linux")
+    tenant = data / profile.name
+    tenant.mkdir(mode=0o700, parents=True)
+    (tenant / "cookies.sqlite").write_bytes(b"existing tenant data")
+    store = ProfileStore(database, data, tmp_path / "staging")
+    assert store._profile_dir(profile) == tenant
+    assert not store._journal_dir.is_relative_to(data)
+    assert store._journal_dir.stat().st_dev == data.stat().st_dev
+    assert (tenant / "cookies.sqlite").read_bytes() == b"existing tenant data"
+
+
+def test_referenced_legacy_journal_is_preserved_for_explicit_recovery(tmp_path):
+    cluster = _remote_fixture(tmp_path)
+    legacy = cluster.data_dir / ".foxprofile-sync"
+    legacy.mkdir(mode=0o700, exist_ok=True)
+    retained = legacy / "backup-legacy"
+    retained.mkdir(mode=0o700)
+    (retained / "cookies.sqlite").write_bytes(b"last canonical data")
+    with cluster.database.transaction() as db:
+        db.execute(
+            "INSERT INTO profile_sync_commits "
+            "(profile_id, run_id, base_revision, archive_digest, target_revision, receipt_id, "
+            "status, backup_name, created_at, updated_at) "
+            "VALUES (?, ?, 1, ?, 2, 'legacy-receipt', 'prepared', 'backup-legacy', 1, 1)",
+            (cluster.profile.profile_id, cluster.run.ref.run_id, "a" * 64),
+        )
+    with pytest.raises(ProfileStoreError, match="Legacy profile journal"):
+        ProfileStore(cluster.database, cluster.data_dir, cluster.staging)
+    assert (retained / "cookies.sqlite").read_bytes() == b"last canonical data"
+    with cluster.database.read() as db:
+        assert db.execute("SELECT status FROM profile_sync_commits").fetchone()[0] == "prepared"
 
 
 def _remote_fixture(tmp_path, *, engine="camoufox", clock=lambda: 1000.0):
@@ -203,6 +242,48 @@ def test_snapshot_is_data_only_durable_and_restores_cookies_storage_and_tabs(tmp
     )
 
 
+def test_chrome_snapshot_and_return_keep_numbered_leveldb_logs(tmp_path):
+    cluster = _remote_fixture(tmp_path, engine="chrome")
+    databases = [
+        Path("Default/Local Storage/leveldb"),
+        Path("Default/IndexedDB/https_example.test_0.indexeddb.leveldb"),
+        Path("Default/Session Storage"),
+        Path("Profile 2/Service Worker/Database"),
+    ]
+    for directory in databases:
+        source = cluster.profile_dir / directory
+        source.mkdir(parents=True)
+        (source / "CURRENT").write_bytes(b"MANIFEST-000002\n")
+        (source / "MANIFEST-000002").write_bytes(b"manifest")
+        (source / "000003.log").write_bytes(b"first write")
+        for name in ("LOG", "LOG.old", "LOCK", "debug.log"):
+            (source / name).write_bytes(b"diagnostic or lock")
+    (cluster.profile_dir / "000004.log").write_bytes(b"unrelated diagnostic")
+
+    snapshot = cluster.store.capture(cluster.profile, cluster.run)
+    worker_data = tmp_path / "worker"
+    unpack_browser_data(
+        snapshot.path, worker_data, snapshot.archive_digest, "chrome", snapshot.identity_digest
+    )
+    assert not (worker_data / "000004.log").exists()
+    for directory in databases:
+        files = worker_data / directory
+        assert (files / "000003.log").read_bytes() == b"first write"
+        assert {p.name for p in files.iterdir()} == {"CURRENT", "MANIFEST-000002", "000003.log"}
+        (files / "1000000.log").write_bytes(b"second write")
+
+    returned = tmp_path / "return.zip"
+    packed = pack_browser_data(worker_data, "chrome", returned)
+    assert packed.identity_digest == snapshot.identity_digest
+    run = _advance_to_syncing(cluster)
+    receipt = cluster.store.commit(
+        cluster.profile, run, returned, snapshot.base_revision, packed.archive_digest
+    )
+    assert receipt.revision == snapshot.base_revision + 1
+    for directory in databases:
+        assert (cluster.profile_dir / directory / "1000000.log").read_bytes() == b"second write"
+
+
 @pytest.mark.parametrize("engine", ["camoufox", "chrome"])
 def test_identity_initialization_preserves_existing_engine_identity(tmp_path, monkeypatch, engine):
     cluster = _remote_fixture(tmp_path, engine=engine)
@@ -249,6 +330,25 @@ def test_master_initializes_missing_identity_once_but_rejects_existing_bad_ident
     with pytest.raises(ProfileStoreError):
         cluster.store.initialize_identity(cluster.profile)
     assert len(generated) == 1
+
+
+@pytest.mark.parametrize("engine", ["camoufox", "chrome"])
+def test_master_reconciles_selected_os_before_worker_snapshot(tmp_path, monkeypatch, engine):
+    cluster = _remote_fixture(tmp_path, engine=engine)
+    profile = replace(cluster.profile, os_type="windows")
+    if engine == "camoufox":
+        monkeypatch.setattr(
+            "camoufox.fingerprints.generate_fingerprint",
+            lambda **_: {"navigator": {"platform": "Win32", "userAgent": "fixture-windows"}},
+        )
+    snapshot = cluster.store.capture(profile, cluster.ledger.get(cluster.run.ref))
+    first_identity = snapshot.identity_digest
+    unpacked = tmp_path / "worker-copy"
+    unpack_browser_data(snapshot.path, unpacked, snapshot.archive_digest, engine, first_identity)
+    filename = "fingerprint.json" if engine == "camoufox" else "chrome_persona.json"
+    value = json.loads((unpacked / filename).read_text())
+    assert value["os" if engine == "camoufox" else "platform"] == "windows"
+    assert cluster.store.initialize_identity(profile) == first_identity
 
 
 def test_scoped_grants_reject_wrong_owner_expiry_and_replay_but_allow_retries(tmp_path):
@@ -448,6 +548,43 @@ def test_commit_persists_browser_changes_once_and_ack_retry_survives_closed_run(
     )
 
 
+def test_committed_receipt_replay_validates_exact_run_and_file(tmp_path):
+    cluster = _remote_fixture(tmp_path)
+    snapshot = cluster.store.capture(cluster.profile, cluster.run)
+    run = _advance_to_syncing(cluster)
+    replay = cluster.store.replay_committed_receipt
+    args = (snapshot.path, snapshot.base_revision, snapshot.archive_digest)
+    assert replay(run, *args) is None
+    receipt = cluster.store.commit(cluster.profile, run, *args)
+    assert replay(run, *args) == receipt
+    for stale in (
+        replace(run, worker_id="worker-b"),
+        replace(run, worker_boot_id="boot-b"),
+        replace(run, connection_generation=run.connection_generation + 1),
+        replace(run, worker_id=None),
+    ):
+        with pytest.raises(ProfileStoreError) as error:
+            replay(stale, *args)
+        assert error.value.code.value == "STALE_RUN"
+
+    with pytest.raises(ProfileStoreError) as wrong_base:
+        replay(run, snapshot.path, snapshot.base_revision + 1, snapshot.archive_digest)
+    assert wrong_base.value.code.value == "TRANSFER_CONFLICT"
+    changed = tmp_path / "changed.zip"
+    changed.write_bytes(b"changed bytes")
+    with pytest.raises(ProfileStoreError) as changed_digest:
+        replay(run, changed, snapshot.base_revision, _sha(changed))
+    assert changed_digest.value.code.value == "TRANSFER_CONFLICT"
+    with pytest.raises(ProfileStoreError) as changed_bytes:
+        replay(run, changed, snapshot.base_revision, snapshot.archive_digest)
+    assert changed_bytes.value.code.value == "TRANSFER_INVALID"
+    assert replay(run, *args) == receipt
+    cluster.store.max_archive_bytes = snapshot.size_bytes - 1
+    with pytest.raises(ProfileStoreError) as oversized:
+        replay(run, *args)
+    assert oversized.value.code.value == "TRANSFER_INVALID"
+
+
 def test_cleanup_refuses_live_run_and_preserves_snapshot(tmp_path):
     cluster = _remote_fixture(tmp_path)
     run = cluster.ledger.get(cluster.run.ref)
@@ -624,8 +761,92 @@ def test_archive_digest_member_size_expanded_limit_and_disk_preflight(tmp_path, 
         "foxprofile_ext.workers.profile_store.shutil.disk_usage",
         lambda _path: SimpleNamespace(free=0),
     )
-    with pytest.raises(ProfileStoreError, match="disk space"):
+    with pytest.raises(ArchiveStagingError, match="disk space"):
         pack_browser_data(cluster.profile_dir, "camoufox", tmp_path / "no-space.zip")
+
+
+@pytest.mark.parametrize("disk_error", [errno.ENOSPC, errno.EDQUOT])
+def test_packing_disk_exhaustion_preserves_source_for_retry(tmp_path, monkeypatch, disk_error):
+    cluster = _remote_fixture(tmp_path)
+    target = tmp_path / "retry.zip"
+    original = zipfile.ZipFile
+
+    def exhausted(*args, **kwargs):
+        raise OSError(disk_error, "fixture archive storage unavailable")
+
+    monkeypatch.setattr(zipfile, "ZipFile", exhausted)
+    with pytest.raises(ArchiveStagingError):
+        pack_browser_data(cluster.profile_dir, "camoufox", target)
+    assert (cluster.profile_dir / "cookies.sqlite").read_bytes() == b"cookie-v1"
+    assert not target.exists() and not target.with_suffix(".zip.part").exists()
+    monkeypatch.setattr(zipfile, "ZipFile", original)
+    assert pack_browser_data(cluster.profile_dir, "camoufox", target).size_bytes > 0
+
+
+def test_upload_reservations_preserve_floor_across_streams_and_retries(tmp_path, monkeypatch):
+    import io
+
+    cluster = _remote_fixture(tmp_path)
+    store = cluster.store
+    store.staging_reserve_bytes = 100
+    free = [250]
+    monkeypatch.setattr(
+        "foxprofile_ext.workers.profile_store.shutil.disk_usage",
+        lambda _: SimpleNamespace(free=free[0]),
+    )
+    first, second = object(), object()
+    store.reserve_upload("run-a", 100, first)
+    with pytest.raises(ArchiveStagingError):
+        store.reserve_upload("run-b", 100, second)
+    with pytest.raises(ProfileStoreError) as duplicate:
+        store.reserve_upload("run-a", 1, second)
+    assert duplicate.value.code.value == "TRANSFER_CONFLICT"
+    store.release_upload("run-a", second)
+
+    class StagingFile(io.BytesIO):
+        def write(self, data):
+            result = super().write(data)
+            free[0] -= result
+            return result
+
+    stream = StagingFile()
+    store.write_upload("run-a", first, stream, b"a" * 40)
+    store.reserve_upload("run-b", 50, second)
+    with pytest.raises(ArchiveStagingError):
+        store.reserve_upload("run-c", 1, object())
+    store.release_upload("run-b", second)
+    free[0] = 150  # Another local producer consumed previously available disk.
+    with pytest.raises(ArchiveStagingError):
+        store.write_upload("run-a", first, stream, b"b")
+    assert stream.getvalue() == b"a" * 40
+    store.release_upload("run-a", first)
+    store.reserve_upload("run-a", 50, second)
+    store.release_upload("run-a", second)
+    free[0] = 0
+    store.reserve_upload("receipt-replay", 0, first)
+    store.release_upload("receipt-replay", first)
+
+
+def test_low_entropy_persistent_data_roundtrips_with_reader_ratio_limit(tmp_path):
+    cluster = _remote_fixture(tmp_path)
+    # Benign sparse site data, below default archive and expansion limits.
+    original = cluster.profile_dir / "site-storage.bin"
+    with original.open("wb") as stream:
+        stream.truncate(16 * 1024**2)
+    archive = tmp_path / "outbound.zip"
+    packed = pack_browser_data(cluster.profile_dir, "camoufox", archive)
+    worker = tmp_path / "worker-data"
+    unpack_browser_data(archive, worker, packed.archive_digest, "camoufox", packed.identity_digest)
+    assert (worker / original.name).stat().st_size == original.stat().st_size
+    returned = tmp_path / "returned.zip"
+    result = pack_browser_data(worker, "camoufox", returned)
+    assert result.archive_digest == packed.archive_digest
+    master = tmp_path / "restored"
+    unpack_browser_data(returned, master, result.archive_digest, "camoufox", result.identity_digest)
+    assert (
+        hashlib.sha256((master / original.name).read_bytes()).digest()
+        == hashlib.sha256(original.read_bytes()).digest()
+    )
 
 
 def test_clean_commit_failure_restores_last_known_good_data(tmp_path, monkeypatch):
@@ -684,9 +905,27 @@ def test_backup_cleanup_failure_does_not_roll_back_a_committed_revision(tmp_path
     assert receipt.revision == snapshot.base_revision + 1
     assert (cluster.profile_dir / "cookies.sqlite").read_bytes() == b"committed-cookie"
     assert cluster.store.revision(cluster.profile.profile_id)[0] == receipt.revision
+    assert cluster.store._existing_receipt(run.ref.profile_id, run.ref.run_id)["backup_name"]
+    monkeypatch.setattr("foxprofile_ext.workers.profile_store.shutil.rmtree", real_rmtree)
+    assert cluster.store.recover() == ()
+    assert (
+        cluster.store._existing_receipt(run.ref.profile_id, run.ref.run_id)["backup_name"] is None
+    )
 
 
-def test_recovery_finishes_prepared_commit_after_filesystem_promotion(tmp_path):
+@pytest.mark.parametrize(
+    "state",
+    [
+        "promoted",
+        "pending",
+        "invalid-stage",
+        "missing-stage",
+        "corrupt-both",
+        "symlink",
+        "missing-proof",
+    ],
+)
+def test_recovery_of_prepared_commit_during_filesystem_promotion(tmp_path, state):
     cluster = _remote_fixture(tmp_path)
     initial = cluster.ledger.get(cluster.run.ref)
     snapshot = cluster.store.capture(cluster.profile, initial)
@@ -703,6 +942,11 @@ def test_recovery_finishes_prepared_commit_after_filesystem_promotion(tmp_path):
     stage = cluster.store._journal_dir / stage_name
     unpack_browser_data(upload, stage, packed.archive_digest, "camoufox", snapshot.identity_digest)
     with cluster.database.transaction() as db:
+        if state != "missing-proof":
+            db.execute(
+                "INSERT INTO profile_archive_contents VALUES (?, ?)",
+                (packed.archive_digest, packed.content_digest),
+            )
         db.execute(
             "INSERT INTO profile_sync_commits "
             "(profile_id, run_id, worker_id, worker_boot_id, connection_generation, base_revision, "
@@ -726,7 +970,16 @@ def test_recovery_finishes_prepared_commit_after_filesystem_promotion(tmp_path):
         )
     backup = cluster.store._journal_dir / backup_name
     os.replace(cluster.profile_dir, backup)
-    os.replace(stage, cluster.profile_dir)
+    if state == "promoted":
+        os.replace(stage, cluster.profile_dir)
+    if state in {"invalid-stage", "corrupt-both"}:
+        (stage / "cookies.sqlite").write_bytes(b"damaged")
+    if state == "corrupt-both":
+        (backup / "cookies.sqlite").write_bytes(b"damaged backup")
+    if state == "missing-stage":
+        shutil.rmtree(stage)
+    if state == "symlink":
+        cluster.profile_dir.symlink_to(backup, target_is_directory=True)
 
     restarted = ProfileStore(
         cluster.database,
@@ -740,11 +993,38 @@ def test_recovery_finishes_prepared_commit_after_filesystem_promotion(tmp_path):
             cluster.profile if profile_id == cluster.profile.profile_id else None
         ),
     )
+    if state in {"corrupt-both", "symlink", "missing-proof"}:
+        with pytest.raises(ProfileStoreError):
+            restarted.recover()
+        if state == "symlink":
+            assert cluster.profile_dir.is_symlink()
+            assert (backup / "cookies.sqlite").read_bytes() == b"cookie-v1"
+        else:
+            assert not cluster.profile_dir.exists()
+        assert backup.is_dir()
+        assert (
+            restarted._existing_receipt(run.ref.profile_id, run.ref.run_id)["status"] == "prepared"
+        )
+        return
+
     receipts = restarted.recover()
-    assert len(receipts) == 1
-    assert receipts[0].revision == snapshot.base_revision + 1
-    assert receipts[0].receipt_id == receipt_id
-    assert (cluster.profile_dir / "cookies.sqlite").read_bytes() == b"recovered-cookie"
+    if state in {"invalid-stage", "missing-stage"}:
+        assert receipts == ()
+        assert restarted.revision(run.ref.profile_id)[0] == snapshot.base_revision
+        assert restarted._existing_receipt(run.ref.profile_id, run.ref.run_id)["status"] == "failed"
+        assert (cluster.profile_dir / "cookies.sqlite").read_bytes() == b"cookie-v1"
+    else:
+        assert len(receipts) == 1
+        assert receipts[0].revision == snapshot.base_revision + 1
+        assert receipts[0].receipt_id == receipt_id
+        assert (cluster.profile_dir / "cookies.sqlite").read_bytes() == b"recovered-cookie"
+        assert (
+            restarted.commit(
+                cluster.profile, run, upload, snapshot.base_revision, packed.archive_digest
+            )
+            == receipts[0]
+        )
+    assert restarted.recover() == ()
     assert not backup.exists()
 
 
@@ -804,7 +1084,7 @@ def test_confirmed_local_stops_bookkeep_browser_data_and_identity_revisions(tmp_
         run = ledger.reserve([profile.profile_id], "master-local").runs[0]
         process = ProcessIdentity(process_id, 1000 + process_id)
         assert ledger.claim(run.ref, "master-local", process)
-        assert ledger.mark_running(run.ref)
+        assert ledger.mark_running(run.ref, track_local_data=True)
         assert ledger.mark_stopping(run.ref)
         assert ledger.release_after_exit(
             run.ref,

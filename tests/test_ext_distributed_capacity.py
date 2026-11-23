@@ -171,7 +171,17 @@ def test_unsaved_outcome_survives_restart_and_pre_spawn_failure_until_success(
         process = ProcessIdentity(123, 456)
         assert ledger.claim(replacement, "master", process)
         assert ledger.lifecycle_snapshot()[lost.profile_id] == ("starting", "local")
+        from foxprofile_ext.workers.profile_store import ProfileStore
+        from src.models.profile import Profile
+
+        profile = Profile("saved", profile_id=lost.profile_id)
+        store = ProfileStore(database, tmp_path / "data", tmp_path / "stage")
+        directory = store.data_dir / profile.name
+        directory.mkdir()
+        (directory / "fingerprint.json").write_text('{"os":"linux","fingerprint":{"fixture":1}}')
+        assert ledger.mark_running(replacement, track_local_data=True)
         assert ledger.release_after_exit(replacement, process, lambda *_: ProcessLiveness.DEAD)
+        store.record_local_stop(profile, ledger.get(replacement))
     assert ledger.active_runs() == ()
     assert ledger.lifecycle_snapshot() == {}
 

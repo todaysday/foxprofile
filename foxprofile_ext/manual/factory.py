@@ -109,6 +109,7 @@ def build_manual_gateway(
     runtime = getattr(coordinator, "runtime", None)
     verified = getattr(runtime, "verified_descriptor", None)
     ledger = CapacityLedger(database)
+    prepare_local = None
 
     def current_runtime(profile_id: str) -> ManualRuntime | None:
         try:
@@ -131,6 +132,11 @@ def build_manual_gateway(
             if not callable(verified):
                 raise DomainError(ErrorCode.MANUAL_UNSUPPORTED_RUNTIME)
             descriptor = verified(run.ref)
+            if descriptor is not None and prepare_local is not None:
+                try:
+                    prepare_local()
+                except VNCBackendUnavailable:
+                    raise DomainError(ErrorCode.MANUAL_UNSUPPORTED_RUNTIME) from None
         return ManualRuntime(descriptor, profile.engine, True) if descriptor is not None else None
 
     def local_backend():
@@ -142,6 +148,7 @@ def build_manual_gateway(
         from ..workers.manual import DistributedManualBackend
 
         backend = DistributedManualBackend(coordinator, local_backend)
+        prepare_local = backend.prepare_local
     else:
         backend = local_backend()
     service = ManualSessionService(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -90,6 +91,9 @@ def supervise(config_stream: TextIO, output: TextIO) -> int:
     claimed = False
     runtime_published = False
     browser_effects_allowed = False
+    clean_session = False
+    track_local_data = False
+    browser_ready = False
     try:
         config = _read_config(config_stream)
         ref = BrowserRunRefDTO(str(config["profile_id"]), str(config["run_id"]))
@@ -102,6 +106,9 @@ def supervise(config_stream: TextIO, output: TextIO) -> int:
         worker_execution = config.get("worker_execution", False)
         if type(worker_execution) is not bool:
             raise ValueError("invalid runtime database role")
+        track_local_data = config.get("track_local_browser_data", False)
+        if type(track_local_data) is not bool or (worker_execution and track_local_data):
+            raise ValueError("invalid local browser storage role")
         if worker_execution:
             from ..workers.execution import WorkerExecutionDatabase
 
@@ -160,13 +167,21 @@ def supervise(config_stream: TextIO, output: TextIO) -> int:
             child.wait(timeout=5)
             return 4
 
-        def terminate_child(_signum: int, _frame: object) -> None:
-            if child is None or boundary is None:
+        close_seen = False
+        stop_requested = False
+        force_killed = False
+
+        def terminate_child(signum: int | None = None, _frame: object = None) -> None:
+            nonlocal stop_requested, force_killed
+            if child is None or boundary is None or child.poll() is not None:
                 return
             try:
-                _signal_group(boundary, signal.SIGTERM)
+                signalled = _signal_group(boundary, signal.SIGTERM)
+                if signum is not None and signalled:
+                    stop_requested = True
                 child.wait(timeout=5)
             except (ProcessLookupError, subprocess.TimeoutExpired):
+                force_killed = True
                 _signal_group(boundary, signal.SIGKILL)
                 child.wait(timeout=2)
 
@@ -183,7 +198,7 @@ def supervise(config_stream: TextIO, output: TextIO) -> int:
                     or not _NAMESPACE.fullmatch(candidate)
                     or not _verified_namespace(boundary, candidate)
                 ):
-                    terminate_child(signal.SIGTERM, None)
+                    terminate_child()
                     break
                 namespace = candidate
                 if not registry.publish_runtime_details(
@@ -194,7 +209,7 @@ def supervise(config_stream: TextIO, output: TextIO) -> int:
                     tmp_path=str(tmp_path),
                     xauthority_path=None,
                 ):
-                    terminate_child(signal.SIGTERM, None)
+                    terminate_child()
                     break
                 # Durable namespace ownership is established before the child
                 # can execute the runner and create Xvfb or a browser.
@@ -247,14 +262,19 @@ def supervise(config_stream: TextIO, output: TextIO) -> int:
                             output.flush()
                         except (BrokenPipeError, OSError):
                             output_open = False
-                    terminate_child(signal.SIGTERM, None)
+                    terminate_child()
                     break
                 continue
+            if line == "BROWSER_CLOSED":
+                close_seen = True
             if line == "BROWSER_STARTED":
                 if not runtime_published or registry.get(ref).descriptor.control_port is None:
-                    terminate_child(signal.SIGTERM, None)
+                    terminate_child()
                     break
-                ledger.mark_running(ref)
+                if helper_stdin is None:
+                    browser_ready = (
+                        ledger.mark_running(ref, track_local_data=track_local_data) or browser_ready
+                    )
             if line.startswith("CONTROL:"):
                 try:
                     if not runtime_published:
@@ -264,7 +284,7 @@ def supervise(config_stream: TextIO, output: TextIO) -> int:
                     if not registry.publish_control(ref, identity, port, token):
                         raise ValueError("control endpoint belongs to a stale run")
                 except (ValueError, TypeError):
-                    terminate_child(signal.SIGTERM, None)
+                    terminate_child()
                     break
             if output_open:
                 try:
@@ -274,6 +294,11 @@ def supervise(config_stream: TextIO, output: TextIO) -> int:
                     # Parent manager may restart. Keep draining and supervising;
                     # this run remains adoptable through the durable registry.
                     output_open = False
+        else:
+            # Only a fully consumed, validated runner protocol can attest completion.
+            clean_session = (
+                helper_stdin is None and (close_seen or stop_requested) and not force_killed
+            )
         return child.wait()
     except (KeyError, TypeError, ValueError, OSError, subprocess.SubprocessError):
         return 5
@@ -290,6 +315,7 @@ def supervise(config_stream: TextIO, output: TextIO) -> int:
                         child.wait(timeout=2)
                 # A normal child exit can still leave descendants in its group.
                 if _process_group_liveness(boundary) is ProcessLiveness.LIVE:
+                    clean_session = False
                     _signal_group(boundary, signal.SIGTERM)
                 state = (
                     _runtime_liveness(boundary, namespace)
@@ -306,7 +332,26 @@ def supervise(config_stream: TextIO, output: TextIO) -> int:
         if clean and claimed and ledger is not None:
             # The trusted supervisor has completed its final cleanup, will
             # create no further children, and verified the browser boundary.
+            clean_session = clean_session and child.returncode == 0
+            if clean_session and browser_ready and track_local_data:
+                from ..workers.profile_store import ProfileStoreError, record_local_session
+
+                # An invalid source retains its exact unsaved outcome. The run still owns the data.
+                with contextlib.suppress(ProfileStoreError):
+                    record_local_session(
+                        database,
+                        ref,
+                        profile_path,
+                        str(config.get("engine", "camoufox")),
+                        supervisor=identity,
+                    )
             ledger.release_after_exit(ref, identity, lambda _host, _pid: ProcessLiveness.DEAD)
+            if clean_session and worker_execution and output_open:
+                try:
+                    output.write("RUNTIME:CLEAN_EXIT\n")
+                    output.flush()
+                except (BrokenPipeError, OSError):
+                    pass
             # Remove only this trusted generation's private directory, after
             # proving its browser boundary empty. Never glob namespace PIDs.
             if (

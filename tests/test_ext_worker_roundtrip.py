@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import shutil
 import socket
 import ssl
 import threading
@@ -102,7 +103,8 @@ class _BrowserFixtureRuntime:
     def profile_directory(self, run_id):
         return self.data_dir / run_id
 
-    async def start(self, _profile, ref, *, on_ready, on_stop, timeout):
+    async def start(self, _profile, ref, *, on_ready, on_exit, check_capacity, timeout):
+        check_capacity()
         path = self.profile_directory(ref.run_id)
         self.started_path = path
         self.initial_identity = (path / "fingerprint.json").read_bytes()
@@ -137,6 +139,9 @@ class _BrowserFixtureRuntime:
                 (ref.profile_id, ref.run_id),
             )
         return True
+
+    def clean_exit(self, ref, _timeout):
+        return ref.run_id in self.dead_runs
 
     def tree_is_dead(self, ref):
         return ref.run_id in self.dead_runs
@@ -344,7 +349,10 @@ def test_worker_agent_roundtrip_over_trusted_tls(tmp_path, monkeypatch):
     assert watchdog.closed.is_set()
 
 
-def test_worker_agent_distributed_start_sync_and_close_over_tls(tmp_path, monkeypatch):
+@pytest.mark.parametrize("staging_full", [False, True])
+def test_worker_agent_distributed_start_sync_and_close_over_tls(
+    tmp_path, monkeypatch, staging_full
+):
     import foxprofile_ext.workers.channel as channel_module
 
     monkeypatch.setattr(channel_module, "HEARTBEAT_INTERVAL_SECONDS", 1)
@@ -470,7 +478,27 @@ def test_worker_agent_distributed_start_sync_and_close_over_tls(tmp_path, monkey
             "cookies": "worker-cookie-session",
         }
 
-        assert coordinator.stop(_ACTOR, ProfileRefDTO(profile.profile_id, profile.name), timeout=5)
+        profile_ref = ProfileRefDTO(profile.profile_id, profile.name)
+        if staging_full:
+            disk_usage = shutil.disk_usage
+            with monkeypatch.context() as patch:
+                patch.setattr(
+                    shutil,
+                    "disk_usage",
+                    lambda path: (
+                        SimpleNamespace(free=0)
+                        if Path(path) == worker_state / "sync"
+                        else disk_usage(path)
+                    ),
+                )
+                with pytest.raises(DomainError) as first_stop:
+                    coordinator.stop(_ACTOR, profile_ref, timeout=5)
+                assert first_stop.value.code is ErrorCode.SYNC_FAILED
+            assert worker_database.stopped_proofs() == ()
+            assert ledger.active_runs()[0].ref == run.ref
+            assert store.revision(profile.profile_id)[0] == 1
+            assert runtime.started_path.is_dir()
+        assert coordinator.stop(_ACTOR, profile_ref, timeout=5)
         assert ledger.get(run.ref).status is RunStatus.CLOSED
         assert ledger.active_runs() == ()
         assert (profile_dir / "cookies.sqlite").read_bytes() == b"worker-cookie-session"

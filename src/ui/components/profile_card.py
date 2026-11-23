@@ -104,17 +104,12 @@ def build_profile_card(
     stop_available = is_running and runtime_state in _STOP_AVAILABLE_STATES
     launch_loading = is_loading and not stop_available
     location_key = _LOCATION_STRINGS.get(getattr(profile, "execution_location", None))
+    location = get_string(location_key) if location_key else ""
     stamp_state = "starting" if runtime_state == "reserved" else runtime_state
-    status = _stamp(
-        launch_loading or runtime_state in _BUSY_STATES,
-        is_running if runtime_state is None else runtime_state == "running",
-        since,
-        failed,
-        stamp_state,
-    )
-    status_lines = [status]
-    if location_key:
-        status_lines.append(_minor(get_string(location_key)))
+    stamp_loading = launch_loading or busy
+    stamp_running = is_running if runtime_state is None else runtime_state == "running"
+    launch_time = since if stamp_running and not stamp_loading else ""
+    status_details = " · ".join(filter(None, (launch_time, location)))
 
     return ft.Container(
         height=ROW_HEIGHT,
@@ -148,10 +143,18 @@ def build_profile_card(
                 _cell("device", _device(profile, device)),
                 _cell("proxy", _proxy(profile)),
                 _cell("geo", _geo(profile)),
-                # A Row lets the stamp keep its own width instead of filling the cell.
                 _cell(
                     "status",
-                    _stack(*status_lines),
+                    _stack(
+                        ft.Container(
+                            height=28,
+                            alignment=ft.Alignment.CENTER_LEFT,
+                            content=_stamp(stamp_loading, stamp_running, failed, stamp_state),
+                        ),
+                        _minor(
+                            status_details or get_string("stamp_no_details"), data=bool(launch_time)
+                        ),
+                    ),
                 ),
                 _cell(
                     "actions",
@@ -272,7 +275,6 @@ def _geo(profile: Profile) -> ft.Column:
 def _stamp(
     is_loading: bool,
     is_running: bool,
-    since: str,
     failed: bool = False,
     runtime_state: str | None = None,
 ) -> ft.Control:
@@ -282,11 +284,9 @@ def _stamp(
     thin rule set straight, failure a struck single rule in red.
     """
     if (failed or runtime_state == "unsaved") and not is_loading and not is_running:
-        # Same footprint as the live stamp so the state that needs action is not
-        # the smallest one on screen; a thin strike keeps the letters legible.
-        failure_label = get_string(
-            "personal_state_unsaved" if runtime_state == "unsaved" else "stamp_failed"
-        )
+        unsaved = runtime_state == "unsaved"
+        failure_label = get_string("personal_state_unsaved" if unsaved else "stamp_failed")
+        stamp_label = get_string("personal_state_unsaved_short") if unsaved else failure_label
         return ft.Container(
             rotate=ft.Rotate(-0.07),
             width=86,
@@ -295,8 +295,10 @@ def _stamp(
             border=ft.Border.all(1.5, COLORS["error"]),
             tooltip=failure_label,
             content=ft.Text(
-                failure_label.upper(),
+                stamp_label.upper(),
                 size=10.5,
+                no_wrap=True,
+                semantics_label=failure_label if unsaved else None,
                 text_align=ft.TextAlign.CENTER,
                 font_family=FONT_DATA,
                 weight=ft.FontWeight.W_700,
@@ -307,15 +309,22 @@ def _stamp(
             ),
         )
     if is_loading:
+        state_key = (
+            f"personal_state_{runtime_state}" if runtime_state in _BUSY_STATES else "stamp_starting"
+        )
+        state_label = get_string(state_key)
+        compact = runtime_state in {"recovering", "uncertain"}
+        stamp_label = get_string(f"{state_key}_short") if compact else state_label
         return ft.Container(
             padding=ft.Padding.symmetric(horizontal=9, vertical=3),
             border_radius=6,
             border=ft.Border.all(1, COLORS["text_sub"]),
+            tooltip=state_label if compact else None,
             content=ft.Text(
-                get_string(f"personal_state_{runtime_state}").upper()
-                if runtime_state in _BUSY_STATES
-                else get_string("stamp_starting").upper(),
+                stamp_label.upper(),
                 size=10.5,
+                no_wrap=True,
+                semantics_label=state_label if compact else None,
                 font_family=FONT_DATA,
                 weight=ft.FontWeight.W_700,
                 color=COLORS["text_sub"],
@@ -324,17 +333,6 @@ def _stamp(
     if not is_running:
         return ft.Text(get_string("stamp_idle"), size=13, color=COLORS["text_dim"])
     ink = COLORS["live"]
-    lines: list[ft.Control] = [
-        ft.Text(
-            get_string("stamp_live").upper(),
-            size=10.5,
-            font_family=FONT_DATA,
-            weight=ft.FontWeight.W_700,
-            color=ink,
-        )
-    ]
-    if since:
-        lines.append(ft.Text(since, size=10, font_family=FONT_DATA, color=ink))
     # Double rule: an outer ring around the inked frame.
     return ft.Container(
         rotate=ft.Rotate(-0.07),
@@ -346,11 +344,13 @@ def _stamp(
             border_radius=6,
             border=ft.Border.all(1.5, ink),
             bgcolor=ft.Colors.with_opacity(0.35, "#FFFFFF"),
-            content=ft.Column(
-                spacing=0,
-                tight=True,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=lines,
+            content=ft.Text(
+                get_string("stamp_live").upper(),
+                size=10.5,
+                font_family=FONT_DATA,
+                weight=ft.FontWeight.W_700,
+                color=ink,
+                no_wrap=True,
             ),
         ),
     )
@@ -384,7 +384,6 @@ def _action_buttons(
             icon_size=19,
             icon_color=COLORS["text_sub"],
             tooltip=get_string("tooltip_edit"),
-            disabled=is_busy,
             style=ICON_STYLE,
             on_click=lambda _, n=name: on_edit(n),
         ),

@@ -9,6 +9,7 @@ import stat
 import tempfile
 import uuid
 from collections.abc import Callable, Iterator, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -446,8 +447,13 @@ class ProtectedApplication:
             timezone = values["timezone"]
             locale = values["locale"]
             self._validate_profile_fields(name, proxy, os_type, timezone, locale, profile.engine)
-            if name != profile.name or os_type != profile.os_type:
+            if name != profile.name:
                 self._require_stopped(profile.profile_id)
+            if os_type != profile.os_type and any(
+                run.ref.profile_id == profile.profile_id and run.worker_id is not None
+                for run in self._capacity.active_runs()
+            ):
+                raise DomainError(ErrorCode.PROFILE_BUSY)
             actor_user_id = actor.subject_id if actor.kind is PrincipalKind.PERSONAL else None
             return self._catalog.rename(
                 actor_user_id,
@@ -706,19 +712,22 @@ class ProtectedApplication:
         stop = getattr(self._run_coordinator, "stop", None)
         if not callable(stop):
             raise DomainError(ErrorCode.RUNTIME_RECOVERING)
-        results = []
-        for ref in refs:
+
+        def stop_profile(ref: ProfileRefDTO) -> StopProfileDTO:
             try:
                 stopped = stop(actor, ref, timeout=timeout)
                 if type(stopped) is not bool:
                     raise DomainError(ErrorCode.RUNTIME_RECOVERING)
             except DomainError as error:
-                results.append(StopProfileDTO(ref.profile_id, ref.name, False, error.code.value))
+                return StopProfileDTO(ref.profile_id, ref.name, False, error.code.value)
             except (OSError, RuntimeError):
-                results.append(StopProfileDTO(ref.profile_id, ref.name, False, "RUN_STOP_FAILED"))
-            else:
-                results.append(StopProfileDTO(ref.profile_id, ref.name, stopped))
-        return tuple(results)
+                return StopProfileDTO(ref.profile_id, ref.name, False, "RUN_STOP_FAILED")
+            return StopProfileDTO(ref.profile_id, ref.name, stopped)
+
+        with ThreadPoolExecutor(
+            max_workers=min(4, len(refs)), thread_name_prefix="profile-stop"
+        ) as pool:
+            return tuple(pool.map(stop_profile, refs))
 
     def control_run(
         self,

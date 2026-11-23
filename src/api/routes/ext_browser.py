@@ -75,7 +75,6 @@ def stop_batch(
                 f"id:{profile_id}" if profile_id.strip() else profile_id
                 for profile_id in body.profile_ids
             ],
-            timeout=LAUNCH_WAIT_TIMEOUT,
         )
     except DomainError as error:
         raise domain_http_error(error) from error

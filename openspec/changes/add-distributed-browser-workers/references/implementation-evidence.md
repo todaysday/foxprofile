@@ -1,5 +1,7 @@
 # Distributed browser workers — implementation evidence
 
+This record describes the initial implementation checkpoint. The subsequent source review, fixes, integrated verification and matching distribution evidence are recorded in [code-review-cc.md](code-review-cc.md). Earlier counts and artifact references below remain historical evidence for their stated revisions.
+
 Date: 2026-11-23. Branch: `codex/openspec-multi-user-manual-browser-workflow`.
 Implementation starts from `cea6a094659edc7e30b1707dd770a2e47c2463cf`.
 Runtime-source checkpoint: `1b58eb746e20bae2d11f777891fba28fe05c9a76`. Later evidence metadata does not change executable source.

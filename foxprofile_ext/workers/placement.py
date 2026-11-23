@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from math import isfinite
 from time import time
 from uuid import uuid4
@@ -10,8 +11,9 @@ from uuid import uuid4
 from src.models.profile import Profile
 
 from ..dto import BrowserRunRefDTO, CapacitySettings
-from ..errors import DomainError, ErrorCode, ProfileCapacityExceeded
-from ..storage.capacity import AdmissionResult, CapacityLedger, RunStatus
+from ..errors import DomainError, ErrorCode
+from ..policy import require_capacity
+from ..storage.capacity import AdmissionResult, CapacityLedger, RunStatus, _is_remote_host
 from ..storage.database import ExtensionDatabase
 from .metrics import NodeMetrics
 from .registry import WorkerRecord, WorkerRegistry
@@ -60,7 +62,7 @@ class PlacementScheduler:
         profile_batch = _profiles(profiles)
         if not isinstance(local_host_id, str) or not local_host_id.strip():
             raise ValueError("local_host_id must be a non-empty string")
-        if local_host_id.startswith("worker:"):
+        if _is_remote_host(local_host_id):
             raise ValueError("local_host_id cannot use a Worker identity")
         if type(allow_remote) is not bool:
             raise ValueError("allow_remote must be bool")
@@ -76,12 +78,7 @@ class PlacementScheduler:
             local = self.local_metrics()
             if not isinstance(local, NodeMetrics):
                 raise ValueError("local_metrics must return NodeMetrics")
-            local = NodeMetrics(
-                local.mem_available_bytes,
-                local.cgroup_headroom_bytes,
-                local.staging_free_bytes,
-                local.ready_engines,
-            )
+            local = replace(local, memory_reserve_bytes=self.system_reserve_bytes)
         except (OSError, ValueError):
             local = None
         now = self._now()
@@ -115,16 +112,17 @@ class PlacementScheduler:
                 "SELECT setting_value FROM settings WHERE setting_key = 'max_concurrent_profiles'"
             ).fetchone()
             capacity = CapacitySettings(int(setting[0]) if setting is not None else 10)
-            if occupied + len(new_profiles) > capacity.max_concurrent_profiles:
-                raise ProfileCapacityExceeded(capacity.max_concurrent_profiles)
+            require_capacity(capacity, occupied, len(new_profiles))
 
             local_can_stage = self._has_staging_space(local)
             workers = self.registry._records_in_transaction(connection, now)
-            active_inventory = self.registry._active_run_inventory_in_transaction(connection, now)
-            local_reserved, remote_reserved = self._reserved_memory(
-                connection, local_host_id, active_inventory, local_running_before_sample
+            accounted_inventory = self.registry._memory_accounted_inventory_in_transaction(
+                connection, now
             )
-            local_remaining = self._memory_headroom(local) - local_reserved
+            local_reserved, remote_reserved = self._reserved_memory(
+                connection, local_host_id, accounted_inventory, local_running_before_sample
+            )
+            local_remaining = (local.usable_memory_bytes if local else 0) - local_reserved
             worker_headroom = {
                 worker.worker_id: self._worker_headroom(worker, remote_reserved)
                 for worker in workers
@@ -227,10 +225,10 @@ class PlacementScheduler:
     def _worker_headroom(self, worker: WorkerRecord, reserved: dict[str, int]) -> int:
         if worker.metrics is None or worker.boot_id is None:
             return 0
-        return self._memory_headroom(worker.metrics) - reserved.get(worker.worker_id, 0)
+        return worker.metrics.usable_memory_bytes - reserved.get(worker.worker_id, 0)
 
     def _reserved_memory(
-        self, connection, local_host_id, active_inventory, local_running_before_sample
+        self, connection, local_host_id, accounted_inventory, local_running_before_sample
     ):
         local_reserved = 0
         remote_reserved: dict[str, int] = {}
@@ -258,20 +256,12 @@ class PlacementScheduler:
             )
             reflected = row["status"] == RunStatus.RUNNING.value and row[
                 "run_id"
-            ] in active_inventory.get(generation, frozenset())
+            ] in accounted_inventory.get(generation, frozenset())
             if not reflected:
                 remote_reserved[row["worker_id"]] = (
                     remote_reserved.get(row["worker_id"], 0) + row["memory_bytes"]
                 )
         return local_reserved, remote_reserved
-
-    def _memory_headroom(self, metrics: NodeMetrics | None) -> int:
-        if metrics is None:
-            return 0
-        available = metrics.mem_available_bytes
-        if metrics.cgroup_headroom_bytes is not None:
-            available = min(available, metrics.cgroup_headroom_bytes)
-        return max(0, available - self.system_reserve_bytes)
 
     def _has_staging_space(self, metrics: NodeMetrics | None) -> bool:
         return (

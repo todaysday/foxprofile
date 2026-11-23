@@ -72,7 +72,7 @@
 
 ## add-distributed-browser-workers (implementation added 2026-11-23)
 
-Implementation evidence: `openspec/changes/add-distributed-browser-workers/references/implementation-evidence.md`. The code and offline checks do not close deployed-host acceptance; keep this change unarchived.
+Implementation evidence: `openspec/changes/add-distributed-browser-workers/references/implementation-evidence.md`. Runtime-source checkpoint: `1b58eb746e20bae2d11f777891fba28fe05c9a76`. The code and offline checks do not close deployed-host acceptance; keep this change unarchived.
 
 - [x] Implement Worker-only execution storage/service, enrollment/rotation/revocation, manifest/native-evidence validation, fresh telemetry, outbound WSS/HTTPS and an independent process-death watchdog. Native runtime evidence is required at activation and is not generated as a synthetic PASS.
 - [x] Extend Master SQLite admission with exact Worker placement, per-host RAM reservations and all transfer/recovery phases while preserving global active-profile exclusivity, authorization and the single manual lease.

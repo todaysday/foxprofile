@@ -2,6 +2,12 @@
 
 Date: 2026-11-23. Branch: `codex/openspec-multi-user-manual-browser-workflow`.
 Implementation starts from `cea6a094659edc7e30b1707dd770a2e47c2463cf`.
+Runtime-source checkpoint: `1b58eb746e20bae2d11f777891fba28fe05c9a76`. Later evidence metadata does not change executable source.
+
+GitHub API publication assigned the checkpoint above while preserving the complete
+tested implementation tree, `dcf8f8ff7694eae2bfbec41a8676a08c567a9edd`.
+Only commit identity and the later metadata references changed; the executable
+source and tests remain byte-for-byte identical to the verified local checkpoint.
 
 This record describes implementation and offline verification. It does not close
 two-host deployment acceptance or the previous manual-browser change's slice 09.
@@ -112,7 +118,12 @@ The full-run log has SHA-256
 `94e99b66913578d7132307cd1564a101c248a34635c9d4cfe42d310fce8ce390`.
 Scoped pass counts in individual review receipts overlap this run and must not
 be summed. The package build/install checks are included in the full suite;
-a final metadata/distribution check is recorded with the locked source checkpoint.
+the final locked-checkpoint metadata/distribution selection
+`python -m pytest -q tests/test_ext_compatibility_gate.py tests/test_ext_compatibility.py tests/test_ext_packaging.py`
+passed **39 tests**, three warnings, in 37.01 seconds. It rebuilt and
+installed the current package in isolation, including the final translated
+Worker error labels. Its log SHA-256 is
+`80bb985d168a172b72cc4a45aaf25cfca6ae9a02814ae5db8773050d857d749f`.
 
 The 60 skips consist of 39 Chromium DOM checks, one real module check, 17
 native-X harness cases, two opt-in bubblewrap integration cases and one
@@ -152,3 +163,14 @@ network loss, service death, reboot, restore and verified fencing. Back up the
 Master SQLite database, profile catalog and canonical profile directories as one
 quiescent installation. Confirm Worker staging limits, secret ownership,
 rotation, drain and removal. These items are retained in `openspec/TODO.md`.
+
+## Publication verification
+
+After normalization to the public runtime-source SHA, the same compatibility and
+distribution selection passed again: **39 passed**, three warnings, 40.67 seconds.
+The publication-gate log SHA-256 is
+`1c328f27290db9adcd75abf1c49fc69953da89e336b702c02af73a984fc04cb0`.
+The source gate again passed 84 routes / 93 hooks / 42 launch callsites.
+An independent byte comparison confirmed unchanged executable and test files;
+only the four checkpoint/evidence files differ from the verified local result.
+This publication does not close native or two-host acceptance.

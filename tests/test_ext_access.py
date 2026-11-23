@@ -127,6 +127,56 @@ def _profiles(access):
     return {profile.name: profile for profile in catalog.list_profiles()}
 
 
+@pytest.mark.parametrize("remote_state", ["transferring", "syncing", "uncertain", "unsaved"])
+def test_remote_profile_state_stays_within_current_users_grants(access, remote_state):
+    from foxprofile_ext.storage.capacity import RunStatus
+    from foxprofile_ext.workers.metrics import NodeMetrics
+    from foxprofile_ext.workers.placement import PlacementScheduler
+    from foxprofile_ext.workers.registry import WorkerRegistry
+
+    ledger = access["ledger"]
+    registry = WorkerRegistry(ledger.database, "a" * 64)
+    credential = registry.enroll("private-worker-fixture")
+    worker = registry.register("private-worker-fixture", credential, "private-boot", "a" * 64, True)
+    registry.heartbeat(
+        worker.worker_id,
+        worker.boot_id,
+        worker.connection_generation,
+        NodeMetrics(8 << 30, None, 8 << 30, ("camoufox",)),
+    )
+    scheduler = PlacementScheduler(
+        ledger,
+        registry,
+        local_metrics=lambda: NodeMetrics(0, None, 8 << 30, ("camoufox",)),
+        browser_memory_bytes=1 << 30,
+        system_reserve_bytes=1 << 29,
+    )
+    profile = _profiles(access)["Profile A"]
+    run = scheduler.reserve((profile,), "master").runs[0]
+    owner = (run.ref, run.worker_id, run.worker_boot_id, run.connection_generation)
+    states = [RunStatus.RESERVED, RunStatus.TRANSFERRING]
+    if remote_state in {"syncing", "unsaved"}:
+        states.extend(
+            [RunStatus.STARTING, RunStatus.RUNNING, RunStatus.STOPPING, RunStatus.SYNCING]
+        )
+    for before, after in zip(states[:-1], states[1:], strict=True):
+        assert ledger.transition_remote(*owner, before, after)
+    if remote_state in {"uncertain", "unsaved"}:
+        assert ledger.mark_remote_uncertain(*owner)
+    if remote_state == "unsaved":
+        assert ledger.complete_remote(*owner, process_stopped=True, quarantined=True)
+    visible = access["app"].list_profiles(access["user_a"])
+    assert len(visible) == 1
+    assert visible[0].state == remote_state and visible[0].execution_location == "remote"
+    assert visible[0].is_running is (remote_state != "unsaved")
+    assert profile.profile_id not in {
+        row.profile_id for row in access["app"].list_profiles(access["user_b"])
+    }
+    serialized = json.dumps(asdict(visible[0]))
+    assert worker.worker_id not in serialized and worker.boot_id not in serialized
+    assert credential not in serialized and "connection_generation" not in serialized
+
+
 def test_missing_actor_denied_at_direct_facade_boundary(access):
     app = access["app"]
     reached = []
@@ -226,6 +276,7 @@ def test_visible_profile_serialization_has_only_redacted_fields(access):
             "locale": None,
             "state": "idle",
             "is_running": False,
+            "execution_location": None,
             "fingerprint": {
                 "exists": False,
                 "os": None,

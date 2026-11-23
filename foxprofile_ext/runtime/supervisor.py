@@ -99,7 +99,15 @@ def supervise(config_stream: TextIO, output: TextIO) -> int:
         identity = process_identity(os.getpid())
         if identity is None:
             return 2
-        database = ExtensionDatabase(str(config["database_path"]))
+        worker_execution = config.get("worker_execution", False)
+        if type(worker_execution) is not bool:
+            raise ValueError("invalid runtime database role")
+        if worker_execution:
+            from ..workers.execution import WorkerExecutionDatabase
+
+            database = WorkerExecutionDatabase(str(config["database_path"]))
+        else:
+            database = ExtensionDatabase(str(config["database_path"]))
         ledger = CapacityLedger(database)
         registry = RuntimeRegistry(database, ledger)
         if not registry.register_supervisor(ref, host_id, identity):

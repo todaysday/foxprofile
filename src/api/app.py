@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import os
 import pathlib
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
@@ -81,12 +82,14 @@ def create_app(container: Container, self_url: str | None = None) -> FastAPI:
 
     if ext_enabled:
         from foxprofile_ext.manual.http import router as manual_router
+        from foxprofile_ext.workers.http import router as worker_router
 
         protected = [Depends(get_request_principal), Depends(require_cookie_csrf)]
         app.include_router(ext_auth_router, prefix=API_PREFIX)
         app.include_router(ext_browser_router, prefix=API_PREFIX)
         app.include_router(ext_transfer_router, prefix=API_PREFIX)
         app.include_router(manual_router, prefix=API_PREFIX)
+        app.include_router(worker_router, prefix=API_PREFIX)
     else:
         protected = [Depends(require_token)]
     app.include_router(profiles_router, prefix=API_PREFIX, dependencies=protected)
@@ -110,6 +113,8 @@ def create_app(container: Container, self_url: str | None = None) -> FastAPI:
             "auth_mode": "personal" if ext_enabled else "legacy",
             "headless": HEADLESS,
             "mcp_path": mcp_http.MCP_PATH,
+            "workers_enabled": ext_enabled
+            and os.getenv("FOXPROFILE_WORKERS_ENABLED", "false").lower() in {"true", "1", "yes"},
         }
 
     @app.get("/", include_in_schema=False)

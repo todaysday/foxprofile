@@ -47,6 +47,7 @@ Link mời cà phê hỗ trợ maintainer upstream tại `chienbm98`. Link này 
 - [Timezone, locale và Kiểm tra IP](#timezone-locale-và-kiểm-tra-ip)
 - [Chế độ server và web panel](#chế-độ-server-và-web-panel)
 - [Chế độ multi-user được bảo vệ](#chế-độ-multi-user-được-bảo-vệ)
+- [Worker phân tán](#worker-phân-tán)
 - [MCP: cho AI điều khiển trình duyệt](#mcp-cho-ai-điều-khiển-trình-duyệt)
 - [Engine Chrome](#engine-chrome)
 - [Cookie và fingerprint](#cookie-và-fingerprint)
@@ -203,6 +204,16 @@ Thiết lập protected mode theo thứ tự sau:
 4. Khởi động service một manager đã resolve từ `deploy/extension/foxprofile-extension.service.example`; service chạy `python -m src.server`. Mỗi installation chỉ dùng một lifecycle manager và một ASGI worker. Mở web panel qua HTTPS đã cấu hình, đăng nhập bằng admin, tạo tài khoản, gán profile và đặt capacity.
 
 Live acceptance hiện mới hoàn tất một phần: một số kiểm tra authentication và noVNC đã PASS trên Linux x86-64 và ARM64; kiểm tra isolation đầy đủ và failure handling vẫn đang mở. Xem [implementation handoff](openspec/changes/add-multi-user-manual-browser-workflow/references/implementation-handoff.md) và [danh sách việc còn mở](openspec/TODO.md) để biết chứng cứ mới nhất.
+
+## Worker phân tán
+
+Chế độ được bảo vệ có thể chạy browser trên Worker Ubuntu 24.04 đã đăng ký khi Master không còn đủ RAM an toàn. Master giữ tài khoản, quyền, metadata profile, dữ liệu browser chuẩn và giới hạn browser chung cho installation. Mỗi Worker kết nối outbound qua WSS/HTTPS có xác thực, chạy bản sao profile riêng được cách ly và không mở client API hay cổng VNC công khai. Hệ thống tự chọn host; REST, MCP và Viewer hiện có vẫn truy cập qua Master.
+
+Đặt `FOXPROFILE_WORKERS_ENABLED=true`, cấu hình HTTPS `FOXPROFILE_MASTER_URL` và khóa `FOXPROFILE_RUNTIME_MANIFEST_SHA256`. Master cũng xác minh runtime cục bộ qua `FOXPROFILE_RUNTIME_MANIFEST` và `FOXPROFILE_NATIVE_EVIDENCE`. [Mẫu cấu hình Master](deploy/extension/worker-master.env.example) liệt kê đường dẫn và ngân sách cần thiết. Ngân sách RAM cho browser, RAM dự phòng hệ thống và dung lượng staging tính bằng byte; cần đo trên host dự kiến trước rollout. [Hướng dẫn triển khai Worker](deploy/worker/README.md) mô tả đăng ký, runtime preflight, service systemd và vận hành. Admin có thể xem Worker và bật drain trong hộp thoại quản trị hiện có; hàng profile hiển thị nơi thực thi và trạng thái truyền dữ liệu/phục hồi.
+
+Khi dừng bình thường, Worker trả về toàn bộ dữ liệu browser để commit một revision chuẩn mới. Nếu lưu thất bại, reservation của profile vẫn được giữ; nhấn **Dừng** lần nữa để thử lưu lại. Run mất kết nối hoặc chưa xác minh vẫn bị khóa cho đến khi có bằng chứng tiến trình đã chết đúng run hoặc admin xác minh host đã được tắt/cách ly. Nếu session lỗi không thể lưu, hàng profile hiển thị **Session chưa được lưu**; lần mở tiếp theo dùng bản profile chuẩn đã lưu trước đó. Lease manual session duy nhất hiện có cũng áp dụng cho noVNC Camoufox từ xa; **Quay lại** đóng quyền manual nhưng giữ browser chạy. Di chuyển profile không giữ nguyên IP công khai của host nếu không dùng proxy.
+
+Trước production rollout vẫn phải hoàn tất live acceptance trên hai host, đo RAM browser và kiểm chứng runtime native tương đương. Kiểm thử offline không chứng minh các điều kiện đó. Xem [chứng cứ triển khai](openspec/changes/add-distributed-browser-workers/references/implementation-evidence.md) và [danh sách việc còn mở](openspec/TODO.md); live acceptance của thay đổi manual-browser trước đó vẫn mở riêng.
 
 ## MCP: cho AI điều khiển trình duyệt
 

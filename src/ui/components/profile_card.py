@@ -25,6 +25,17 @@ COLUMNS = {
     "actions": (None, 244),
 }
 ROW_HEIGHT = 58
+_BUSY_STATES = {
+    "reserved",
+    "transferring",
+    "starting",
+    "stopping",
+    "syncing",
+    "uncertain",
+    "recovering",
+}
+_STOP_AVAILABLE_STATES = _BUSY_STATES - {"stopping"}
+_LOCATION_STRINGS = {"local": "personal_location_local", "remote": "personal_location_remote"}
 
 
 def _cell(key: str, content: ft.Control | None) -> ft.Container:
@@ -89,6 +100,22 @@ def build_profile_card(
     else:
         bg = COLORS["card_bg"]
 
+    busy = runtime_state in _BUSY_STATES
+    stop_available = is_running and runtime_state in _STOP_AVAILABLE_STATES
+    launch_loading = is_loading and not stop_available
+    location_key = _LOCATION_STRINGS.get(getattr(profile, "execution_location", None))
+    stamp_state = "starting" if runtime_state == "reserved" else runtime_state
+    status = _stamp(
+        launch_loading or runtime_state in _BUSY_STATES,
+        is_running if runtime_state is None else runtime_state == "running",
+        since,
+        failed,
+        stamp_state,
+    )
+    status_lines = [status]
+    if location_key:
+        status_lines.append(_minor(get_string(location_key)))
+
     return ft.Container(
         height=ROW_HEIGHT,
         padding=ft.Padding.symmetric(horizontal=14),
@@ -124,19 +151,7 @@ def build_profile_card(
                 # A Row lets the stamp keep its own width instead of filling the cell.
                 _cell(
                     "status",
-                    ft.Row(
-                        controls=[
-                            _stamp(
-                                is_loading
-                                or runtime_state
-                                in {"reserved", "starting", "stopping", "recovering"},
-                                is_running if runtime_state is None else runtime_state == "running",
-                                since,
-                                failed,
-                                runtime_state,
-                            )
-                        ]
-                    ),
+                    _stack(*status_lines),
                 ),
                 _cell(
                     "actions",
@@ -145,10 +160,17 @@ def build_profile_card(
                         alignment=ft.MainAxisAlignment.END,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         controls=[
-                            build_launch_button(profile.name, is_loading, is_running, on_launch),
+                            build_launch_button(
+                                profile.name, launch_loading, is_running, on_launch
+                            ),
                             ft.Container(width=8),
                             *_action_buttons(
-                                profile.name, is_running, on_edit, on_delete, on_cookies
+                                profile.name,
+                                is_running,
+                                busy,
+                                on_edit,
+                                on_delete,
+                                on_cookies,
                             ),
                         ],
                     ),
@@ -259,18 +281,21 @@ def _stamp(
     State reads by form as well as ink: live is a double rule, starting a single
     thin rule set straight, failure a struck single rule in red.
     """
-    if failed and not is_loading and not is_running:
+    if (failed or runtime_state == "unsaved") and not is_loading and not is_running:
         # Same footprint as the live stamp so the state that needs action is not
         # the smallest one on screen; a thin strike keeps the letters legible.
+        failure_label = get_string(
+            "personal_state_unsaved" if runtime_state == "unsaved" else "stamp_failed"
+        )
         return ft.Container(
             rotate=ft.Rotate(-0.07),
             width=86,
             padding=ft.Padding.symmetric(horizontal=9, vertical=5),
             border_radius=6,
             border=ft.Border.all(1.5, COLORS["error"]),
-            tooltip=get_string("stamp_failed"),
+            tooltip=failure_label,
             content=ft.Text(
-                get_string("stamp_failed").upper(),
+                failure_label.upper(),
                 size=10.5,
                 text_align=ft.TextAlign.CENTER,
                 font_family=FONT_DATA,
@@ -288,7 +313,7 @@ def _stamp(
             border=ft.Border.all(1, COLORS["text_sub"]),
             content=ft.Text(
                 get_string(f"personal_state_{runtime_state}").upper()
-                if runtime_state in {"stopping", "recovering"}
+                if runtime_state in _BUSY_STATES
                 else get_string("stamp_starting").upper(),
                 size=10.5,
                 font_family=FONT_DATA,
@@ -334,6 +359,7 @@ def _stamp(
 def _action_buttons(
     name: str,
     is_running: bool,
+    is_busy: bool,
     on_edit: Callable[[str], None],
     on_delete: Callable[[str], None],
     on_cookies: Callable[[str], None] | None,
@@ -358,6 +384,7 @@ def _action_buttons(
             icon_size=19,
             icon_color=COLORS["text_sub"],
             tooltip=get_string("tooltip_edit"),
+            disabled=is_busy,
             style=ICON_STYLE,
             on_click=lambda _, n=name: on_edit(n),
         ),
@@ -366,7 +393,7 @@ def _action_buttons(
             icon_size=19,
             icon_color=COLORS["rule_strong"] if is_running else COLORS["text_sub"],
             tooltip=get_string("tooltip_delete"),
-            disabled=is_running,
+            disabled=is_running or is_busy,
             style=DANGER_ICON_STYLE,
             on_click=lambda _, n=name: on_delete(n),
         ),

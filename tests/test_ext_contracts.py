@@ -301,4 +301,12 @@ def test_machine_error_codes_match_the_api_contract():
         "STALE_BROWSER_RUN",
         "MANUAL_SESSION_CLOSED",
         "RUNTIME_RECOVERING",
+        "NO_WORKER_MEMORY",
+        "WORKER_UNAVAILABLE",
+        "RUNTIME_INCOMPATIBLE",
+        "TRANSFER_INVALID",
+        "TRANSFER_CONFLICT",
+        "RUN_UNCERTAIN",
+        "SYNC_FAILED",
+        "STALE_RUN",
     }

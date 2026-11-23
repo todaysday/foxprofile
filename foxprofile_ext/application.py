@@ -10,7 +10,7 @@ import tempfile
 import uuid
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import BinaryIO, TypeVar
 
@@ -55,6 +55,7 @@ class VisibleProfileDTO:
     state: str = "idle"
     is_running: bool = False
     fingerprint: dict[str, object] | None = None
+    execution_location: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -324,7 +325,7 @@ class ProtectedApplication:
     def list_profiles(self, principal: PrincipalDTO | None) -> tuple[VisibleProfileDTO, ...]:
         with catalog_lock(self._catalog.lock_path):
             actor = self.current_principal(principal)
-            states = self._capacity.lifecycle_states()
+            lifecycle = self._capacity.lifecycle_snapshot()
             assigned = (
                 frozenset(self._assignments.profiles_for_user(actor.subject_id))
                 if actor.kind is PrincipalKind.PERSONAL and actor.role is not Role.ADMIN
@@ -334,7 +335,7 @@ class ProtectedApplication:
             for profile in self._catalog.list_profiles():
                 if assigned is not None and profile.profile_id not in assigned:
                     continue
-                state = states.get(profile.profile_id, "idle")
+                state, location = lifecycle.get(profile.profile_id, ("idle", None))
                 saved = fingerprint.summary(self._catalog.manager._data_path(profile.name))
                 summary: dict[str, object] = {"exists": saved is not None}
                 for key in ("os", "platform", "screen", "hardware_concurrency"):
@@ -351,8 +352,9 @@ class ProtectedApplication:
                         timezone=profile.timezone,
                         locale=profile.locale,
                         state=state,
-                        is_running=state not in {"idle", "failed"},
+                        is_running=state not in {"idle", "failed", "unsaved"},
                         fingerprint=summary,
+                        execution_location=location,
                     )
                 )
             return tuple(visible)
@@ -444,7 +446,7 @@ class ProtectedApplication:
             timezone = values["timezone"]
             locale = values["locale"]
             self._validate_profile_fields(name, proxy, os_type, timezone, locale, profile.engine)
-            if name != profile.name:
+            if name != profile.name or os_type != profile.os_type:
                 self._require_stopped(profile.profile_id)
             actor_user_id = actor.subject_id if actor.kind is PrincipalKind.PERSONAL else None
             return self._catalog.rename(
@@ -567,6 +569,58 @@ class ProtectedApplication:
 
     def running_count(self, principal: PrincipalDTO | None) -> int:
         return len(self.running_profiles(principal))
+
+    def admin_workers(self, principal: PrincipalDTO | None) -> dict[str, object] | None:
+        actor = self.current_principal(principal)
+        require_admin(actor)
+        coordinator = self._run_coordinator
+        workers = getattr(coordinator, "workers", None)
+        ledger = getattr(coordinator, "ledger", None)
+        if workers is None or ledger is None:
+            return None
+
+        assignments: dict[str, list[dict[str, object]]] = {}
+        for run in ledger.active_runs():
+            if run.worker_id:
+                assignments.setdefault(run.worker_id, []).append(
+                    {
+                        "profile_id": run.ref.profile_id,
+                        "run_id": run.ref.run_id,
+                        "state": run.status.value,
+                        "reserved_memory_bytes": run.reserved_memory_bytes,
+                    }
+                )
+        return {
+            "workers": [
+                {
+                    "worker_id": worker.worker_id,
+                    "state": worker.state,
+                    "draining": worker.draining,
+                    "last_seen": worker.last_seen,
+                    "manifest_digest": worker.manifest_digest,
+                    "metrics": asdict(worker.metrics) if worker.metrics else None,
+                    "runs": assignments.get(worker.worker_id, []),
+                }
+                for worker in workers.list()
+            ]
+        }
+
+    def set_worker_draining(
+        self, principal: PrincipalDTO | None, worker_id: str, draining: bool
+    ) -> None:
+        actor = self.current_principal(principal)
+        require_admin(actor)
+        if type(draining) is not bool:
+            raise DomainError(ErrorCode.VALIDATION_ERROR)
+        coordinator = self._run_coordinator
+        workers = getattr(coordinator, "workers", None)
+        ledger = getattr(coordinator, "ledger", None)
+        if workers is None or ledger is None:
+            raise DomainError(ErrorCode.WORKER_UNAVAILABLE)
+        try:
+            workers.set_draining(worker_id, draining)
+        except ValueError:
+            raise DomainError(ErrorCode.VALIDATION_ERROR) from None
 
     def start_profile(
         self,

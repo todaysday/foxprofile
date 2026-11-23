@@ -1,0 +1,19 @@
+{
+  "format_version": 1,
+  "distribution": {
+    "id": "ubuntu",
+    "version": "24.04"
+  },
+  "native_evidence": {
+    "required_checks": [
+      "browser_geometry",
+      "font_fingerprint",
+      "identity_roundtrip",
+      "network_proxy",
+      "rendering_backend",
+      "sandbox",
+      "webgl_renderer"
+    ]
+  },
+  "runtimes": {}
+}

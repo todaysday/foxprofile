@@ -47,16 +47,22 @@ class RunStatusResult:
     profile_name: str
     browser_run_id: str
     state: str
+    execution_location: str | None = None
 
     def __post_init__(self) -> None:
+        if self.execution_location not in {None, "local", "remote"}:
+            raise DomainError(ErrorCode.VALIDATION_ERROR)
         values = (self.profile_id, self.profile_name, self.browser_run_id)
         if any(not isinstance(value, str) or not value.strip() for value in values):
             raise DomainError(ErrorCode.VALIDATION_ERROR)
         if not isinstance(self.state, str) or self.state not in {
             "reserved",
+            "transferring",
             "starting",
             "running",
             "stopping",
+            "syncing",
+            "uncertain",
             "cancelled",
             "closed",
             "recovering",

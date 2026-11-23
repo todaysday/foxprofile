@@ -242,6 +242,7 @@ class PersonalDesktop:
             users = self.session.auth.list_users(binding.actor())
             settings = binding.application.admin_settings(binding.actor())
             profiles = binding.pm.list_profiles()
+            worker_inventory = binding.application.admin_workers(binding.actor())
         except DomainError as error:
             if self.session.binding is binding:
                 self.app._log(error_text(error))
@@ -363,6 +364,52 @@ class PersonalDesktop:
                     ],
                 )
             )
+        worker_rows = []
+        if worker_inventory is not None:
+            for worker in worker_inventory["workers"]:
+                metrics = worker["metrics"]
+                memory = (
+                    get_string(
+                        "personal_worker_memory",
+                        memory=metrics["mem_available_bytes"] // (1024 * 1024),
+                    )
+                    if metrics
+                    else get_string("personal_worker_memory_unknown")
+                )
+                worker_rows.append(
+                    ft.Row(
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        controls=[
+                            ft.Column(
+                                spacing=2,
+                                controls=[
+                                    ft.Text(worker["worker_id"], font_family=FONT_BOLD),
+                                    ft.Text(
+                                        f"{worker['state']} · {memory} · "
+                                        + get_string(
+                                            "personal_worker_runs", count=len(worker["runs"])
+                                        ),
+                                        color=COLORS["text_sub"],
+                                    ),
+                                ],
+                            ),
+                            ft.OutlinedButton(
+                                get_string(
+                                    "personal_worker_resume"
+                                    if worker["draining"]
+                                    else "personal_worker_drain"
+                                ),
+                                on_click=lambda _, worker_id=worker["worker_id"], draining=worker["draining"]: (
+                                    perform(
+                                        lambda: binding.application.set_worker_draining(
+                                            binding.actor(), worker_id, not draining
+                                        )
+                                    )
+                                ),
+                            ),
+                        ],
+                    )
+                )
         dialog = ft.AlertDialog(
             modal=True,
             on_dismiss=lambda _: scrub_dialog(dialog),
@@ -415,6 +462,15 @@ class PersonalDesktop:
                         ),
                         feedback,
                         *rows,
+                        *(
+                            [
+                                ft.Divider(color=COLORS["border"]),
+                                ft.Text(get_string("personal_workers"), font_family=FONT_BOLD),
+                                *(worker_rows or [ft.Text(get_string("personal_worker_empty"))]),
+                            ]
+                            if worker_inventory is not None
+                            else []
+                        ),
                     ],
                 ),
             ),

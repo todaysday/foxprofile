@@ -96,26 +96,6 @@ def build_manual_gateway(
     Operators must supply an installed executable and its independently pinned
     SHA-256. No binary download or automatically trusted digest is performed.
     """
-    executable = os.getenv("FOXPROFILE_X11VNC_EXECUTABLE", "").strip()
-    digest = os.getenv("FOXPROFILE_X11VNC_SHA256", "").strip()
-    if not executable or not re.fullmatch(r"[a-f0-9]{64}", digest):
-        raise VNCBackendUnavailable(
-            "Configure FOXPROFILE_X11VNC_EXECUTABLE and FOXPROFILE_X11VNC_SHA256 "
-            "for an installed, pinned x11vnc binary."
-        )
-    binary = Path(executable)
-    if (
-        not binary.is_absolute()
-        or not binary.is_file()
-        or not os.access(binary, os.X_OK)
-        or hashlib.sha256(binary.read_bytes()).hexdigest() != digest
-    ):
-        raise VNCBackendUnavailable(
-            "Install x11vnc and verify FOXPROFILE_X11VNC_EXECUTABLE against "
-            "FOXPROFILE_X11VNC_SHA256."
-        )
-    if shutil.which("bwrap") is None:
-        raise VNCBackendUnavailable("Install bubblewrap to enable confined manual access.")
     state_root = database.path.with_name(".foxprofile-manual")
     state_root.mkdir(mode=0o700, exist_ok=True)
     info = state_root.lstat()
@@ -137,16 +117,67 @@ def build_manual_gateway(
             return None
         if profile.engine != "camoufox":
             raise DomainError(ErrorCode.MANUAL_UNSUPPORTED_RUNTIME)
-        if not callable(verified):
-            raise DomainError(ErrorCode.MANUAL_UNSUPPORTED_RUNTIME)
         run = next(
             (item for item in ledger.active_runs() if item.ref.profile_id == profile_id), None
         )
         if run is None or run.status is not RunStatus.RUNNING:
             return None
-        descriptor = verified(run.ref)
+        if run.worker_id is not None:
+            remote = getattr(coordinator, "verified_remote_descriptor", None)
+            if not callable(remote):
+                raise DomainError(ErrorCode.MANUAL_UNSUPPORTED_RUNTIME)
+            descriptor = remote(run)
+        else:
+            if not callable(verified):
+                raise DomainError(ErrorCode.MANUAL_UNSUPPORTED_RUNTIME)
+            descriptor = verified(run.ref)
         return ManualRuntime(descriptor, profile.engine, True) if descriptor is not None else None
 
+    def local_backend():
+        return _build_native_backend(
+            state_root, catalog, current_runtime, backend_factory, library_paths
+        )
+
+    if hasattr(coordinator, "manual_relay"):
+        from ..workers.manual import DistributedManualBackend
+
+        backend = DistributedManualBackend(coordinator, local_backend)
+    else:
+        backend = local_backend()
+    service = ManualSessionService(
+        auth,
+        UserDAO(database),
+        SessionDAO(database),
+        ManualLeaseDAO(database),
+        application.resolve_profile,
+        current_runtime,
+        backend,
+    )
+    return ManualGateway(service, state_root)
+
+
+def _build_native_backend(state_root, catalog, current_runtime, backend_factory, library_paths):
+    """Build local X11 dependencies only when this host serves manual input."""
+    executable = os.getenv("FOXPROFILE_X11VNC_EXECUTABLE", "").strip()
+    digest = os.getenv("FOXPROFILE_X11VNC_SHA256", "").strip()
+    if not executable or not re.fullmatch(r"[a-f0-9]{64}", digest):
+        raise VNCBackendUnavailable(
+            "Configure FOXPROFILE_X11VNC_EXECUTABLE and FOXPROFILE_X11VNC_SHA256 "
+            "for an installed, pinned x11vnc binary."
+        )
+    binary = Path(executable)
+    if (
+        not binary.is_absolute()
+        or not binary.is_file()
+        or not os.access(binary, os.X_OK)
+        or hashlib.sha256(binary.read_bytes()).hexdigest() != digest
+    ):
+        raise VNCBackendUnavailable(
+            "Install x11vnc and verify FOXPROFILE_X11VNC_EXECUTABLE against "
+            "FOXPROFILE_X11VNC_SHA256."
+        )
+    if shutil.which("bwrap") is None:
+        raise VNCBackendUnavailable("Install bubblewrap to enable confined manual access.")
     # Fixed system/Python dependencies plus exact explicitly supplied native assets.
     paths = tuple(
         dict.fromkeys(
@@ -178,20 +209,10 @@ def build_manual_gateway(
             ConfinementPurpose.VNC_HELPER,
         )
 
-    backend = backend_factory(
+    return backend_factory(
         state_root=state_root,
         confinement_for=confinement_for,
         executable=binary.resolve(),
         executable_sha256=digest,
         library_paths=library_paths,
     )
-    service = ManualSessionService(
-        auth,
-        UserDAO(database),
-        SessionDAO(database),
-        ManualLeaseDAO(database),
-        application.resolve_profile,
-        current_runtime,
-        backend,
-    )
-    return ManualGateway(service, state_root)

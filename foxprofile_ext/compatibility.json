@@ -6,57 +6,63 @@
   },
   "candidate": {
     "commit": "a37cd813606dfdb4accaeb27fd35aa29e769bf20",
-    "status": "locked",
-    "note": "Immutable runtime-source checkpoint after system-shell, private-cache, control-header and manual-status corrections. Definitive non-browser regression, installed artifacts and bounded real x86 checks passed. Later evidence metadata does not change this Python/JavaScript source. Full two-host acceptance remains incomplete."
+    "status": "uncommitted-draft",
+    "note": "Distributed Worker implementation and available offline checks pass on the existing branch. The runtime-source checkpoint will be locked after the implementation commit. Historical evidence is preserved separately; native/two-host acceptance remains open."
   },
   "schema": {
-    "version": 5,
+    "version": 6,
     "catalog_id": "immutable UUID hex; locally persisted; excluded from portable archives",
-    "sql_snapshot": "deploy/extension/schema-v5.json",
-    "sql_sha256": "3d078a14687be573088ff700d6234687e5243bc48548ee3f98e7693b01d1898b"
+    "sql_snapshot": "deploy/extension/schema-v6.json",
+    "sql_sha256": "a49280990de1987baf143560858523b87329e1742ae5aaf66b7b0f48dd65adaa"
   },
   "offline_evidence": {
-    "status": "PASS; definitive non-browser regression and installed-artifact scope; full live acceptance incomplete",
+    "status": "PASS for available offline regression; native/deployed-host acceptance remains incomplete",
+    "environment": {
+      "system": "Linux",
+      "architecture": "x86_64",
+      "python": "3.12.14"
+    },
     "commands": [
       {
-        "command": "python -m pytest -q tests/test_ext_compatibility_gate.py",
-        "result": "26 passed"
-      },
-      {
-        "command": "python -m pytest -q tests/test_ext_compatibility_gate.py tests/test_ext_compatibility.py tests/test_ext_runtime_hooks.py tests/test_ext_access.py",
-        "result": "90 passed, 1 skipped; executed before final two gate regressions and process/protocol inventory tightening; final 26 gate cases rerun afterward"
+        "command": "python -m pytest -q -rs -m 'not browser' --maxfail=10",
+        "result": "1181 passed, 60 skipped, 24 deselected, 8 warnings; 234.45 seconds; no failures"
       },
       {
         "command": "python tools/check_extension_compatibility.py",
-        "result": "PASS: 74 route/method entries, 69 hooks, 38 launch callsites"
+        "result": "PASS: 84 route/method entries, 93 hooks, 42 launch callsites"
       },
       {
         "command": "python tools/check_extension_compatibility.py --rehearse",
-        "result": "PASS: disposable copy rejects unclassified route, missing admission hook, runtime adapter signature drift, and new browser factory; restored candidate passes; no branch/worktree/live mutation"
+        "result": "PASS: four synthetic unsafe drifts rejected; restored disposable candidate passes"
       },
       {
-        "command": "python -m ruff check foxprofile_ext/compatibility.py tests/test_ext_compatibility_gate.py tools/check_extension_compatibility.py",
+        "command": "ruff check src tests chrome_engine foxprofile_ext tools/worker_preflight.py",
         "result": "PASS"
       },
       {
-        "command": "python -m ruff format --check foxprofile_ext/compatibility.py tests/test_ext_compatibility_gate.py tools/check_extension_compatibility.py",
-        "result": "PASS"
+        "command": "ruff format --check src tests chrome_engine foxprofile_ext tools/worker_preflight.py",
+        "result": "PASS: 243 Python files"
       },
       {
-        "command": "pytest -q -rs -m 'not browser' --maxfail=5",
-        "result": "1113 passed, 24 deselected, 3 warnings, 385.45 seconds; no failures or skips. Pristine archive a37cd813606dfdb4accaeb27fd35aa29e769bf20; Python 3.12.3; native X and isolated Chromium enabled; trusted resolver mount namespace; DAC override/read-search capabilities dropped. All 402 archive blobs unchanged. Log SHA-256 35202734fc91f91b528501b7a395add344173940a2969cdd623e33a82a86b4e4. Offline evidence does not establish full live acceptance."
+        "command": "node --check --input-type=module (panel.js and inline web module)",
+        "result": "PASS: two JavaScript sources"
       }
     ],
+    "log_sha256": "94e99b66913578d7132307cd1564a101c248a34635c9d4cfe42d310fce8ce390",
     "artifact_sha256": {
-      "foxprofile_ext/compatibility.py": "8932b2793e6794eab9fc58a21d88689209f4277773a2ffd945a6d63209be372c",
-      "tests/test_ext_compatibility_gate.py": "87d446fbe02753de8875697a70b09fedaffc6299ab53eccb705a55d01e336cad",
-      "tools/check_extension_compatibility.py": "e4ff5ef99a001481741c0c82b44e4a35b7d73ad1a76af87391ad2cbaa7e17b76"
+      "foxprofile_ext/compatibility.py": "7e151685ebbfc555241ac29e1970f835dbe38ad7485be49870762b507931177c",
+      "tests/test_ext_compatibility_gate.py": "f75396afd07397ad4d9d450727eb30f2ee2702e5e1f32d4166196d9000170e72",
+      "tools/check_extension_compatibility.py": "e4ff5ef99a001481741c0c82b44e4a35b7d73ad1a76af87391ad2cbaa7e17b76",
+      "deploy/extension/schema-v6.json": "a49280990de1987baf143560858523b87329e1742ae5aaf66b7b0f48dd65adaa",
+      "tests/test_ext_distributed_integration.py": "c83486a8a747d1fce8366f74c7406f357a889975a09746ac1cb467725049a160",
+      "tests/test_ext_worker_roundtrip.py": "03e2210f7a702d0682ad8ed1a6318b5492e094c50fdea07dacd1a6bf8ebdadc7"
     },
-    "limits": "No additional upstream candidate selected. Twenty-four actual Chromium-engine cases are blocked by host sandbox prerequisites and are not part of the passing non-browser suite. Bounded real x86 staging completed; full source acceptance and native renderer proof remain incomplete. ARM64 follows x86-64."
+    "limits": "40 Chromium DOM/module and 20 native/confinement cases skipped; 24 real Chromium engine cases deselected. Local trusted TLS/WSS and archive integration uses a native-runtime fixture. Independent watchdog uses owned stand-in process groups. Ubuntu 24.04 two-host/native equivalence and prior manual-browser slice 09 remain open."
   },
   "live_evidence": {
-    "status": "INCOMPLETE; bounded real x86 and ARM browser/control/noVNC/Back checks executed; complete source matrices, renderer proof, remaining ARM resource/persistence and production rollout open",
-    "owner": "separate deployment agent; both target architectures"
+    "status": "NOT RUN for distributed Workers; prior bounded manual-browser evidence remains historical and does not establish two-host acceptance",
+    "owner": "separate authorized Ubuntu 24.04 deployment acceptance; x86-64 and ARM64",
+    "record": "openspec/changes/add-distributed-browser-workers/references/implementation-evidence.md"
   },
   "hooks": [
     {
@@ -2028,7 +2034,7 @@
       "file": "foxprofile_ext/application.py",
       "symbol": "ProtectedApplication.list_profiles",
       "purpose": "Finite direct-service interface; reviewed principal and profile/run parameters must survive upstream updates.",
-      "contract": "Parameter names, kinds, defaults, requiredness and annotations are explicit adapter contracts.",
+      "contract": "One authorized catalog view includes lifecycle state and execution location from one joined SQLite snapshot; proxy and fingerprint summaries remain redacted.",
       "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts",
       "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
       "signature": {
@@ -3270,6 +3276,975 @@
           ]
         }
       ]
+    },
+    {
+      "file": "foxprofile_ext/workers/coordinator.py",
+      "symbol": "PlacementCapacity.reserve",
+      "purpose": "Authorize every profile before the shared atomic RAM/global-slot placement transaction.",
+      "contract": "Authorize every profile before the shared atomic RAM/global-slot placement transaction.",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "covering_test": "tests/test_ext_distributed_integration.py::test_remote_launch_control_stop_persists_complete_data_once",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "profiles",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "host_id",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          }
+        ],
+        "returns": null
+      },
+      "required_calls": [
+        {
+          "callee": "require_profile_access"
+        },
+        {
+          "callee": "self.scheduler.reserve"
+        }
+      ],
+      "call_order": [
+        "require_profile_access",
+        "self.scheduler.reserve"
+      ]
+    },
+    {
+      "file": "foxprofile_ext/workers/coordinator.py",
+      "symbol": "DistributedCoordinator._start_remote",
+      "purpose": "Immutable snapshot and current profile authority precede a scoped Worker start; dispatched uncertainty retains the claim.",
+      "contract": "Immutable snapshot and current profile authority precede a scoped Worker start; dispatched uncertainty retains the claim.",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "covering_test": "tests/test_ext_distributed_integration.py::test_start_timeout_keeps_uncertain_claim",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "profile",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "run",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "expected_name",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          }
+        ],
+        "returns": null
+      },
+      "required_calls": [
+        {
+          "callee": "self.profiles.capture"
+        },
+        {
+          "callee": "self.authorize"
+        },
+        {
+          "callee": "self.profiles.issue_grant"
+        },
+        {
+          "callee": "self.hub.command"
+        },
+        {
+          "callee": "self._uncertain"
+        }
+      ],
+      "call_order": [
+        "self.profiles.capture",
+        "self.authorize",
+        "self.profiles.issue_grant",
+        "self.hub.command"
+      ]
+    },
+    {
+      "file": "foxprofile_ext/workers/coordinator.py",
+      "symbol": "DistributedCoordinator.control",
+      "purpose": "Resolve the authorized exact run before remote control and recheck authority and run state before returning data.",
+      "contract": "Resolve the authorized exact run before remote control and recheck authority and run state before returning data.",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "covering_test": "tests/test_ext_distributed_integration.py::test_authorization_revocation_precedes_any_remote_action",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "profile",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "action",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "params",
+            "kind": "positional_or_keyword",
+            "required": false,
+            "default": "None",
+            "annotation": null
+          }
+        ],
+        "returns": null
+      },
+      "required_calls": [
+        {
+          "callee": "self._current_run"
+        },
+        {
+          "callee": "self.hub.command"
+        },
+        {
+          "callee": "self.authorize"
+        }
+      ],
+      "call_order": [
+        "self._current_run",
+        "self.hub.command",
+        "self.authorize"
+      ]
+    },
+    {
+      "file": "foxprofile_ext/workers/coordinator.py",
+      "symbol": "DistributedCoordinator.accept_stop_proof",
+      "purpose": "Only exact profile/run/Worker/boot/generation termination proof can move a remote run toward save or quarantine.",
+      "contract": "Only exact profile/run/Worker/boot/generation termination proof can move a remote run toward save or quarantine.",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "covering_test": "tests/test_ext_distributed_integration.py::test_loss_preserves_lock_until_exact_same_boot_proof",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "run",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "proof",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "connection",
+            "kind": "positional_or_keyword",
+            "required": false,
+            "default": "None",
+            "annotation": null
+          }
+        ],
+        "returns": null
+      },
+      "required_calls": [
+        {
+          "callee": "self.ledger.complete_remote",
+          "keyword_values": {
+            "process_stopped": "True",
+            "quarantined": "True"
+          }
+        }
+      ],
+      "required_literals": [
+        "profile_id",
+        "run_id",
+        "worker_id",
+        "worker_boot_id",
+        "connection_generation",
+        "terminated"
+      ]
+    },
+    {
+      "file": "foxprofile_ext/workers/coordinator.py",
+      "symbol": "DistributedCoordinator.commit_upload",
+      "purpose": "Complete the journaled canonical-data commit before releasing the stopped remote run's global reservation.",
+      "contract": "Complete the journaled canonical-data commit before releasing the stopped remote run's global reservation.",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "covering_test": "tests/test_ext_distributed_integration.py::test_remote_launch_control_stop_persists_complete_data_once",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "run",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "archive",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "digest",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          }
+        ],
+        "returns": null
+      },
+      "required_calls": [
+        {
+          "callee": "catalog_lock"
+        },
+        {
+          "callee": "self.profiles.commit"
+        },
+        {
+          "callee": "self.ledger.complete_remote",
+          "keyword_values": {
+            "process_stopped": "True",
+            "sync_verified": "True"
+          }
+        }
+      ],
+      "call_order": [
+        "self.profiles.commit",
+        "self.ledger.complete_remote"
+      ]
+    },
+    {
+      "file": "foxprofile_ext/workers/http.py",
+      "symbol": "_credential",
+      "purpose": "Worker capabilities travel only in bounded Authorization headers over secure transport, never URL query parameters.",
+      "contract": "Worker capabilities travel only in bounded Authorization headers over secure transport, never URL query parameters.",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "covering_test": "tests/test_ext_worker_channel.py::test_forged_worker_and_stale_reply_are_rejected",
+      "signature": {
+        "parameters": [
+          {
+            "name": "connection",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          }
+        ],
+        "returns": null
+      },
+      "required_calls": [
+        {
+          "callee": "_secure_transport"
+        },
+        {
+          "callee": "connection.headers.get"
+        }
+      ],
+      "required_literals": [
+        "authorization"
+      ]
+    },
+    {
+      "file": "foxprofile_ext/workers/http.py",
+      "symbol": "_transfer_binding",
+      "purpose": "Validate current connection ownership and exact Worker/run capability before serving or committing profile bytes.",
+      "contract": "Validate current connection ownership and exact Worker/run capability before serving or committing profile bytes.",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "covering_test": "tests/test_ext_distributed_integration.py::test_https_streams_are_scoped_and_exact_upload_retry_returns_same_receipt",
+      "signature": {
+        "parameters": [
+          {
+            "name": "request",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "run_id",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "operation",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          }
+        ],
+        "returns": null
+      },
+      "required_calls": [
+        {
+          "callee": "_credential"
+        },
+        {
+          "callee": "coordinator.hub.connection_for"
+        },
+        {
+          "callee": "coordinator.profiles.validate_grant"
+        }
+      ],
+      "call_order": [
+        "_credential",
+        "coordinator.hub.connection_for",
+        "coordinator.profiles.validate_grant"
+      ]
+    },
+    {
+      "file": "foxprofile_ext/workers/http.py",
+      "symbol": "_admin",
+      "purpose": "Refresh the current principal and require personal administration before exposing Worker inventory or credentials.",
+      "contract": "Refresh the current principal and require personal administration before exposing Worker inventory or credentials.",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "covering_test": "tests/test_ext_worker_channel.py::test_worker_inventory_is_personal_admin_only",
+      "signature": {
+        "parameters": [
+          {
+            "name": "request",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          }
+        ],
+        "returns": null
+      },
+      "required_calls": [
+        {
+          "callee": "application.current_principal"
+        },
+        {
+          "callee": "require_admin"
+        }
+      ]
+    },
+    {
+      "file": "foxprofile_ext/workers/manual.py",
+      "symbol": "DistributedManualBackend.start",
+      "purpose": "Prepare a gated remote helper, durably claim its identity and only then activate attachment to the existing browser.",
+      "contract": "Prepare a gated remote helper, durably claim its identity and only then activate attachment to the existing browser.",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "covering_test": "tests/test_ext_worker_manual.py::test_worker_helper_waits_for_master_claim_and_back_keeps_browser",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "session_id",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "runtime",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "claim_helper",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "deadlines",
+            "kind": "var_keyword",
+            "required": false,
+            "default": null,
+            "annotation": null
+          }
+        ],
+        "returns": null
+      },
+      "required_calls": [
+        {
+          "callee": "self.relay.create"
+        },
+        {
+          "callee": "claim_helper"
+        },
+        {
+          "callee": "self.coordinator.hub.command",
+          "arguments": [
+            "run",
+            "'manual_activate'"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "foxprofile_ext/workers/config.py",
+      "symbol": "build_distributed_coordinator",
+      "purpose": "Verify the local Master runtime against the same Ubuntu manifest and native evidence before any distributed admission.",
+      "contract": "Manifest/native proof and matching installed engine paths precede registry and placement composition.",
+      "covering_test": "tests/test_ext_worker_config.py::test_master_engine_path_must_match_verified_runtime",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "local",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "database",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "catalog",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "assignments",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "settings",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          }
+        ],
+        "returns": null
+      },
+      "required_calls": [
+        {
+          "callee": "load_manifest",
+          "arguments": [
+            "settings.manifest_path",
+            "settings.native_evidence_path",
+            "settings.manifest_digest"
+          ]
+        },
+        {
+          "callee": "WorkerRegistry"
+        },
+        {
+          "callee": "PlacementScheduler"
+        }
+      ],
+      "call_order": [
+        "load_manifest",
+        "WorkerRegistry",
+        "PlacementScheduler"
+      ]
+    },
+    {
+      "file": "foxprofile_ext/workers/agent.py",
+      "symbol": "_load_manifest_and_agent",
+      "purpose": "Verify actual pinned native runtime and arm the independent watchdog before composing the Worker execution runtime.",
+      "contract": "Verify actual pinned native runtime and arm the independent watchdog before composing the Worker execution runtime.",
+      "covering_test": "tests/test_ext_worker_manifest.py::test_manifest_exposes_only_fully_pinned_native_runtime",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [],
+        "returns": "WorkerAgent"
+      },
+      "required_calls": [
+        {
+          "callee": "read_worker_credential"
+        },
+        {
+          "callee": "load_manifest"
+        },
+        {
+          "callee": "watchdog.start"
+        },
+        {
+          "callee": "WorkerRuntime"
+        }
+      ],
+      "call_order": [
+        "load_manifest",
+        "watchdog.start",
+        "WorkerRuntime"
+      ]
+    },
+    {
+      "file": "foxprofile_ext/workers/agent.py",
+      "symbol": "WorkerAgent._start_command_serialized",
+      "purpose": "Reserve only the exact Master-issued run before capacity/transfer work; launch only after verified private snapshot and record exact no-process proof on pre-spawn failure.",
+      "contract": "Reserve only the exact Master-issued run before capacity/transfer work; launch only after verified private snapshot and record exact no-process proof on pre-spawn failure.",
+      "covering_test": "tests/test_ext_worker_agent.py::test_pre_spawn_rejection_returns_exact_no_process_proof_and_frees_worker_slot",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "ref",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "BrowserRunRefDTO"
+          },
+          {
+            "name": "payload",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "dict[str, Any]"
+          },
+          {
+            "name": "generation",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "int"
+          }
+        ],
+        "returns": "dict[str, Any]"
+      },
+      "required_calls": [
+        {
+          "callee": "self.database.reserve_exact"
+        },
+        {
+          "callee": "self._check_local_capacity"
+        },
+        {
+          "callee": "self._download_snapshot"
+        },
+        {
+          "callee": "self.runtime.start"
+        },
+        {
+          "callee": "self._finish_failed_start"
+        }
+      ],
+      "call_order": [
+        "self.database.reserve_exact",
+        "self._check_local_capacity",
+        "self._download_snapshot",
+        "self.runtime.start"
+      ]
+    },
+    {
+      "file": "foxprofile_ext/workers/agent.py",
+      "symbol": "WorkerRuntime.start",
+      "purpose": "Reuse the existing gated confined launcher for the reserved exact run; no Worker-specific browser process path.",
+      "contract": "Reuse the existing gated confined launcher for the reserved exact run; no Worker-specific browser process path.",
+      "covering_test": "tests/test_ext_worker_agent.py::test_runtime_supervisor_and_capacity_ledger_recover_worker_execution_db",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "profile",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "Profile"
+          },
+          {
+            "name": "ref",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "BrowserRunRefDTO"
+          },
+          {
+            "name": "on_ready",
+            "kind": "keyword_only",
+            "required": true,
+            "default": null,
+            "annotation": "Callable[[], None]"
+          },
+          {
+            "name": "on_stop",
+            "kind": "keyword_only",
+            "required": true,
+            "default": null,
+            "annotation": "Callable[[], None]"
+          },
+          {
+            "name": "timeout",
+            "kind": "keyword_only",
+            "required": true,
+            "default": null,
+            "annotation": "float"
+          }
+        ],
+        "returns": "str"
+      },
+      "required_calls": [
+        {
+          "callee": "self.ledger.get"
+        },
+        {
+          "callee": "self.supervisor.prepare_browser"
+        },
+        {
+          "callee": "self.launcher.start_thread"
+        }
+      ],
+      "call_order": [
+        "self.ledger.get",
+        "self.supervisor.prepare_browser",
+        "self.launcher.start_thread"
+      ]
+    },
+    {
+      "file": "foxprofile_ext/workers/manifest.py",
+      "symbol": "load_manifest",
+      "purpose": "Verify manifest digest, installed runtime observations and per-engine native evidence before publishing ready engines.",
+      "contract": "Verify manifest digest, installed runtime observations and per-engine native evidence before publishing ready engines.",
+      "covering_test": "tests/test_ext_worker_manifest.py::test_manifest_rejects_incomplete_old_or_mismatched_native_evidence",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "manifest_path",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str | Path"
+          },
+          {
+            "name": "native_evidence_path",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str | Path"
+          },
+          {
+            "name": "expected_digest",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "observed",
+            "kind": "keyword_only",
+            "required": false,
+            "default": "None",
+            "annotation": "dict[str, Any] | None"
+          }
+        ],
+        "returns": "VerifiedManifest"
+      },
+      "required_calls": [
+        {
+          "callee": "canonical_digest"
+        },
+        {
+          "callee": "_verify_observed"
+        },
+        {
+          "callee": "_verify_native_evidence"
+        },
+        {
+          "callee": "VerifiedManifest"
+        }
+      ],
+      "call_order": [
+        "canonical_digest",
+        "_verify_observed",
+        "_verify_native_evidence",
+        "VerifiedManifest"
+      ]
+    },
+    {
+      "file": "foxprofile_ext/workers/watchdog.py",
+      "symbol": "WorkerWatchdog.start",
+      "purpose": "Start a separate interpreter with an explicit safe environment before browser admission; control-loop stalls cannot disable lease expiry.",
+      "contract": "Start a separate interpreter with an explicit safe environment before browser admission; control-loop stalls cannot disable lease expiry.",
+      "covering_test": "tests/test_ext_worker_watchdog.py::test_watchdog_kills_exact_owned_groups_without_event_loop_progress",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          }
+        ],
+        "returns": "None"
+      },
+      "required_calls": [
+        {
+          "callee": "subprocess.Popen",
+          "keyword_values": {
+            "env": "env",
+            "start_new_session": "True"
+          }
+        },
+        {
+          "callee": "self._send"
+        }
+      ]
+    },
+    {
+      "file": "foxprofile_ext/workers/coordinator.py",
+      "symbol": "DistributedCoordinator._cleanup_worker",
+      "purpose": "Recheck the exact durable terminal Master run before acknowledging deletion of isolated Worker data.",
+      "contract": "Recheck the exact durable terminal Master run before acknowledging deletion of isolated Worker data.",
+      "covering_test": "tests/test_ext_distributed_integration.py::test_terminal_loss_proof_is_acknowledged_after_quarantine_on_new_connection",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "run",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "connection",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "proof",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          }
+        ],
+        "returns": null
+      },
+      "required_calls": [
+        {
+          "callee": "self._run_lock"
+        },
+        {
+          "callee": "self.ledger.get"
+        },
+        {
+          "callee": "self.hub.cleanup_closed_run"
+        }
+      ],
+      "call_order": [
+        "self.ledger.get",
+        "self.hub.cleanup_closed_run"
+      ]
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.admin_workers",
+      "purpose": "Refresh the current personal principal and require administration before any Worker inventory or drain effect.",
+      "contract": "Refresh the current personal principal and require administration before any Worker inventory or drain effect.",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "covering_test": "tests/test_ext_worker_admin.py::test_worker_admin_facade_requires_current_personal_admin_and_distributed_mode",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          }
+        ],
+        "returns": "dict[str, object] | None"
+      },
+      "required_calls": [
+        {
+          "callee": "self.current_principal"
+        },
+        {
+          "callee": "require_admin"
+        },
+        {
+          "callee": "workers.list"
+        }
+      ],
+      "call_order": [
+        "self.current_principal",
+        "require_admin",
+        "workers.list"
+      ]
+    },
+    {
+      "file": "foxprofile_ext/application.py",
+      "symbol": "ProtectedApplication.set_worker_draining",
+      "purpose": "Refresh the current personal principal and require administration before any Worker inventory or drain effect.",
+      "contract": "Refresh the current personal principal and require administration before any Worker inventory or drain effect.",
+      "baseline_commit": "530b993ff3a7d211aaa0904fba0817b77c75d4c9",
+      "covering_test": "tests/test_ext_worker_admin.py::test_worker_admin_facade_rechecks_revoked_admin",
+      "signature": {
+        "parameters": [
+          {
+            "name": "self",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": null
+          },
+          {
+            "name": "principal",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "PrincipalDTO | None"
+          },
+          {
+            "name": "worker_id",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "str"
+          },
+          {
+            "name": "draining",
+            "kind": "positional_or_keyword",
+            "required": true,
+            "default": null,
+            "annotation": "bool"
+          }
+        ],
+        "returns": "None"
+      },
+      "required_calls": [
+        {
+          "callee": "self.current_principal"
+        },
+        {
+          "callee": "require_admin"
+        },
+        {
+          "callee": "workers.set_draining"
+        }
+      ],
+      "call_order": [
+        "self.current_principal",
+        "require_admin",
+        "workers.set_draining"
+      ]
     }
   ],
   "routes": [
@@ -3608,6 +4583,24 @@
       "classification": "protected",
       "purpose": "Current personal/service principal; per-profile facade authorization and CSRF on cookie mutations.",
       "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "HTTP GET /api/v1/workers",
+      "endpoint": "foxprofile_ext.workers.http.list_workers",
+      "dependencies": [
+        "src.api.dependencies.get_request_principal"
+      ],
+      "classification": "protected-personal-admin",
+      "purpose": "Live personal administrator only; cookie mutations require CSRF; inventory and credential material are not exposed to ordinary users or services.",
+      "covering_test": "tests/test_ext_worker_channel.py::test_worker_inventory_is_personal_admin_only"
+    },
+    {
+      "key": "HTTP GET /api/v1/workers/runs/{run_id}/snapshot",
+      "endpoint": "foxprofile_ext.workers.http.download_snapshot",
+      "dependencies": [],
+      "classification": "protected-worker-capability",
+      "purpose": "Short-lived exact-run transfer grant plus current Worker generation; bounded full browser data, never catalog or credentials.",
+      "covering_test": "tests/test_ext_distributed_integration.py::test_https_streams_are_scoped_and_exact_upload_retry_returns_same_receipt"
     },
     {
       "key": "HTTP GET /assets/fonts/{name}",
@@ -4126,6 +5119,69 @@
       "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
     },
     {
+      "key": "HTTP POST /api/v1/workers/runs/{run_id}/fence",
+      "endpoint": "foxprofile_ext.workers.http.fence_run",
+      "dependencies": [
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected-personal-admin",
+      "purpose": "Live personal administrator only; cookie mutations require CSRF; inventory and credential material are not exposed to ordinary users or services.",
+      "covering_test": "tests/test_ext_worker_channel.py::test_worker_inventory_is_personal_admin_only"
+    },
+    {
+      "key": "HTTP POST /api/v1/workers/runs/{run_id}/upload",
+      "endpoint": "foxprofile_ext.workers.http.upload_snapshot",
+      "dependencies": [],
+      "classification": "protected-worker-capability",
+      "purpose": "Short-lived exact-run transfer grant plus current Worker generation; bounded full browser data, never catalog or credentials.",
+      "covering_test": "tests/test_ext_distributed_integration.py::test_https_streams_are_scoped_and_exact_upload_retry_returns_same_receipt"
+    },
+    {
+      "key": "HTTP POST /api/v1/workers/{worker_id}/drain",
+      "endpoint": "foxprofile_ext.workers.http.drain_worker",
+      "dependencies": [
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected-personal-admin",
+      "purpose": "Live personal administrator only; cookie mutations require CSRF; inventory and credential material are not exposed to ordinary users or services.",
+      "covering_test": "tests/test_ext_worker_channel.py::test_worker_inventory_is_personal_admin_only"
+    },
+    {
+      "key": "HTTP POST /api/v1/workers/{worker_id}/enroll",
+      "endpoint": "foxprofile_ext.workers.http.enroll_worker",
+      "dependencies": [
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected-personal-admin",
+      "purpose": "Live personal administrator only; cookie mutations require CSRF; inventory and credential material are not exposed to ordinary users or services.",
+      "covering_test": "tests/test_ext_worker_channel.py::test_worker_inventory_is_personal_admin_only"
+    },
+    {
+      "key": "HTTP POST /api/v1/workers/{worker_id}/revoke",
+      "endpoint": "foxprofile_ext.workers.http.revoke_worker",
+      "dependencies": [
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected-personal-admin",
+      "purpose": "Live personal administrator only; cookie mutations require CSRF; inventory and credential material are not exposed to ordinary users or services.",
+      "covering_test": "tests/test_ext_worker_channel.py::test_worker_inventory_is_personal_admin_only"
+    },
+    {
+      "key": "HTTP POST /api/v1/workers/{worker_id}/rotate",
+      "endpoint": "foxprofile_ext.workers.http.rotate_worker",
+      "dependencies": [
+        "src.api.dependencies.get_request_principal",
+        "src.api.dependencies.require_cookie_csrf"
+      ],
+      "classification": "protected-personal-admin",
+      "purpose": "Live personal administrator only; cookie mutations require CSRF; inventory and credential material are not exposed to ordinary users or services.",
+      "covering_test": "tests/test_ext_worker_channel.py::test_worker_inventory_is_personal_admin_only"
+    },
+    {
       "key": "HTTP POST /mcp",
       "endpoint": "src.api.mcp_http.build.<locals>.Endpoint",
       "dependencies": [],
@@ -4159,6 +5215,22 @@
       "classification": "protected-personal-websocket",
       "purpose": "Live personal owner session, exact Origin, current run; AST hook and gateway integration tests.",
       "covering_test": "tests/test_ext_compatibility_gate.py::test_baseline_route_and_source_contracts"
+    },
+    {
+      "key": "WEBSOCKET * /api/v1/workers/connect",
+      "endpoint": "foxprofile_ext.workers.http.connect_worker",
+      "dependencies": [],
+      "classification": "protected-worker-websocket",
+      "purpose": "TLS-only outbound Worker channel; enrolled credential, manifest and fresh boot/generation binding.",
+      "covering_test": "tests/test_ext_worker_channel.py::test_forged_worker_and_stale_reply_are_rejected"
+    },
+    {
+      "key": "WEBSOCKET * /api/v1/workers/manual/{relay_id}",
+      "endpoint": "foxprofile_ext.workers.http.manual_relay",
+      "dependencies": [],
+      "classification": "protected-worker-relay",
+      "purpose": "TLS-only private RFB relay; one-use capability and current assigned run, under the existing personal manual lease.",
+      "covering_test": "tests/test_ext_worker_manual.py::test_outbound_rfb_channel_is_one_use_and_bidirectional"
     }
   ],
   "source_routes": [
@@ -4166,6 +5238,16 @@
     "foxprofile_ext/manual/http.py:open_session:router.post('/profiles/{profile_id}/manual-sessions', dependencies=[Depends(require_cookie_csrf)])",
     "foxprofile_ext/manual/http.py:session_status:router.get('/manual-sessions/{session_id}')",
     "foxprofile_ext/manual/http.py:session_websocket:router.websocket('/manual-sessions/{session_id}/ws')",
+    "foxprofile_ext/workers/http.py:connect_worker:router.websocket('/connect')",
+    "foxprofile_ext/workers/http.py:download_snapshot:router.get('/runs/{run_id}/snapshot')",
+    "foxprofile_ext/workers/http.py:drain_worker:router.post('/{worker_id}/drain', dependencies=[Depends(require_cookie_csrf)])",
+    "foxprofile_ext/workers/http.py:enroll_worker:router.post('/{worker_id}/enroll', dependencies=[Depends(require_cookie_csrf)])",
+    "foxprofile_ext/workers/http.py:fence_run:router.post('/runs/{run_id}/fence', dependencies=[Depends(require_cookie_csrf)])",
+    "foxprofile_ext/workers/http.py:list_workers:router.get('')",
+    "foxprofile_ext/workers/http.py:manual_relay:router.websocket('/manual/{relay_id}')",
+    "foxprofile_ext/workers/http.py:revoke_worker:router.post('/{worker_id}/revoke', dependencies=[Depends(require_cookie_csrf)])",
+    "foxprofile_ext/workers/http.py:rotate_worker:router.post('/{worker_id}/rotate', dependencies=[Depends(require_cookie_csrf)])",
+    "foxprofile_ext/workers/http.py:upload_snapshot:router.post('/runs/{run_id}/upload')",
     "src/api/app.py:create_app.font:app.get('/assets/fonts/{name}', include_in_schema=False)",
     "src/api/app.py:create_app.health_check:app.get(f'{API_PREFIX}/health', response_model=SuccessResponse, tags=['health'])",
     "src/api/app.py:create_app.info:app.get(f'{API_PREFIX}/info', tags=['health'])",
@@ -4248,6 +5330,10 @@
     "foxprofile_ext/runtime/processes.py:RuntimeSupervisor.run_helper:src.services.browser.process.helper_command",
     "foxprofile_ext/runtime/processes.py:RuntimeSupervisor.spawn_browser:src.services.browser.process.runner_command",
     "foxprofile_ext/runtime/supervisor.py:supervise:subprocess.Popen",
+    "foxprofile_ext/workers/agent.py:WorkerRuntime.start:self.launcher.start_thread",
+    "foxprofile_ext/workers/agent.py:main:asyncio.run",
+    "foxprofile_ext/workers/manifest.py:_font_digest:subprocess.run",
+    "foxprofile_ext/workers/watchdog.py:WorkerWatchdog.start:subprocess.Popen",
     "src/api/routes/browser.py:launch_browser:bl.start_thread",
     "src/services/browser/cookie_tool.py:_open:camoufox.async_api.AsyncCamoufox",
     "src/services/browser/cookie_tool.py:_open:chrome_engine.ChromeEngine",
@@ -4266,6 +5352,7 @@
   ],
   "service_methods": [
     "foxprofile_ext/application.py:ProtectedApplication.admin_settings",
+    "foxprofile_ext/application.py:ProtectedApplication.admin_workers",
     "foxprofile_ext/application.py:ProtectedApplication.assignments_for_user",
     "foxprofile_ext/application.py:ProtectedApplication.authorize_archive_delivery",
     "foxprofile_ext/application.py:ProtectedApplication.control_run",
@@ -4287,6 +5374,7 @@
     "foxprofile_ext/application.py:ProtectedApplication.run_status",
     "foxprofile_ext/application.py:ProtectedApplication.running_count",
     "foxprofile_ext/application.py:ProtectedApplication.running_profiles",
+    "foxprofile_ext/application.py:ProtectedApplication.set_worker_draining",
     "foxprofile_ext/application.py:ProtectedApplication.start_profile",
     "foxprofile_ext/application.py:ProtectedApplication.start_profiles",
     "foxprofile_ext/application.py:ProtectedApplication.stop_run",
@@ -4308,7 +5396,8 @@
     "src/core/container.py:Container.protected_application",
     "src/core/container.py:Container.proxy_service",
     "src/core/container.py:Container.proxy_service_adapter",
-    "src/core/container.py:Container.shutdown"
+    "src/core/container.py:Container.shutdown",
+    "src/core/container.py:Container.worker_coordinator"
   ],
   "runtime": {
     "python": "3.12.3",
@@ -4342,5 +5431,57 @@
     "final_distribution_sha256": "Exact public a37cd81 runtime-source rebuild: wheel 9a26bbd644b03f2200f587b3023c30620bd8cbac9df4732ce617a5d5c7e7ca48; sdist 04cbda78f45550973ee9a08788beca85d3cbd8b25a447d8ab6659ad524b02ab1. All wheel bytes and sdist file contents match the original tested input; author metadata alone was normalized before publication. Later rebuilt artifacts require their own digests.",
     "definitive_full_regression": "a37cd81:1113 passed,24 actual Chromium-engine cases deselected,3 warnings,no failures or skips; completion.review records command and log digest",
     "post_lock_verification": "225 installed runtime files byte-verified; installed source and assembled-route gate passed for a37cd81; later register/distribution gate:29 passed in24.87seconds, including complete rebuilt wheel/sdist payloads. Later artifacts are separate froma37cd81 hashes."
-  }
+  },
+  "historical_evidence": [
+    {
+      "candidate": {
+        "commit": "a37cd813606dfdb4accaeb27fd35aa29e769bf20",
+        "status": "locked",
+        "note": "Immutable runtime-source checkpoint after system-shell, private-cache, control-header and manual-status corrections. Definitive non-browser regression, installed artifacts and bounded real x86 checks passed. Later evidence metadata does not change this Python/JavaScript source. Full two-host acceptance remains incomplete."
+      },
+      "offline_evidence": {
+        "status": "PASS; definitive non-browser regression and installed-artifact scope; full live acceptance incomplete",
+        "commands": [
+          {
+            "command": "python -m pytest -q tests/test_ext_compatibility_gate.py",
+            "result": "26 passed"
+          },
+          {
+            "command": "python -m pytest -q tests/test_ext_compatibility_gate.py tests/test_ext_compatibility.py tests/test_ext_runtime_hooks.py tests/test_ext_access.py",
+            "result": "90 passed, 1 skipped; executed before final two gate regressions and process/protocol inventory tightening; final 26 gate cases rerun afterward"
+          },
+          {
+            "command": "python tools/check_extension_compatibility.py",
+            "result": "PASS: 74 route/method entries, 69 hooks, 38 launch callsites"
+          },
+          {
+            "command": "python tools/check_extension_compatibility.py --rehearse",
+            "result": "PASS: disposable copy rejects unclassified route, missing admission hook, runtime adapter signature drift, and new browser factory; restored candidate passes; no branch/worktree/live mutation"
+          },
+          {
+            "command": "python -m ruff check foxprofile_ext/compatibility.py tests/test_ext_compatibility_gate.py tools/check_extension_compatibility.py",
+            "result": "PASS"
+          },
+          {
+            "command": "python -m ruff format --check foxprofile_ext/compatibility.py tests/test_ext_compatibility_gate.py tools/check_extension_compatibility.py",
+            "result": "PASS"
+          },
+          {
+            "command": "pytest -q -rs -m 'not browser' --maxfail=5",
+            "result": "1113 passed, 24 deselected, 3 warnings, 385.45 seconds; no failures or skips. Pristine archive a37cd813606dfdb4accaeb27fd35aa29e769bf20; Python 3.12.3; native X and isolated Chromium enabled; trusted resolver mount namespace; DAC override/read-search capabilities dropped. All 402 archive blobs unchanged. Log SHA-256 35202734fc91f91b528501b7a395add344173940a2969cdd623e33a82a86b4e4. Offline evidence does not establish full live acceptance."
+          }
+        ],
+        "artifact_sha256": {
+          "foxprofile_ext/compatibility.py": "8932b2793e6794eab9fc58a21d88689209f4277773a2ffd945a6d63209be372c",
+          "tests/test_ext_compatibility_gate.py": "87d446fbe02753de8875697a70b09fedaffc6299ab53eccb705a55d01e336cad",
+          "tools/check_extension_compatibility.py": "e4ff5ef99a001481741c0c82b44e4a35b7d73ad1a76af87391ad2cbaa7e17b76"
+        },
+        "limits": "No additional upstream candidate selected. Twenty-four actual Chromium-engine cases are blocked by host sandbox prerequisites and are not part of the passing non-browser suite. Bounded real x86 staging completed; full source acceptance and native renderer proof remain incomplete. ARM64 follows x86-64."
+      },
+      "live_evidence": {
+        "status": "INCOMPLETE; bounded real x86 and ARM browser/control/noVNC/Back checks executed; complete source matrices, renderer proof, remaining ARM resource/persistence and production rollout open",
+        "owner": "separate deployment agent; both target architectures"
+      }
+    }
+  ]
 }

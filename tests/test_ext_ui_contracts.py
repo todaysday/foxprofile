@@ -265,15 +265,18 @@ def test_summary_masks_proxy_preserves_native_metadata_and_uses_one_snapshot(ui_
     )
     api.ledger.reserve((api.foreign.profile_id,), "test-host")
     calls = []
-    original_states = api.app._capacity.lifecycle_states
+    original_states = api.app._capacity.lifecycle_snapshot
 
     def states():
         calls.append("states")
         return original_states()
 
-    monkeypatch.setattr(api.app._capacity, "lifecycle_states", states)
+    monkeypatch.setattr(api.app._capacity, "lifecycle_snapshot", states)
     with monkeypatch.context() as listing:
         listing.setattr(api.app, "running_profiles", lambda _: pytest.fail("second roster read"))
+        listing.setattr(
+            api.app._capacity, "active_runs", lambda: pytest.fail("second lifecycle read")
+        )
         response = api.client.get("/api/v1/profiles")
     assert response.status_code == 200
     assert calls == ["states"]
@@ -290,6 +293,7 @@ def test_summary_masks_proxy_preserves_native_metadata_and_uses_one_snapshot(ui_
         "locale": "en-US",
         "state": "idle",
         "is_running": False,
+        "execution_location": None,
         "fingerprint": {
             "exists": True,
             "os": "linux",

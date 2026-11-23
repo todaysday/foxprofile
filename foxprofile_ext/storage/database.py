@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-_SCHEMA_VERSION = 5
+_SCHEMA_VERSION = 6
 
 
 class ExtensionDatabase:
@@ -100,6 +100,33 @@ class ExtensionDatabase:
                     "CREATE INDEX runtime_descriptors_profile ON runtime_descriptors(profile_id)"
                 )
                 connection.execute("PRAGMA user_version = 5")
+                version = 5
+            if version < 6:
+                connection.execute(
+                    "CREATE TABLE browser_runs_v6 (run_id TEXT PRIMARY KEY, profile_id TEXT NOT NULL, host_id TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('reserved', 'transferring', 'starting', 'running', 'stopping', 'syncing', 'uncertain', 'cancelled', 'closed')), pid INTEGER, start_ticks INTEGER, created_at REAL NOT NULL, CHECK ((pid IS NULL AND start_ticks IS NULL) OR (pid > 0 AND start_ticks >= 0)))"
+                )
+                connection.execute(
+                    "INSERT INTO browser_runs_v6 (run_id, profile_id, host_id, status, pid, start_ticks, created_at) "
+                    "SELECT run_id, profile_id, host_id, status, pid, start_ticks, created_at FROM browser_runs"
+                )
+                connection.execute("DROP TABLE browser_runs")
+                connection.execute("ALTER TABLE browser_runs_v6 RENAME TO browser_runs")
+                connection.execute(
+                    "CREATE UNIQUE INDEX browser_runs_one_active_profile ON browser_runs(profile_id) "
+                    "WHERE status IN ('reserved', 'transferring', 'starting', 'running', 'stopping', 'syncing', 'uncertain')"
+                )
+                connection.execute("CREATE INDEX browser_runs_status ON browser_runs(status)")
+                connection.execute(
+                    "CREATE TABLE browser_run_placements (run_id TEXT PRIMARY KEY REFERENCES browser_runs(run_id) ON DELETE CASCADE, worker_id TEXT, worker_boot_id TEXT, connection_generation INTEGER, reserved_memory_bytes INTEGER NOT NULL DEFAULT 0 CHECK (reserved_memory_bytes >= 0), base_revision INTEGER CHECK (base_revision IS NULL OR base_revision >= 0), storage_outcome TEXT CHECK (storage_outcome IN ('saved', 'unsaved', 'not_started')), CHECK ((worker_id IS NULL AND worker_boot_id IS NULL AND connection_generation IS NULL) OR (worker_id IS NOT NULL AND worker_boot_id IS NOT NULL AND connection_generation > 0)))"
+                )
+                connection.execute("CREATE INDEX browser_runs_profile ON browser_runs(profile_id)")
+                connection.execute(
+                    "CREATE INDEX browser_run_placements_worker ON browser_run_placements(worker_id, worker_boot_id)"
+                )
+                connection.execute(
+                    "CREATE TABLE workers (worker_id TEXT PRIMARY KEY, credential_hash TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0 CHECK (revoked IN (0, 1)), draining INTEGER NOT NULL DEFAULT 0 CHECK (draining IN (0, 1)), connected INTEGER NOT NULL DEFAULT 0 CHECK (connected IN (0, 1)), boot_id TEXT, connection_generation INTEGER NOT NULL DEFAULT 0 CHECK (connection_generation >= 0), manifest_digest TEXT NOT NULL, preflight_ok INTEGER NOT NULL DEFAULT 0 CHECK (preflight_ok IN (0, 1)), metrics_json TEXT, active_run_ids_json TEXT NOT NULL DEFAULT '[]', last_seen REAL)"
+                )
+                connection.execute("PRAGMA user_version = 6")
             connection.commit()
         except BaseException:
             if connection.in_transaction:

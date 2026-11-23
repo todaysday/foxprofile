@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from foxprofile_ext.dto import PrincipalDTO
-from foxprofile_ext.errors import DomainError
+from foxprofile_ext.errors import DomainError, ErrorCode
 
 from ...core.config import LAUNCH_WAIT_TIMEOUT
 from ...core.logging import get_logger
@@ -113,6 +113,8 @@ def launch_browser(
             )
         except DomainError as error:
             raise domain_http_error(error) from error
+        if result.error_code == "RUN_UNCERTAIN":
+            raise domain_http_error(DomainError(ErrorCode.RUN_UNCERTAIN))
         if result.state == "starting":
             response.status_code = 202
             return LaunchResponse(

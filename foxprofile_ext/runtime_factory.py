@@ -145,7 +145,7 @@ def build_run_coordinator(
     )
     runtime.recover()
     launcher = BrowserLauncher(runtime_adapter=runtime)
-    return RuntimeCoordinator(
+    coordinator = RuntimeCoordinator(
         capacity,
         ledger,
         runtime,
@@ -154,3 +154,11 @@ def build_run_coordinator(
         authorize=authorize,
         lock_path=str(catalog.lock_path),
     )
+    from .workers.config import DistributedSettings, build_distributed_coordinator
+
+    distributed = DistributedSettings.from_environment()
+    if distributed is not None:
+        return build_distributed_coordinator(
+            coordinator, database, catalog, assignments, distributed
+        )
+    return coordinator

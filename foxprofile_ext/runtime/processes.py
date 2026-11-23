@@ -48,9 +48,12 @@ class RuntimeSupervisor:
         authorize: Callable[[PrincipalDTO, ProfileRefDTO], PrincipalDTO] | None = None,
         lock_path: str | None = None,
         prepare_launch: Callable[[Profile], None] | None = None,
+        worker_execution: bool = False,
     ) -> None:
         if not sys.platform.startswith("linux"):
             raise RuntimeError("Protected runtime requires Linux process namespaces")
+        if type(worker_execution) is not bool:
+            raise ValueError("worker_execution must be a boolean runtime role")
         import fcntl
 
         self.database = database
@@ -78,6 +81,7 @@ class RuntimeSupervisor:
         self.authorize = authorize
         self.lock_path = lock_path
         self.prepare_launch = prepare_launch
+        self.worker_execution = worker_execution
         self._handles: dict[str, subprocess.Popen[str]] = {}
         self._owned_runs: dict[str, BrowserRunRefDTO] = {}
         self._prepared_runs: set[BrowserRunRefDTO] = set()
@@ -185,6 +189,7 @@ class RuntimeSupervisor:
                 "command": command,
                 "helper_stdin": helper_stdin,
                 "engine": profile.engine,
+                "worker_execution": self.worker_execution,
             }
             with self._lock:
                 if self._closed:

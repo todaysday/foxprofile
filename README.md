@@ -47,6 +47,7 @@ The coffee link supports the upstream project maintainer at `chienbm98`. It does
 - [Timezone, locale and Check IP](#timezone-locale-and-check-ip)
 - [Server mode and web panel](#server-mode-and-web-panel)
 - [Protected multi-user mode](#protected-multi-user-mode)
+- [Distributed workers](#distributed-workers)
 - [MCP: let AI agents drive the browser](#mcp-let-ai-agents-drive-the-browser)
 - [Chrome engine](#chrome-engine)
 - [Cookies and fingerprints](#cookies-and-fingerprints)
@@ -203,6 +204,16 @@ Set up protected mode in this order:
 4. Start the resolved single-manager service using `deploy/extension/foxprofile-extension.service.example`; its command runs `python -m src.server`. Keep one lifecycle manager and one ASGI worker per installation. Open the configured HTTPS web panel, sign in as the administrator, then create accounts, assign profiles, and set capacity.
 
 Current live acceptance is partial: selected authentication and noVNC checks passed on Linux x86-64 and ARM64; full isolation and failure-handling acceptance remains open. See the [implementation handoff](openspec/changes/add-multi-user-manual-browser-workflow/references/implementation-handoff.md) and [open work list](openspec/TODO.md) for current evidence and remaining work.
+
+## Distributed workers
+
+Protected mode can optionally place browsers on enrolled Ubuntu 24.04 Workers when the Master lacks safe memory headroom. The Master keeps accounts, permissions, profile metadata, canonical browser data and the installation-wide browser limit. Each Worker connects outbound over authenticated WSS/HTTPS, runs an isolated private profile copy and exposes no client API or public VNC port. Placement remains automatic; existing REST, MCP and Viewer operations use the Master.
+
+Set `FOXPROFILE_WORKERS_ENABLED=true`, configure the HTTPS `FOXPROFILE_MASTER_URL` and pin `FOXPROFILE_RUNTIME_MANIFEST_SHA256`. The Master also verifies its local runtime using `FOXPROFILE_RUNTIME_MANIFEST` and `FOXPROFILE_NATIVE_EVIDENCE`. The [Master configuration template](deploy/extension/worker-master.env.example) lists the required paths and budgets. Browser memory, system reserve and staging reserve are explicit byte budgets; measure them on the intended hosts before rollout. The [Worker deployment guide](deploy/worker/README.md) describes enrollment, runtime preflight, the systemd service and operations. Administrators can inspect Workers and drain them from the existing administration dialog; profile rows show execution location and transfer/recovery state.
+
+Clean stop returns complete browser data and commits one new canonical revision. Failed saving retains the profile reservation; retry **Stop** to save again. A disconnected or unverified run remains blocked until exact process-death evidence or an administrator's verified host fence. If an abnormal session cannot be saved, its row shows **Session not saved** and the next launch uses the last saved canonical profile. The existing single manual-session lease also covers remote Camoufox noVNC; **Back** closes manual access and leaves the browser running. Moving a profile does not preserve an unproxied host's public IP.
+
+Two-host live acceptance, measured browser memory and native runtime equivalence remain required before production rollout. Offline tests do not establish those properties. See the [implementation evidence](openspec/changes/add-distributed-browser-workers/references/implementation-evidence.md) and [open work list](openspec/TODO.md); the previous manual-browser change's live acceptance remains independently open.
 
 ## MCP: let AI agents drive the browser
 

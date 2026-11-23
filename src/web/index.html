@@ -685,7 +685,8 @@ function headRow(shown) {
 function stamp(p) {
   const key = profileKey(p);
   const state = busy.get(key) || (p.state === "reserved" ? "starting" : p.state);
-  const pending = { starting: "stamp_starting", stopping: "stamp_stopping", recovering: "stamp_recovering" };
+  if (state === "unsaved") return h("span", { class: "stamp failed", title: t("unsaved_hint") }, t("stamp_unsaved"));
+  const pending = { starting: "stamp_starting", stopping: "stamp_stopping", recovering: "stamp_recovering", transferring: "stamp_transferring", syncing: "stamp_syncing", uncertain: "stamp_uncertain" };
   if (pending[state]) return h("span", { class: "stamp pending" }, t(pending[state]));
   if (running.has(key)) {
     const since = liveSince.get(key);
@@ -703,7 +704,7 @@ function row(p) {
   const on = running.has(key);
   const occupied = panel?.personal ? p.is_running : on;
   const fp = fingerprints[key];
-  const isBusy = busy.has(key) || ["reserved", "starting", "stopping", "recovering"].includes(p.state);
+  const isBusy = busy.has(key) || ["reserved", "transferring", "starting", "stopping", "syncing", "uncertain", "recovering"].includes(p.state);
   const os = { windows: "WIN", macos: "MAC", linux: "LIN" }[p.os_type] || "OS";
   const engine = p.engine === "chrome" ? "Chrome" : "Camoufox";
   const box = h("input", { type: "checkbox", "aria-label": t("select_row", { name: p.name }),
@@ -731,7 +732,7 @@ function row(p) {
     h("div", { class: "col-geo stack", role: "cell" },
       h("span", { class: p.timezone ? "data" : "muted" }, p.timezone || t("follow_ip")),
       h("span", { class: "minor" + (p.locale ? " data" : "") }, p.locale || t("follow_ip"))),
-    h("div", { class: "c-stamp", role: "cell" }, stamp(p)),
+    h("div", { class: "c-stamp stack", role: "cell" }, stamp(p), p.execution_location ? h("span", { class: "minor" }, t("location_" + p.execution_location)) : null),
     h("div", { class: "actions", role: "cell" }, main,
       iconBtn("monitor", t("view"), () => openViewer(p), "", !on || isBusy),
       iconBtn("cookie", t("cookies"), () => openCookies(p), "", occupied),

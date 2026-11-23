@@ -70,12 +70,16 @@
 - [x] Complete S01 on the selected external HTTPS diagnostic on both targets. BrowserLeaks IP/WebRTC results followed proxy egress without exposing observed server public/interface addresses. ARM fresh-profile readiness/control and normal cleanup were verified. Earlier loopback-origin observations and ARM profile launch failures remain separate evidence; they do not justify silently disabling WebRTC. Native authenticated-proxy argument confidentiality remains tracked separately.
 - [ ] Complete ARM native save/outside-write and synthetic process-environment assertions after restoring supported task-owned desktop control. Native config/state/sibling read denials and own-profile positive control passed; the save target was never submitted because desktop transport closed and dialog input failed. Retain partial status and unchanged synthetic targets; directory-name visibility alone is not proof of protected content access.
 
-## add-distributed-browser-workers (design added 2026-11-23)
+## add-distributed-browser-workers (implementation added 2026-11-23)
 
-- [ ] Implement and validate Worker enrollment, Ubuntu 24.04 preflight equivalence, status, outbound WSS/HTTPS and independent process-death watchdog.
-- [ ] Extend existing Master SQLite run admission with per-host resource reservations while preserving global active-profile exclusivity, rights and the single manual lease.
-- [ ] Implement revisioned canonical profile snapshot/return with crash recovery, bounded archive size, fingerprint verification and idempotent upload receipts.
-- [ ] Route PageController and supported manual noVNC through Master to exact Worker run generation without public Worker ports.
-- [ ] Test network partition, unknown liveness/fencing, Master restart and abnormal unsaved sessions using isolated two-host fixtures; record no duplicate live profile.
-- [ ] Measure browser RAM/RSS and safe headroom on intended Ubuntu 24.04 hosts and pin cross-host renderer/fonts/Xvfb/engine equivalence; do not assume same OS alone proves identical browser-visible identity.
-- [ ] Record deployment/secret ownership, Worker staging disk limits, backup/restore, credential rotation and full two-host live acceptance; previous change slice 09 remains open independently.
+Implementation evidence: `openspec/changes/add-distributed-browser-workers/references/implementation-evidence.md`. The code and offline checks do not close deployed-host acceptance; keep this change unarchived.
+
+- [x] Implement Worker-only execution storage/service, enrollment/rotation/revocation, manifest/native-evidence validation, fresh telemetry, outbound WSS/HTTPS and an independent process-death watchdog. Native runtime evidence is required at activation and is not generated as a synthetic PASS.
+- [x] Extend Master SQLite admission with exact Worker placement, per-host RAM reservations and all transfer/recovery phases while preserving global active-profile exclusivity, authorization and the single manual lease.
+- [x] Implement revisioned canonical snapshot/return, bounded safe archives, immutable fingerprint identity, recoverable filesystem promotion and idempotent upload receipts. Recover a durable commit before releasing its exact run after Master restart.
+- [x] Route existing PageController and supported Camoufox manual noVNC through Master to the exact Worker run, with a gated outbound private relay and no public Worker listener. Surface authorized placement/state and admin drain controls.
+- [x] Retain uncertain claims after lost acknowledgments; allow exact-current explicit Stop, accept late clean stop proof, and require verified host fence or exact death proof for quarantine. Send terminal cleanup acknowledgment only after Master durably closes the run; unacknowledged data/proof remains recoverable.
+- [ ] Complete native browser and DOM tests on supported prerequisites, including real same-profile cookies/storage/tabs across hosts, Viewer/MCP control, native noVNC input release/Back, and helper/browser confinement. Offline runtime fixtures do not prove native behavior.
+- [ ] Test real network partition, main-agent SIGKILL, Master restart, Worker reboot, unavailable helper proof, verified host fence and abnormal unsaved sessions on isolated two-host fixtures; prove no duplicate live profile and measure actual watchdog/cleanup deadlines.
+- [ ] Measure 1/5/10-browser RAM/RSS and safe headroom on intended Ubuntu 24.04 hosts; pin each architecture's renderer/backend/fonts/Xvfb/engine equivalence. Same OS alone does not establish browser-visible identity equivalence.
+- [ ] Verify service/secret ownership, staging-disk limits, matched Master database/catalog/profile backup and restore, rotation, drain, removal and recovery. Retain isolated data on unavailable/rebooted Workers until exact terminal reconciliation or independently verified host cleanup; never auto-merge orphaned data. Previous change slice 09 remains independently open.

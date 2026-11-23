@@ -15,6 +15,14 @@ class ErrorCode(str, Enum):
     STALE_BROWSER_RUN = "STALE_BROWSER_RUN"
     MANUAL_SESSION_CLOSED = "MANUAL_SESSION_CLOSED"
     RUNTIME_RECOVERING = "RUNTIME_RECOVERING"
+    NO_WORKER_MEMORY = "NO_WORKER_MEMORY"
+    WORKER_UNAVAILABLE = "WORKER_UNAVAILABLE"
+    RUNTIME_INCOMPATIBLE = "RUNTIME_INCOMPATIBLE"
+    TRANSFER_INVALID = "TRANSFER_INVALID"
+    TRANSFER_CONFLICT = "TRANSFER_CONFLICT"
+    RUN_UNCERTAIN = "RUN_UNCERTAIN"
+    SYNC_FAILED = "SYNC_FAILED"
+    STALE_RUN = "STALE_RUN"
 
 
 _MESSAGES = {
@@ -29,6 +37,14 @@ _MESSAGES = {
     ErrorCode.STALE_BROWSER_RUN: "Browser run is no longer current.",
     ErrorCode.MANUAL_SESSION_CLOSED: "Manual session is closed.",
     ErrorCode.RUNTIME_RECOVERING: "Runtime recovery is incomplete. Retry after recovery.",
+    ErrorCode.NO_WORKER_MEMORY: "No execution host has enough available memory.",
+    ErrorCode.WORKER_UNAVAILABLE: "Execution worker is unavailable.",
+    ErrorCode.RUNTIME_INCOMPATIBLE: "Execution runtime is incompatible.",
+    ErrorCode.TRANSFER_INVALID: "Profile transfer is invalid.",
+    ErrorCode.TRANSFER_CONFLICT: "Profile revision conflicts with this transfer.",
+    ErrorCode.RUN_UNCERTAIN: "Browser termination has not been verified.",
+    ErrorCode.SYNC_FAILED: "Browser data could not be saved.",
+    ErrorCode.STALE_RUN: "Browser assignment is no longer current.",
 }
 
 

@@ -100,10 +100,17 @@ class RuntimeCoordinator:
                         record = self.ledger.get(run.ref)
                     state = _launch_state(record.status) if record is not None else "failed"
                     if state == "failed" or (not ok and error != "timeout"):
-                        error_code = "LAUNCH_FAILED"
+                        error_code = (
+                            "RUN_UNCERTAIN"
+                            if record is not None and record.status is RunStatus.UNCERTAIN
+                            else "LAUNCH_FAILED"
+                        )
                 elif state == "failed":
-                    state = "failed"
-                    error_code = "LAUNCH_FAILED"
+                    error_code = (
+                        "RUN_UNCERTAIN"
+                        if record is not None and record.status is RunStatus.UNCERTAIN
+                        else "LAUNCH_FAILED"
+                    )
             results.append(
                 RunLaunchResult(
                     ref.profile_id,
@@ -244,6 +251,6 @@ def _unique_profiles(profiles: Sequence[ProfileRefDTO]) -> tuple[ProfileRefDTO, 
 def _launch_state(status: RunStatus) -> str:
     if status is RunStatus.RUNNING:
         return "running"
-    if status in {RunStatus.CANCELLED, RunStatus.CLOSED}:
+    if status in {RunStatus.CANCELLED, RunStatus.CLOSED, RunStatus.UNCERTAIN}:
         return "failed"
     return "starting"

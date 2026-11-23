@@ -110,7 +110,7 @@ def test_register_records_real_baseline_and_finite_covering_contracts():
     register = load_register()
     assert register["upstream"]["commit"] == "530b993ff3a7d211aaa0904fba0817b77c75d4c9"
     assert register["candidate"]["status"] in {"uncommitted-draft", "locked"}
-    assert register["schema"]["version"] == 5
+    assert register["schema"]["version"] == 6
     assert register["hooks"] and register["launch_calls"] and register["service_methods"]
     for hook in register["hooks"]:
         assert hook["purpose"] and hook["contract"] and hook["signature"]
@@ -223,6 +223,62 @@ def test_missing_launch_admission_call_fails(candidate):
     )
     with pytest.raises(RuntimeError, match="^Protected extension compatibility check failed$"):
         require_compatible_hooks(candidate)
+
+
+@pytest.mark.parametrize(
+    "path,original,replacement,symbol,callee",
+    [
+        (
+            "foxprofile_ext/workers/coordinator.py",
+            "self.profiles.commit(profile, run, archive, run.base_revision, digest)",
+            "self.profiles.unreviewed_commit(profile, run, archive, run.base_revision, digest)",
+            "DistributedCoordinator.commit_upload",
+            "self.profiles.commit",
+        ),
+        (
+            "foxprofile_ext/workers/http.py",
+            "coordinator.hub.connection_for(run)",
+            "coordinator.hub.unreviewed_connection(run)",
+            "_transfer_binding",
+            "coordinator.hub.connection_for",
+        ),
+        (
+            "foxprofile_ext/workers/http.py",
+            "require_admin(application.current_principal(principal))",
+            "require_admin(principal)",
+            "_admin",
+            "application.current_principal",
+        ),
+        (
+            "foxprofile_ext/workers/manual.py",
+            "if not claim_helper(helper):",
+            "if not unreviewed_claim(helper):",
+            "DistributedManualBackend.start",
+            "claim_helper",
+        ),
+        (
+            "foxprofile_ext/workers/agent.py",
+            "    watchdog.start()\n",
+            "    watchdog.unreviewed_start()\n",
+            "_load_manifest_and_agent",
+            "watchdog.start",
+        ),
+        (
+            "foxprofile_ext/workers/manifest.py",
+            "    _verify_native_evidence(runtime, architecture, evidence)\n",
+            "    _unreviewed_evidence(runtime, architecture, evidence)\n",
+            "load_manifest",
+            "_verify_native_evidence",
+        ),
+    ],
+)
+def test_distributed_security_boundary_drift_is_rejected(
+    candidate, path, original, replacement, symbol, callee
+):
+    replace_source(candidate, path, original, replacement)
+    assert f"missing required call: {path}:{symbol} -> {callee}" in check_source_contracts(
+        candidate
+    )
 
 
 def test_missing_confinement_call_fails(candidate):

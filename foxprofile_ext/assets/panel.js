@@ -14,6 +14,15 @@ const STRINGS = {
     action_failed: "The operation failed. Refresh and try again.", profile_busy: "Profile is busy.", resource_unavailable: "Resource unavailable.",
     capacity_full: "Shared profile limit reached. Stop an accessible profile, then retry, or contact an administrator.",
     stamp_recovering: "Recovering",
+    stamp_transferring: "Transferring", stamp_syncing: "Saving", stamp_uncertain: "Stop unverified",
+    stamp_unsaved: "Session not saved", unsaved_hint: "Latest session changes were not saved. The next launch uses the last saved profile.",
+    location_local: "Master", location_remote: "Worker", workers: "Execution workers",
+    worker_memory: "Available RAM: {n} MiB", worker_runs: "Assigned runs: {n}",
+    worker_drain: "Drain", worker_resume: "Accept new runs", worker_empty: "No enrolled workers.",
+    worker_memory_full: "No execution host has enough available RAM.", worker_offline: "Execution worker is unavailable.",
+    worker_runtime_incompatible: "Execution runtime is incompatible.", worker_transfer_invalid: "Profile transfer is invalid.",
+    worker_transfer_conflict: "Profile revision conflicts with this transfer.", worker_stale_run: "Browser assignment is no longer current.",
+    worker_uncertain: "Browser stop is unverified. Contact an administrator.", worker_sync_failed: "Profile saving failed. Retry Stop to save again.",
     session_expired: "Sign in again.", manual_open: "Open in noVNC", manual_back: "Return to Viewer",
     manual_connected: "Manual control connected", manual_disconnected: "Manual control ended",
     manual_unsupported: "Manual control requires a running Camoufox virtual display. This runtime is unsupported.",
@@ -33,6 +42,15 @@ const STRINGS = {
     action_failed: "Thao tác thất bại. Làm mới rồi thử lại.", profile_busy: "Profile đang bận.", resource_unavailable: "Không thể truy cập tài nguyên.",
     capacity_full: "Đã đạt giới hạn profile chung. Dừng profile được cấp rồi thử lại hoặc liên hệ quản trị viên.",
     stamp_recovering: "Đang khôi phục",
+    stamp_transferring: "Đang chuyển", stamp_syncing: "Đang lưu", stamp_uncertain: "Chưa xác minh dừng",
+    stamp_unsaved: "Session chưa được lưu", unsaved_hint: "Thay đổi của session gần nhất chưa được lưu. Lần mở tiếp theo dùng profile đã lưu trước đó.",
+    location_local: "Master", location_remote: "Worker", workers: "Worker thực thi",
+    worker_memory: "RAM khả dụng: {n} MiB", worker_runs: "Run được cấp: {n}",
+    worker_drain: "Drain", worker_resume: "Nhận run mới", worker_empty: "Chưa có worker đăng ký.",
+    worker_memory_full: "Không có host đủ RAM khả dụng.", worker_offline: "Worker thực thi không khả dụng.",
+    worker_runtime_incompatible: "Runtime thực thi không tương thích.", worker_transfer_invalid: "Dữ liệu chuyển profile không hợp lệ.",
+    worker_transfer_conflict: "Phiên bản profile xung đột với dữ liệu chuyển.", worker_stale_run: "Lượt chạy browser không còn hiệu lực.",
+    worker_uncertain: "Chưa xác minh browser đã dừng. Liên hệ quản trị viên.", worker_sync_failed: "Lưu profile thất bại. Nhấn Dừng để thử lưu lại.",
     session_expired: "Vui lòng đăng nhập lại.", manual_open: "Mở bằng noVNC", manual_back: "Trở lại Viewer",
     manual_connected: "Đã kết nối điều khiển thủ công", manual_disconnected: "Điều khiển thủ công đã kết thúc",
     manual_unsupported: "Điều khiển thủ công cần Camoufox đang chạy với màn hình ảo. Runtime này không hỗ trợ.",
@@ -44,6 +62,9 @@ const ERROR_KEYS = {
   PROFILE_CAPACITY_EXCEEDED: "capacity_full", AUTH_REQUIRED: "session_expired",
   MANUAL_UNSUPPORTED_RUNTIME: "manual_unsupported", MANUAL_SESSION_BUSY: "manual_busy",
   RUNTIME_RECOVERING: "runtime_recovering", PROFILE_BUSY: "profile_busy",
+  NO_WORKER_MEMORY: "worker_memory_full", WORKER_UNAVAILABLE: "worker_offline",
+  RUN_UNCERTAIN: "worker_uncertain", SYNC_FAILED: "worker_sync_failed", STALE_RUN: "worker_stale_run",
+  RUNTIME_INCOMPATIBLE: "worker_runtime_incompatible", TRANSFER_INVALID: "worker_transfer_invalid", TRANSFER_CONFLICT: "worker_transfer_conflict",
   FORBIDDEN_OR_NOT_FOUND: "resource_unavailable", STALE_BROWSER_RUN: "manual_disconnected", MANUAL_SESSION_CLOSED: "manual_disconnected",
 };
 
@@ -143,6 +164,7 @@ export function createPanel(ctx, info) {
     if (!isAdmin(version)) return;
     try {
       const [roster, settings] = await Promise.all([adminRequest("GET", "/ext/admin/users", undefined, version), adminRequest("GET", "/ext/admin/settings", undefined, version)]);
+      const inventory = info.workers_enabled ? await adminRequest("GET", "/workers", undefined, version) : null;
       if (!isAdmin(version)) return;
       modal((close) => {
         const limit = h("input", { id: "admin-limit", type: "number", min: 1, step: 1, required: true, value: settings.max_concurrent_profiles });
@@ -150,6 +172,21 @@ export function createPanel(ctx, info) {
         const createName = h("input", { id: "admin-username", autocomplete: "off", required: true });
         const createPassword = h("input", { id: "admin-password", type: "password", autocomplete: "new-password", required: true });
         const createRole = roleSelect("admin-new-role", "user");
+        let workersPanel = null;
+        if (inventory) {
+          const workerRows = inventory.workers.map((worker) => h("div", { class: "admin-user" },
+            h("b", {}, worker.worker_id), h("span", {}, worker.state),
+            h("span", { class: "data" }, t("worker_memory", { n: Math.floor((worker.metrics?.mem_available_bytes || 0) / 1048576) })),
+            h("span", {}, t("worker_runs", { n: worker.runs.length })),
+            h("button", { class: "btn btn-line", type: "button", onclick: async () => {
+              if (!isAdmin(version)) return;
+              try {
+                await adminRequest("POST", `/workers/${encodeURIComponent(worker.worker_id)}/drain`, { draining: !worker.draining }, version);
+                if (isAdmin(version)) { close(); await openAdmin(); }
+              } catch (error) { if (isAdmin(version)) toast(error.message, true); }
+            } }, t(worker.draining ? "worker_resume" : "worker_drain"))));
+          workersPanel = h("section", {}, h("h3", {}, t("workers")), workerRows.length ? workerRows : h("p", {}, t("worker_empty")));
+        }
         return h("div", {}, modalHead(t("admin"), null, close), h("div", { class: "modal-body" },
           h("form", { onsubmit: async (event) => {
             event.preventDefault();
@@ -160,6 +197,7 @@ export function createPanel(ctx, info) {
               occupancy.textContent = t("occupancy", { n: result.occupied, limit: result.max_concurrent_profiles }); toast(t("saved"));
             } catch (error) { if (isAdmin(version)) toast(error.message, true); }
           } }, field(t("capacity"), limit, t("capacity_hint")), occupancy, h("button", { class: "btn btn-act" }, t("save"))),
+          workersPanel,
           h("h3", {}, t("users")), h("div", { class: "admin-users" }, roster.users.map((entry) => userRow(entry, close))),
           h("form", { onsubmit: async (event) => {
             event.preventDefault();

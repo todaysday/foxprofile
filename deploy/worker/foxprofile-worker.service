@@ -1,0 +1,35 @@
+[Unit]
+Description=FoxProfile browser execution Worker
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=all
+User=foxprofile
+Group=foxprofile
+EnvironmentFile=/etc/foxprofile-worker/worker.env
+LoadCredential=worker-token:/etc/foxprofile-worker/worker-token
+StateDirectory=foxprofile-worker
+StateDirectoryMode=0700
+ExecStart=/opt/foxprofile/.venv/bin/python -m foxprofile_ext.workers.agent
+Restart=on-failure
+RestartSec=2s
+KillMode=control-group
+KillSignal=SIGTERM
+TimeoutStopSec=70s
+SendSIGKILL=yes
+WatchdogSec=90s
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

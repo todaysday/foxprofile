@@ -39,6 +39,14 @@ def domain_http_error(error: DomainError) -> HTTPException:
         ErrorCode.STALE_BROWSER_RUN: 409,
         ErrorCode.MANUAL_SESSION_CLOSED: 410,
         ErrorCode.RUNTIME_RECOVERING: 503,
+        ErrorCode.NO_WORKER_MEMORY: 409,
+        ErrorCode.WORKER_UNAVAILABLE: 503,
+        ErrorCode.RUNTIME_INCOMPATIBLE: 409,
+        ErrorCode.TRANSFER_INVALID: 422,
+        ErrorCode.TRANSFER_CONFLICT: 409,
+        ErrorCode.RUN_UNCERTAIN: 409,
+        ErrorCode.SYNC_FAILED: 503,
+        ErrorCode.STALE_RUN: 409,
     }[error.code]
     detail = {"code": error.code.value, "message": error.message}
     if isinstance(error, ProfileCapacityExceeded):

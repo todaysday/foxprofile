@@ -197,6 +197,16 @@ class Container:
         """Build temporary manual access only when its first request arrives."""
         return self._get("manual", self._extension_services.manual_gateway_factory)
 
+    @property
+    def worker_coordinator(self):
+        """Private infrastructure seam; HTTP callers authorize before using it."""
+        _ = self._extension_services
+        if not hasattr(self.__run_coordinator, "workers"):
+            from foxprofile_ext.errors import DomainError, ErrorCode
+
+            raise DomainError(ErrorCode.WORKER_UNAVAILABLE)
+        return self.__run_coordinator
+
     def profile_manager_adapter(self):
         services = self._extension_services
         return _PrincipalScopedAdapter(

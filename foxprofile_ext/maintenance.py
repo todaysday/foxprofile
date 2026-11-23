@@ -136,7 +136,7 @@ def _assert_closed(database: Path) -> None:
             and not connection.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone()
         ):
             return  # An interrupted first migration rolled back all schema DDL.
-        if version not in range(1, 6):
+        if version not in range(1, 7):
             raise MaintenanceError("unsupported extension schema")
         checks = []
         if version >= 3:

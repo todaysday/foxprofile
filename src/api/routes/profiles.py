@@ -126,6 +126,7 @@ def list_profiles(
                         "state": profile.state,
                         "is_running": profile.is_running,
                         "fingerprint": profile.fingerprint,
+                        "execution_location": profile.execution_location,
                     }
                     for profile in profiles
                 ],

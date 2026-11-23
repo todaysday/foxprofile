@@ -419,6 +419,72 @@ def test_recovery_lifecycle_state_refreshes_card_with_unchanged_run_status(deskt
     assert get_string("personal_state_recovering").upper() in texts
 
 
+@pytest.mark.parametrize(
+    ("state", "label"),
+    [
+        ("transferring", "personal_state_transferring"),
+        ("syncing", "personal_state_syncing"),
+        ("uncertain", "personal_state_uncertain"),
+    ],
+)
+def test_distributed_profile_state_shows_worker_and_keeps_safe_actions_locked(
+    desktop, state, label
+):
+    from dataclasses import replace
+
+    instance, page, _ = desktop
+    login(instance, page)
+    binding = instance.personal.session.binding
+    original_list = binding.application.list_profiles
+    binding.application.list_profiles = lambda actor: tuple(
+        replace(item, state=state, is_running=True, execution_location="remote")
+        for item in original_list(actor)
+    )
+
+    instance._refresh_profiles()
+
+    row = instance.refs.profile_list_area.controls[0]
+    texts = [control.value for control in controls(row) if isinstance(control, ft.Text)]
+    assert get_string(label).upper() in texts
+    assert get_string("personal_location_remote") in texts
+    assert get_string("stop") in [
+        control.content for control in controls(row) if isinstance(control, ft.Button)
+    ]
+    assert not button(row, get_string("stop")).disabled
+    icon_buttons = [control for control in controls(row) if isinstance(control, ft.IconButton)]
+    cookies, edit, delete = icon_buttons
+    assert cookies.disabled
+    assert edit.disabled
+    assert delete.disabled
+    assert not any(value in str(texts) for value in ("worker-id", "host-name", "12345"))
+
+
+def test_unsaved_remote_session_warns_without_marking_profile_occupied(desktop, monkeypatch):
+    from dataclasses import replace
+
+    instance, page, _ = desktop
+    login(instance, page)
+    binding = instance.personal.session.binding
+    original_list = binding.application.list_profiles
+    binding.application.list_profiles = lambda actor: tuple(
+        replace(item, state="unsaved", is_running=False, execution_location="remote")
+        for item in original_list(actor)
+    )
+
+    instance._refresh_profiles()
+
+    row = instance.refs.profile_list_area.controls[0]
+    assert instance.personal.run_snapshot() == set()
+    texts = [control.value for control in controls(row) if isinstance(control, ft.Text)]
+    assert get_string("personal_state_unsaved").upper() in texts
+    assert get_string("personal_location_remote") in texts
+    assert not button(row, get_string("launch")).disabled
+    assert not any(
+        isinstance(control, ft.Button) and control.content == get_string("stop")
+        for control in controls(row)
+    )
+
+
 def test_external_run_clears_failed_profile_id(desktop, monkeypatch):
     from foxprofile_ext.dto import ProcessIdentity
     from foxprofile_ext.run_contracts import RunLaunchResult

@@ -88,3 +88,11 @@ Initial implementation evidence: `openspec/changes/add-distributed-browser-worke
 - [ ] Test real network partition, main-agent SIGKILL, Master restart, Worker reboot, unavailable helper proof, verified host fence and abnormal unsaved sessions on isolated two-host fixtures; prove no duplicate live profile and measure actual watchdog/cleanup deadlines.
 - [ ] Measure 1/5/10-browser RAM/RSS and safe headroom on intended Ubuntu 24.04 hosts; pin each architecture's renderer/backend/fonts/Xvfb/engine equivalence. Same OS alone does not establish browser-visible identity equivalence.
 - [ ] Verify service/secret ownership, staging-disk limits, matched Master database/catalog/profile backup and restore, rotation, drain, removal and recovery. Retain isolated data on unavailable/rebooted Workers until exact terminal reconciliation or independently verified host cleanup; never auto-merge orphaned data. Previous change slice 09 remains independently open.
+
+
+## Upstream 2.4.1 integration (2026-11-23)
+
+- [x] Merge `chienbm98/foxprofile:main` at `8b5c49dca4b18c13cb6989654daa86e849459bc9`, preserve fork changes and upstream ancestry, resolve changelog/development dependency conflicts, and complete offline compatibility checks. Evidence: `openspec/changes/add-distributed-browser-workers/references/upstream-update-2.4.1.md`.
+- [ ] Lock the merged source, matching 2.4.1 wheel/sdist hashes and publish to the existing user-authorized feature branch. Keep prior source/artifact receipts historical.
+
+Native deployment, supported-host and two-host acceptance remain covered by the existing open items above; this source update does not close them.

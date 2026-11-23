@@ -27,6 +27,14 @@
 - Subsequent fork review source `2e42a93`: 1110 offline tests passed with native X and isolated Chromium, 24 actual-engine cases deselected; live acceptance remains open. / Source `2e42a93` sau review fork: 1110 kiểm thử offline đạt với native X và Chromium isolated, 24 case engine thực bị deselect; live acceptance vẫn chưa hoàn tất.
 - Exact d20bf66 passed the native-enabled full offline suite (1049 passed, 24 deselected, zero skips/failures); distributions and all 92 retained dependency wheels passed isolated/offline installation checks. Independent UI review is closed and a separate deployment agent has verified and accepted the offline handoff. At that historical checkpoint, real browser/host acceptance was NOT RUN; later bounded results are recorded above and full live acceptance remains open. Slice 09 belongs to a separate deployment agent; this change is not archived. / d20bf66 đã đạt full offline suite có native fixture (1049 passed, 24 deselected, không skip/fail); distribution và 92 dependency wheel lưu giữ đã qua kiểm tra cài đặt isolated/offline. UI review độc lập đã đóng; agent triển khai riêng đã xác minh và nhận handoff offline. Tại checkpoint lịch sử đó, live acceptance và đo tài nguyên trên ARM64/x86-64 chưa chạy; kết quả giới hạn mới hơn được ghi ở trên; agent triển khai riêng phụ trách slice 09, chưa archive change.
 
+## [2.4.1] - 2026-11-18
+
+### Sửa
+- CI: kiểm tra timezone của Chrome engine không còn báo sai khi hệ điều hành dùng tz database mới (Linux gần đây đã bỏ các tên cũ như `Asia/Saigon`, `Asia/Calcutta`, `Europe/Kiev`). Các tên cũ được quy về tên chuẩn trước khi so sánh, không còn phụ thuộc hệ thống còn giữ tên cũ hay không.
+
+### Phụ thuộc
+- Nâng `camoufox` lên `>=0.5.9`, `tzdata` lên `>=2026.6`; `flet` lên `>=1.1.2` (đã chạy thử app desktop với bản mới). Dev: `pytest` `>=9.2.0`, `ruff` `>=0.17.4`.
+
 ## [2.4.0] - 2026-10-30
 
 ### Thay đổi

@@ -27,7 +27,20 @@ The hook register retains its original audited baseline; `merged_upstream` recor
 
 The full run is the definitive test count; overlapping focused runs are not summed. Independent read-only review compared the incoming AST changes, checked all 15 timezone alias targets and verified installed dependency versions. Code Simplifier found no refactor warranted. No extension contract or behavior change was necessary.
 
-This merge checkpoint is the input for a fresh 2.4.1 wheel/sdist build. Exact source and artifact hashes are recorded in the following evidence-only commit; the old artifact hashes retain their historical attribution.
+Final locked-metadata and distribution selection: **39 passed, 3 warnings in 41.56s**; log SHA-256 `18d872b4b8a5f27b39e2bc7c8911007bd1f3e8ff240d8d8dd4d6d91c7384aec0`. This gate also verifies the sdist rebuild and isolated installed resources.
+
+## Locked source and distributions
+
+Source merge: [`3fc7d3e06be2cff59b229d348fe42920eae39c09`](https://github.com/todaysday/foxprofile/commit/3fc7d3e06be2cff59b229d348fe42920eae39c09), tree `0b5be382e7789e9f59ed614cc692bf2f4f9008a3`. Its first parent is the prior fork head and its second parent is the incorporated upstream commit; ancestry is preserved.
+
+Built from a fresh Git archive with `SOURCE_DATE_EPOCH=1795433125`. All 239 runtime files match the source in wheel, sdist and isolated installation, with artifact allowlists checked.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `foxprofile-2.4.1-py3-none-any.whl` | `a027fe4d82b8cf5138f3194aae7a17cc30693af41eafebaec26d6fef2e8bffca` |
+| `foxprofile-2.4.1.tar.gz` | `80c8bbc8da24cccf3f065a3ee14d910e2af5f1dcf7994d10108e3189602d834d` |
+
+The evidence-only commit following this source checkpoint records the hashes and final packaging check. It changes packaged `compatibility.json`, so these hashes identify the stated source artifacts; later branch-tip rebuilds are separate. Executable code and tests are unchanged by the evidence commit.
 
 ## Limits
 

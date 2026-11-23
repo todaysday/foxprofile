@@ -93,6 +93,6 @@ Initial implementation evidence: `openspec/changes/add-distributed-browser-worke
 ## Upstream 2.4.1 integration (2026-11-23)
 
 - [x] Merge `chienbm98/foxprofile:main` at `8b5c49dca4b18c13cb6989654daa86e849459bc9`, preserve fork changes and upstream ancestry, resolve changelog/development dependency conflicts, and complete offline compatibility checks. Evidence: `openspec/changes/add-distributed-browser-workers/references/upstream-update-2.4.1.md`.
-- [ ] Lock the merged source, matching 2.4.1 wheel/sdist hashes and publish to the existing user-authorized feature branch. Keep prior source/artifact receipts historical.
+- [x] Lock merged source `3fc7d3e06be2cff59b229d348fe42920eae39c09`, matching 2.4.1 wheel/sdist hashes and publish to the existing user-authorized feature branch. Keep prior source/artifact receipts historical.
 
 Native deployment, supported-host and two-host acceptance remain covered by the existing open items above; this source update does not close them.

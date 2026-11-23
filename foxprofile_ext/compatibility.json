@@ -6,9 +6,9 @@
     "scope": "Stable source-audited hook baseline. merged_upstream identifies the incorporated upstream release."
   },
   "candidate": {
-    "commit": null,
-    "status": "uncommitted-draft",
-    "note": "Validated upstream 2.4.1 merge source. Exact source checkpoint and matching distributions are locked in the following evidence-only commit; earlier 2.4.0 artifacts remain historical."
+    "commit": "3fc7d3e06be2cff59b229d348fe42920eae39c09",
+    "status": "locked",
+    "note": "Immutable upstream 2.4.1 merge source. Subsequent evidence-only metadata does not change executable or test source. Native deployment acceptance remains open."
   },
   "schema": {
     "version": 6,
@@ -51,9 +51,19 @@
       {
         "command": "git diff --check",
         "result": "PASS"
+      },
+      {
+        "command": "Build from exact git archive and install into an isolated target",
+        "result": "PASS: 2.4.1 wheel/sdist allowlists; 239 runtime payload files match source bytes in both artifacts and isolated installation"
+      },
+      {
+        "command": "python -m pytest -q tests/test_ext_compatibility_gate.py tests/test_ext_compatibility.py tests/test_ext_packaging.py",
+        "result": "39 passed, 3 warnings in 41.56s",
+        "log_sha256": "18d872b4b8a5f27b39e2bc7c8911007bd1f3e8ff240d8d8dd4d6d91c7384aec0"
       }
     ],
-    "limits": "64 prerequisite skips: 44 Chromium DOM/module and 20 native/confinement cases; 24 actual Chromium-engine cases deselected. No deployment or two-host acceptance established."
+    "limits": "64 prerequisite skips: 44 Chromium DOM/module and 20 native/confinement cases; 24 actual Chromium-engine cases deselected. No deployment or two-host acceptance established.",
+    "runtime_source_checkpoint": "3fc7d3e06be2cff59b229d348fe42920eae39c09"
   },
   "live_evidence": {
     "status": "NOT RUN for the 2.4.1 merge candidate; earlier native receipts remain historical. Deployed two-host acceptance remains open.",
@@ -5510,14 +5520,21 @@
     }
   },
   "release_inputs": {
-    "status": "Pending distribution build from the validated 2.4.1 merge source checkpoint",
-    "runtime_source_revision": null,
-    "wheel_sha256": null,
-    "sdist_sha256": null,
+    "status": "Verified artifacts from exact upstream 2.4.1 merge source; final evidence metadata is separate",
+    "runtime_source_revision": "3fc7d3e06be2cff59b229d348fe42920eae39c09",
+    "wheel_sha256": "a027fe4d82b8cf5138f3194aae7a17cc30693af41eafebaec26d6fef2e8bffca",
+    "sdist_sha256": "80c8bbc8da24cccf3f065a3ee14d910e2af5f1dcf7994d10108e3189602d834d",
     "dependency_report": "deploy/extension/dependencies-review-py312-linux.txt",
     "dependency_report_sha256": "6c8ecc19d7dff777ab69f0296ae68b351ddf1402400e81b7c4d1cf16e5dd2288",
     "dependency_report_scope": "Observed Linux x86_64 Python 3.12.14 review environment, including inherited build/test tools. Installed package versions; direct-source locations are omitted. This is not a production-only dependency or artifact lock.",
-    "note": "Installed package versions already satisfy the incoming upstream floors. Historical 2.4.0 artifact hashes remain under historical_evidence and do not describe this 2.4.1 candidate."
+    "note": "These hashes identify the source-checkpoint artifacts. The subsequent evidence commit changes packaged compatibility.json and is a distinct artifact input. Older 2.4.0 receipts remain historical.",
+    "runtime_source_tree": "0b5be382e7789e9f59ed614cc692bf2f4f9008a3",
+    "wheel_filename": "foxprofile-2.4.1-py3-none-any.whl",
+    "sdist_filename": "foxprofile-2.4.1.tar.gz",
+    "source_date_epoch": 1795433125,
+    "runtime_payload_files": 239,
+    "artifact_verification": "Wheel, sdist and isolated installed runtime bytes match the exact source archive.",
+    "post_lock_verification": "39 passed, 3 warnings in 41.56s; locked metadata, distribution allowlists, sdist rebuild and isolated installed payload verified. Later metadata-build artifacts are distinct from the source-checkpoint hashes above."
   },
   "historical_evidence": [
     {
